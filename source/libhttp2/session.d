@@ -11,11 +11,12 @@ module libhttp2.session;
 
 import libhttp2.types;
 import libhttp2.frame;
+import libhttp2.stream;
 
 import memutils.circularbuffer;
 import memutils.vector;
 
-alias HTTP2Session = RefCounted!Session;
+alias Session = RefCounted!SessionImpl;
 
 //http2_optmask
 enum Options {
@@ -128,13 +129,13 @@ enum GoAwayFlags {
 //http2_update_window_size_arg
 /// Struct used when updating initial window size of each active stream.
 struct UpdateWindowSizeArgs{
-    HTTP2Session session;
+    Session session;
     int new_window_size, old_window_size;
 }
 
 //http2_close_stream_on_goaway_arg
 struct CloseStreamOnGoAwayArgs {
-    HTTP2Session session;
+    Session session;
 
     /// linked list of streams to close
     Stream head;
@@ -146,7 +147,7 @@ struct CloseStreamOnGoAwayArgs {
     int incoming;
 }
 
-class Session {
+class SessionImpl {
     nghttp2_map /* <nghttp2_stream*> */ streams;
     nghttp2_stream_roots roots;
 

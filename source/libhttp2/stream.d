@@ -27,17 +27,76 @@ module libhttp2.stream;
 import libhttp2.constants;
 import libhttp2.types;
 import libhttp2.frame;
+import std.algorithm : max;
 
-class StreamRoots {
-    Stream head;    
-    int num_streams;
+alias StreamRoots = RefCounted!StreamRootsImpl;
+class StreamRootsImpl {
+    void http2_stream_roots_init(http2_stream_roots *roots) {
+        roots.head = null;
+        roots.num_streams = 0;
+    }
+    
+    void http2_stream_roots_free(http2_stream_roots *roots) {}
+    
+    void http2_stream_roots_add(http2_stream_roots *roots) {
+        if (roots.head) {
+            m_root_next = roots.head;
+            roots.head.root_prev = this;
+        }
+        
+        roots.head = this;
+    }
+    
+    void http2_stream_roots_remove(http2_stream_roots *roots) 
+    {
+        Stream root_prev, root_next;
+        
+        root_prev = m_root_prev;
+        root_next = m_root_next;
+        
+        if (root_prev) {
+            root_prev.root_next = root_next;
+            
+            if (root_next) {
+                root_next.root_prev = root_prev;
+            }
+        } else {
+            if (root_next) {
+                root_next.root_prev = null;
+            }
+            
+            roots.head = root_next;
+        }
+        
+        m_root_prev = null;
+        m_root_next = null;
+    }
+    
+    void http2_stream_roots_remove_all() {
+        Stream si, next;
+        
+        for (si = m_head; si;) {
+            next = si.root_next;
+            
+            destroy(si.root_prev);
+            destroy(si.root_next);
+            
+            si = next;
+        }
+        
+        destroy(m_head);
+    }
+
+private:
+    Stream m_head;    
+    int m_num_streams;
 };
 
 alias Stream = RefCounted!StreamImpl;
 
 class StreamImpl {
 
-    this(http2_stream *stream, int stream_id,
+    this(int stream_id,
         ubyte flags, http2_stream_state initial_state,
         int weight, http2_stream_roots *roots,
         int remote_initial_window_size,
@@ -49,20 +108,20 @@ class StreamImpl {
         m_state = initial_state;
         m_shut_flags = HTTP2_SHUT_NONE;
         m_stream_user_data = stream_user_data;
-        m_item = NULL;
+        m_item = null;
         m_remote_window_size = remote_initial_window_size;
         m_local_window_size = local_initial_window_size;
         m_recv_window_size = 0;
         m_consumed_size = 0;
         m_recv_reduction = 0;
         
-        m_dep_prev = NULL;
-        m_dep_next = NULL;
-        m_sib_prev = NULL;
-        m_sib_next = NULL;
+        m_dep_prev = null;
+        m_dep_next = null;
+        m_sib_prev = null;
+        m_sib_next = null;
         
-        m_closed_prev = NULL;
-        m_closed_next = NULL;
+        m_closed_prev = null;
+        m_closed_next = null;
         
         m_dpri = HTTP2_STREAM_DPRI_NO_ITEM;
         m_num_substreams = 1;
@@ -73,8 +132,8 @@ class StreamImpl {
         m_sum_top_weight = 0;
         
         m_roots = roots;
-        m_root_prev = NULL;
-        m_root_next = NULL;
+        m_root_prev = null;
+        m_root_next = null;
         
         m_http_flags = HTTP2_HTTP_FLAG_NONE;
         m_content_length = -1;
@@ -84,13 +143,13 @@ class StreamImpl {
     
     /*
      * Disallow either further receptions or transmissions, or both.
-     * |flag| is bitwise OR of one or more of nghttp2_shut_flag.
+     * |flag| is bitwise OR of one or more of ShutdownFlag.
      */
-    void http2_stream_shutdown(http2_stream *stream, http2_shut_flag flag) {
+    void http2_stream_shutdown( ShutdownFlag flag) {
         m_shut_flags |= flag;
     }
     
-    static int stream_push_item(http2_stream *stream, http2_session *session) {
+    static int stream_push_item( http2_session *session) {
         int rv;
         http2_outbound_item *item;
         
@@ -136,22 +195,24 @@ class StreamImpl {
         return 0;
     }
     
-    static http2_stream *stream_first_sib(http2_stream *stream) {
+    Stream stream_first_sib(Stream stream) 
+    {
         for (; m_sib_prev; stream = m_sib_prev)
             ;
         
         return stream;
     }
     
-    static http2_stream *stream_last_sib(http2_stream *stream) {
+    Stream stream_last_sib(Stream stream) 
+    {
         for (; m_sib_next; stream = m_sib_next)
             ;
         
         return stream;
     }
     
-    static http2_stream *stream_update_dep_length(http2_stream *stream,
-        size_t delta) {
+    Stream stream_update_dep_length(Stream stream, size_t delta) 
+    {
         m_num_substreams += delta;
         
         stream = stream_first_sib(stream);
@@ -164,16 +225,15 @@ class StreamImpl {
     }
     
     /*
- * Computes distributed weight of a stream of the |weight| under the
- * |stream| if |stream| is removed from a dependency tree.  The result
- * is computed using m_weight rather than
- * m_effective_weight.
- */
-    int http2_stream_dep_distributed_weight(http2_stream *stream,
-        int weight) {
+     * Computes distributed weight of a stream of the |weight| under the
+     * |stream| if |stream| is removed from a dependency tree.  The result
+     * is computed using m_weight rather than
+     * m_effective_weight.
+     */
+    int http2_stream_dep_distributed_weight(int weight) {
         weight = m_weight * weight / m_sum_dep_weight;
         
-        return http2_max(1, weight);
+        return max(1, weight);
     }
     
     /*
@@ -182,7 +242,7 @@ class StreamImpl {
  * rather than m_weight.  This function is used to determine
  * weight in dependency tree.
  */
-    int http2_stream_dep_distributed_effective_weight(http2_stream *stream,
+    int http2_stream_dep_distributed_effective_weight(
         int weight) {
         if (m_sum_norest_weight == 0) {
             return m_effective_weight;
@@ -190,12 +250,10 @@ class StreamImpl {
         
         weight = m_effective_weight * weight / m_sum_norest_weight;
         
-        return http2_max(1, weight);
+        return max(1, weight);
     }
     
-    static int
-        stream_dep_distributed_top_effective_weight(http2_stream *stream,
-        int weight) {
+    static int stream_dep_distributed_top_effective_weight(int weight) {
         if (m_sum_top_weight == 0) {
             return m_effective_weight;
         }
@@ -271,7 +329,7 @@ class StreamImpl {
     }
     
     static void stream_update_dep_set_rest(http2_stream *stream) {
-        if (stream == NULL) {
+        if (stream == null) {
             return;
         }
         
@@ -328,7 +386,7 @@ class StreamImpl {
  * HTTP2_ERR_NOMEM
  *     Out of memory.
  */
-    static int stream_update_dep_queue_top(http2_stream *stream,
+    static int stream_update_dep_queue_top(
         http2_session *session) {
         int rv;
         http2_stream *si;
@@ -407,7 +465,7 @@ class StreamImpl {
         return rv;
     }
     
-    static int stream_update_dep_on_attach_item(http2_stream *stream,
+    static int stream_update_dep_on_attach_item(
         http2_session *session) {
         http2_stream *root_stream;
         
@@ -427,7 +485,7 @@ class StreamImpl {
         return stream_update_dep_queue_top(root_stream, session);
     }
     
-    static int stream_update_dep_on_detach_item(http2_stream *stream,
+    static int stream_update_dep_on_detach_item(
         http2_session *session) {
         http2_stream *root_stream;
         
@@ -453,11 +511,11 @@ class StreamImpl {
  * NGHTTP2_ERR_NOMEM
  *     Out of memory
  */
-    int http2_stream_attach_item(http2_stream *stream,
+    int http2_stream_attach_item(
         http2_outbound_item *item,
         http2_session *session) {
         assert((m_flags & HTTP2_STREAM_FLAG_DEFERRED_ALL) == 0);
-        assert(m_item == NULL);
+        assert(m_item == null);
         
         DEBUGF(fprintf(stderr, "stream: stream=%d attach item=%p\n",
                 m_stream_id, item));
@@ -478,12 +536,12 @@ class StreamImpl {
  * NGHTTP2_ERR_NOMEM
  *     Out of memory
  */
-    int http2_stream_detach_item(http2_stream *stream,
+    int http2_stream_detach_item(
         http2_session *session) {
         DEBUGF(fprintf(stderr, "stream: stream=%d detach item=%p\n",
                 m_stream_id, m_item));
         
-        m_item = NULL;
+        m_item = null;
         m_flags &= ~HTTP2_STREAM_FLAG_DEFERRED_ALL;
         
         return stream_update_dep_on_detach_item(stream, session);
@@ -491,7 +549,7 @@ class StreamImpl {
     
     /*
  * Defer |m_item|.  We won't call this function in the situation
- * where |m_item| == NULL.  The |flags| is bitwise OR of zero or
+ * where |m_item| == null.  The |flags| is bitwise OR of zero or
  * more of NGHTTP2_STREAM_FLAG_DEFERRED_USER and
  * NGHTTP2_STREAM_FLAG_DEFERRED_FLOW_CONTROL.  The |flags| indicates
  * the reason of this action.
@@ -502,7 +560,7 @@ class StreamImpl {
  * NGHTTP2_ERR_NOMEM
  *     Out of memory
  */
-    int http2_stream_defer_item(http2_stream *stream, ubyte flags,
+    int http2_stream_defer_item( ubyte flags,
         http2_session *session) {
         assert(m_item);
         
@@ -522,7 +580,7 @@ class StreamImpl {
  * cleared if they are set.  So even if this function is called, if
  * one of flag is still set, data does not become active.
  */
-    int http2_stream_resume_deferred_item(http2_stream *stream, ubyte flags,
+    int http2_stream_resume_deferred_item( ubyte flags,
         http2_session *session) {
         assert(m_item);
         
@@ -575,7 +633,7 @@ class StreamImpl {
  * overflow.
  */
     int http2_stream_update_remote_initial_window_size(
-        http2_stream *stream, int new_initial_window_size,
+         int new_initial_window_size,
         int old_initial_window_size) {
         return update_initial_window_size(&m_remote_window_size,
             new_initial_window_size,
@@ -591,7 +649,7 @@ class StreamImpl {
  * overflow.
  */
     int http2_stream_update_local_initial_window_size(
-        http2_stream *stream, int new_initial_window_size,
+         int new_initial_window_size,
         int old_initial_window_size) {
         return update_initial_window_size(&m_local_window_size,
             new_initial_window_size,
@@ -599,20 +657,20 @@ class StreamImpl {
     }
     
     /*
- * Call this function if promised stream |stream| is replied with
- * HEADERS.  This function makes the state of the |stream| to
- * NGHTTP2_STREAM_OPENED.
- */
+     * Call this function if promised stream |stream| is replied with
+     * HEADERS.  This function makes the state of the |stream| to
+     * NGHTTP2_STREAM_OPENED.
+     */
     void http2_stream_promise_fulfilled(http2_stream *stream) {
         m_state = HTTP2_STREAM_OPENED;
         m_flags &= ~HTTP2_STREAM_FLAG_PUSH;
     }
     
     /*
- * Returns the stream positioned in root of the dependency tree the
- * |stream| belongs to.
- */
-    http2_stream *http2_stream_get_dep_root(http2_stream *stream) {
+     * Returns the stream positioned in root of the dependency tree the
+     * |stream| belongs to.
+     */
+    Stream http2_stream_get_dep_root(Stream stream) {
         for (;;) {
             if (m_sib_prev) {
                 stream = m_sib_prev;
@@ -633,11 +691,10 @@ class StreamImpl {
     }
     
     /*
- * Returns nonzero if |target| is found in subtree of |stream|.
- */
-    int http2_stream_dep_subtree_find(http2_stream *stream,
-        http2_stream *target) {
-        if (stream == NULL) {
+     * Returns nonzero if |target| is found in subtree of |stream|.
+     */
+    int http2_stream_dep_subtree_find(Stream target) {
+        if (stream == null) {
             return 0;
         }
         
@@ -653,18 +710,17 @@ class StreamImpl {
     }
     
     /*
- * Makes the |stream| depend on the |dep_stream|.  This dependency is
- * exclusive.  All existing direct descendants of |dep_stream| become
- * the descendants of the |stream|.  This function assumes
- * |m_data| is NULL and no dpri members are changed in this
- * dependency tree.
- */
-    void http2_stream_dep_insert(http2_stream *dep_stream,
-        http2_stream *stream) {
-        http2_stream *si;
-        http2_stream *root_stream;
+     * Makes the |stream| depend on the |dep_stream|.  This dependency is
+     * exclusive.  All existing direct descendants of |dep_stream| become
+     * the descendants of the |stream|.  This function assumes
+     * |m_data| is null and no dpri members are changed in this
+     * dependency tree.
+     */
+    void http2_stream_dep_insert(Stream dep_stream) {
+        Stream si;
+        Stream root_stream;
         
-        assert(m_item == NULL);
+        assert(m_item == null);
         
         DEBUGF(fprintf(stderr,
                 "stream: dep_insert dep_stream(%p)=%d, stream(%p)=%d\n",
@@ -693,33 +749,32 @@ class StreamImpl {
         ++m_roots.num_streams;
     }
     
-    static void link_dep(http2_stream *dep_stream, http2_stream *stream) {
+    static void link_dep(Stream dep_stream, Stream stream) {
         dep_stream.dep_next = stream;
         m_dep_prev = dep_stream;
     }
     
-    static void link_sib(http2_stream *prev_stream, http2_stream *stream) {
+    static void link_sib(Stream prev_stream, Stream stream) {
         prev_stream.sib_next = stream;
         m_sib_prev = prev_stream;
     }
     
-    static void insert_link_dep(http2_stream *dep_stream,
-        http2_stream *stream) {
+    static void insert_link_dep(Stream dep_stream, Stream stream) {
         http2_stream *sib_next;
         
-        assert(m_sib_prev == NULL);
+        assert(m_sib_prev == null);
         
         sib_next = dep_stream.dep_next;
         
         link_sib(stream, sib_next);
         
-        sib_next.dep_prev = NULL;
+        sib_next.dep_prev = null;
         
         link_dep(dep_stream, stream);
     }
     
-    static void unlink_sib(http2_stream *stream) {
-        http2_stream *prev, *next, *dep_next;
+    void unlink_sib() {
+        Stream prev, *next, *dep_next;
         
         prev = m_sib_prev;
         dep_next = m_dep_next;
@@ -728,11 +783,11 @@ class StreamImpl {
         
         if (dep_next) {
             /*
-     *  prev--stream(--sib_next--...)
-     *         |
-     *        dep_next
-     */
-            dep_next.dep_prev = NULL;
+             *  prev--stream(--sib_next--...)
+             *         |
+             *        dep_next
+             */
+            dep_next.dep_prev = null;
             
             link_sib(prev, dep_next);
             
@@ -741,8 +796,8 @@ class StreamImpl {
             }
         } else {
             /*
-     *  prev--stream(--sib_next--...)
-     */
+             *  prev--stream(--sib_next--...)
+             */
             next = m_sib_next;
             
             prev.sib_next = next;
@@ -753,8 +808,8 @@ class StreamImpl {
         }
     }
     
-    static void unlink_dep(http2_stream *stream) {
-        http2_stream *prev, *next, *dep_next;
+    static void unlink_dep() {
+        Stream prev, next, dep_next;
         
         prev = m_dep_prev;
         dep_next = m_dep_next;
@@ -763,12 +818,12 @@ class StreamImpl {
         
         if (dep_next) {
             /*
-     * prev
-     *   |
-     * stream(--sib_next--...)
-     *   |
-     * dep_next
-     */
+             * prev
+             *   |
+             * stream(--sib_next--...)
+             *   |
+             * dep_next
+             */
             link_dep(prev, dep_next);
             
             if (m_sib_next) {
@@ -776,30 +831,29 @@ class StreamImpl {
             }
         } else if (m_sib_next) {
             /*
-     * prev
-     *   |
-     * stream--sib_next
-     */
+             * prev
+             *   |
+             * stream--sib_next
+             */
             next = m_sib_next;
             
-            next.sib_prev = NULL;
+            next.sib_prev = null;
             
             link_dep(prev, next);
         } else {
-            prev.dep_next = NULL;
+            prev.dep_next = null;
         }
     }
     
     /*
- * Makes the |stream| depend on the |dep_stream|.  This dependency is
- * not exclusive.  This function assumes |m_data| is NULL and no
- * dpri members are changed in this dependency tree.
- */
-    void http2_stream_dep_add(http2_stream *dep_stream,
-        http2_stream *stream) {
-        http2_stream *root_stream;
+     * Makes the |stream| depend on the |dep_stream|.  This dependency is
+     * not exclusive.  This function assumes |m_data| is null and no
+     * dpri members are changed in this dependency tree.
+     */
+    void http2_stream_dep_add(Stream dep_stream) {
+        Stream root_stream;
         
-        assert(m_item == NULL);
+        assert(m_item == null);
         
         DEBUGF(fprintf(stderr, "stream: dep_add dep_stream(%p)=%d, stream(%p)=%d\n",
                 dep_stream, dep_stream.stream_id, stream, m_stream_id));
@@ -808,7 +862,7 @@ class StreamImpl {
         
         dep_stream.sum_dep_weight += m_weight;
         
-        if (dep_stream.dep_next == NULL) {
+        if (dep_stream.dep_next == null) {
             link_dep(dep_stream, stream);
         } else {
             insert_link_dep(dep_stream, stream);
@@ -821,14 +875,14 @@ class StreamImpl {
     }
     
     /*
- * Removes the |stream| from the current dependency tree.  This
- * function assumes |m_data| is NULL.
- */
-    void http2_stream_dep_remove(http2_stream *stream) {
-        http2_stream *prev, *next, *dep_prev, *si, *root_stream;
+     * Removes the |stream| from the current dependency tree.  This
+     * function assumes |m_data| is null.
+     */
+    void http2_stream_dep_remove(Stream stream) {
+        Stream prev, next, dep_prev, si, root_stream;
         int sum_dep_weight_delta;
         
-        root_stream = NULL;
+        root_stream = null;
         
         DEBUGF(fprintf(stderr, "stream: dep_remove stream(%p)=%d\n", stream,
                 m_stream_id));
@@ -860,14 +914,14 @@ class StreamImpl {
             http2_stream_roots_remove(m_roots, stream);
             
             /* stream is a root of tree.  Removing stream makes its
-       descendants a root of its own subtree. */
+                descendants a root of its own subtree. */
             
             for (si = m_dep_next; si;) {
                 next = si.sib_next;
                 
-                si.dep_prev = NULL;
-                si.sib_prev = NULL;
-                si.sib_next = NULL;
+                si.dep_prev = null;
+                si.sib_prev = null;
+                si.sib_next = null;
                 
                 /* We already distributed weight of |stream| to this. */
                 si.effective_weight = si.weight;
@@ -886,30 +940,28 @@ class StreamImpl {
         m_num_substreams = 1;
         m_sum_dep_weight = 0;
         
-        m_dep_prev = NULL;
-        m_dep_next = NULL;
-        m_sib_prev = NULL;
-        m_sib_next = NULL;
+        m_dep_prev = null;
+        m_dep_next = null;
+        m_sib_prev = null;
+        m_sib_next = null;
         
         --m_roots.num_streams;
     }
     
     /*
- * Makes the |stream| depend on the |dep_stream|.  This dependency is
- * exclusive.  Updates dpri members in this dependency tree.
- *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * NGHTTP2_ERR_NOMEM
- *     Out of memory
- */
-    int http2_stream_dep_insert_subtree(http2_stream *dep_stream,
-        http2_stream *stream,
-        http2_session *session) {
-        http2_stream *last_sib;
-        http2_stream *dep_next;
-        http2_stream *root_stream;
+     * Makes the |stream| depend on the |dep_stream|.  This dependency is
+     * exclusive.  Updates dpri members in this dependency tree.
+     *
+     * This function returns 0 if it succeeds, or one of the following
+     * negative error codes:
+     *
+     * NGHTTP2_ERR_NOMEM
+     *     Out of memory
+     */
+    int http2_stream_dep_insert_subtree(Stream dep_stream, Session session) {
+        Stream last_sib;
+        Stream dep_next;
+        Stream root_stream;
         size_t delta_substreams;
         
         DEBUGF(fprintf(stderr, "stream: dep_insert_subtree dep_stream(%p)=%d "
@@ -938,7 +990,7 @@ class StreamImpl {
                 
                 link_sib(last_sib, dep_next);
                 
-                dep_next.dep_prev = NULL;
+                dep_next.dep_prev = null;
             } else {
                 link_dep(stream, dep_next);
             }
@@ -961,19 +1013,17 @@ class StreamImpl {
     
     
     /*
- * Makes the |stream| depend on the |dep_stream|.  This dependency is
- * not exclusive.  Updates dpri members in this dependency tree.
- *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * NGHTTP2_ERR_NOMEM
- *     Out of memory
- */
-    int http2_stream_dep_add_subtree(http2_stream *dep_stream,
-        http2_stream *stream,
-        http2_session *session) {
-        http2_stream *root_stream;
+     * Makes the |stream| depend on the |dep_stream|.  This dependency is
+     * not exclusive.  Updates dpri members in this dependency tree.
+     *
+     * This function returns 0 if it succeeds, or one of the following
+     * negative error codes:
+     *
+     * NGHTTP2_ERR_NOMEM
+     *     Out of memory
+     */
+    int http2_stream_dep_add_subtree(Stream dep_stream, Stream stream, Session session) {
+        Stream root_stream;
         
         DEBUGF(fprintf(stderr, "stream: dep_add_subtree dep_stream(%p)=%d "
                 "stream(%p)=%d\n",
@@ -1003,18 +1053,18 @@ class StreamImpl {
     }
     
     /*
- * Removes subtree whose root stream is |stream|.  Removing subtree
- * does not change dpri values.  The effective_weight of streams in
- * removed subtree is not updated.
- *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * NGHTTP2_ERR_NOMEM
- *     Out of memory
- */
-    void http2_stream_dep_remove_subtree(http2_stream *stream) {
-        http2_stream *prev, *next, *dep_prev, *root_stream;
+     * Removes subtree whose root stream is |stream|.  Removing subtree
+     * does not change dpri values.  The effective_weight of streams in
+     * removed subtree is not updated.
+     *
+     * This function returns 0 if it succeeds, or one of the following
+     * negative error codes:
+     *
+     * NGHTTP2_ERR_NOMEM
+     *     Out of memory
+     */
+    void http2_stream_dep_remove_subtree(Stream stream) {
+        Stream prev, next, dep_prev, root_stream;
         
         DEBUGF(fprintf(stderr, "stream: dep_remove_subtree stream(%p)=%d\n", stream,
                 m_stream_id));
@@ -1040,13 +1090,13 @@ class StreamImpl {
             if (next) {
                 next.dep_prev = dep_prev;
                 
-                next.sib_prev = NULL;
+                next.sib_prev = null;
             }
             
         } else {
             http2_stream_roots_remove(m_roots, stream);
             
-            dep_prev = NULL;
+            dep_prev = null;
         }
         
         if (dep_prev) {
@@ -1058,21 +1108,21 @@ class StreamImpl {
             stream_update_dep_effective_weight(root_stream);
         }
         
-        m_sib_prev = NULL;
-        m_sib_next = NULL;
-        m_dep_prev = NULL;
+        m_sib_prev = null;
+        m_sib_next = null;
+        m_dep_prev = null;
     }
     
     /*
- * Makes the |stream| as root.  Updates dpri members in this
- * dependency tree.
- *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * NGHTTP2_ERR_NOMEM
- *     Out of memory
- */
+     * Makes the |stream| as root.  Updates dpri members in this
+     * dependency tree.
+     *
+     * This function returns 0 if it succeeds, or one of the following
+     * negative error codes:
+     *
+     * NGHTTP2_ERR_NOMEM
+     *     Out of memory
+     */
     int http2_stream_dep_make_root(http2_stream *stream,
         http2_session *session) {
         DEBUGF(fprintf(stderr, "stream: dep_make_root stream(%p)=%d\n", stream,
@@ -1093,19 +1143,18 @@ class StreamImpl {
     }
     
     /*
- * Makes the |stream| as root and all existing root streams become
- * direct children of |stream|.
- *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * NGHTTP2_ERR_NOMEM
- *     Out of memory
- */
-    int
-        http2_stream_dep_all_your_stream_are_belong_to_us(http2_stream *stream,
-        http2_session *session) {
-        http2_stream *first, *si;
+     * Makes the |stream| as root and all existing root streams become
+     * direct children of |stream|.
+     *
+     * This function returns 0 if it succeeds, or one of the following
+     * negative error codes:
+     *
+     * NGHTTP2_ERR_NOMEM
+     *     Out of memory
+     */
+    int http2_stream_dep_all_your_stream_are_belong_to_us(Session session)
+    {
+        Stream first, *si;
         
         DEBUGF(fprintf(stderr, "stream: ALL YOUR STREAM ARE BELONG TO US "
                 "stream(%p)=%d\n",
@@ -1147,7 +1196,7 @@ class StreamImpl {
                 
                 sib_next = m_dep_next;
                 
-                sib_next.dep_prev = NULL;
+                sib_next.dep_prev = null;
                 
                 link_sib(first, sib_next);
                 link_dep(stream, prev);
@@ -1162,69 +1211,12 @@ class StreamImpl {
     }
     
     /*
- * Returns nonzero if |stream| is in any dependency tree.
- */
-    int http2_stream_in_dep_tree(http2_stream *stream) {
+     * Returns nonzero if |stream| is in any dependency tree.
+     */
+    int http2_stream_in_dep_tree() {
         return m_dep_prev || m_dep_next || m_sib_prev ||
-            m_sib_next || m_root_next || m_root_prev ||
-                m_roots.head == stream;
-    }
-    
-    void http2_stream_roots_init(http2_stream_roots *roots) {
-        roots.head = NULL;
-        roots.num_streams = 0;
-    }
-    
-    void http2_stream_roots_free(http2_stream_roots *roots _U_) {}
-    
-    void http2_stream_roots_add(http2_stream_roots *roots,
-        http2_stream *stream) {
-        if (roots.head) {
-            m_root_next = roots.head;
-            roots.head.root_prev = stream;
-        }
-        
-        roots.head = stream;
-    }
-    
-    void http2_stream_roots_remove(http2_stream_roots *roots,
-        http2_stream *stream) {
-        http2_stream *root_prev, *root_next;
-        
-        root_prev = m_root_prev;
-        root_next = m_root_next;
-        
-        if (root_prev) {
-            root_prev.root_next = root_next;
-            
-            if (root_next) {
-                root_next.root_prev = root_prev;
-            }
-        } else {
-            if (root_next) {
-                root_next.root_prev = NULL;
-            }
-            
-            roots.head = root_next;
-        }
-        
-        m_root_prev = NULL;
-        m_root_next = NULL;
-    }
-    
-    void http2_stream_roots_remove_all(http2_stream_roots *roots) {
-        http2_stream *si, *next;
-        
-        for (si = roots.head; si;) {
-            next = si.root_next;
-            
-            si.root_prev = NULL;
-            si.root_next = NULL;
-            
-            si = next;
-        }
-        
-        roots.head = NULL;
+               m_sib_next || m_root_next || m_root_prev ||
+                m_roots.head == this;
     }
 
 
@@ -1235,10 +1227,10 @@ private:
     /// Intrusive Map
     nghttp2_map_entry m_map_entry;
 
-    /// Pointers to form dependency tree.  If multiple streams depend on a stream, only one stream (left most) has non-NULL dep_prev 
+    /// Pointers to form dependency tree.  If multiple streams depend on a stream, only one stream (left most) has non-null dep_prev 
     /// which points to the stream it depends on. The remaining streams are linked using sib_prev and sib_next.  
-    /// The stream which has non-NULL dep_prev always NULL sib_prev.  The right most stream has NULL sib_next.  If this stream is
-    /// a root of dependency tree, dep_prev and sib_prev are NULL.
+    /// The stream which has non-null dep_prev always null sib_prev.  The right most stream has null sib_next.  If this stream is
+    /// a root of dependency tree, dep_prev and sib_prev are null.
     Stream m_dep_prev, m_dep_next;
     Stream m_sib_prev, m_sib_next;
 
@@ -1303,7 +1295,7 @@ private:
     /// This is bitwise-OR of 0 or more of nghttp2_stream_flag.
     StreamFlags m_flags;
 
-    /// Bitwise OR of zero or more nghttp2_shut_flag values
+    /// Bitwise OR of zero or more ShutdownFlag values
     ShutdownFlag m_shut_flags;
 
     /// Content-Length of request/response body. -1 if unknown.

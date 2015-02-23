@@ -12,8 +12,6 @@ module libhttp2.types;
 import libhttp2.constants;
 import memutils.refcounted;
 
-// alias Stream = int;
-class Stream;
 
 /// Return values used in this library.  The code range is [-999, -500], inclusive.
 enum ErrorCode : int {
@@ -484,18 +482,3 @@ union FrameUnion {
 }
 
 alias Frame = RefCounted!FrameUnion;
-
-// http2_hd_inflate_flag
-/// The flags for header inflation.
-enum InflateFlag : ubyte
-{
-    /// No flag set.
-    NONE = 0,
-
-    /// Indicates all headers were inflated.
-    FINAL = 0x01,
-
-    /// Indicates a header was emitted.
-    EMIT = 0x02
-}
-
