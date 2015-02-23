@@ -1,0 +1,11 @@
+{
+	"name": "libhttp2",
+	"description": "An HTTP/2 implementation for D.",
+	"license": "MIT",
+	"authors": ["Etienne Cimon", "Tatsuhiro Tsujikawa"],
+	"targetName": "http2",
+	"targetType": "staticLibrary",
+	"targetPath": "build",
+	"workingDirectory": "build",
+	"dependencies": { "memutils": "~master" } 
+}
