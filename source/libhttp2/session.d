@@ -19,26 +19,26 @@ import memutils.vector;
 alias Session = RefCounted!SessionImpl;
 
 //http2_optmask
-enum Options {
-    NGHTTP2_OPTMASK_NO_AUTO_WINDOW_UPDATE = 1 << 0,
-    NGHTTP2_OPTMASK_RECV_CLIENT_PREFACE = 1 << 1,
-    NGHTTP2_OPTMASK_NO_HTTP_MESSAGING = 1 << 2,
+enum OptionsMask {
+    NO_AUTO_WINDOW_UPDATE = 1 << 0,
+    RECV_CLIENT_PREFACE = 1 << 1,
+    NO_HTTP_MESSAGING = 1 << 2,
 }
 
 //http2_outbound_state
 enum OutboundState {
-    NGHTTP2_OB_POP_ITEM,
-    NGHTTP2_OB_SEND_DATA
+    POP_ITEM,
+    SEND_DATA
 }
 
 //http2_active_outbound_item
 struct ActiveOutboundItem {
     OutboundItem *item;
     Vector!(CircularBuffer!ubyte) framebufs;
-    nghttp2_outbound_state state;
+    OutboundState state;
 }
 
-/// Buffer length for inbound raw byte stream used in nghttp2_session_recv().
+/// Buffer length for inbound raw byte stream used in http2_session_recv().
 const INBOUND_BUFFER_LENGTH = 16384;
 
 //http2_inbound_state
@@ -70,7 +70,7 @@ struct InboundFrame {
     Frame frame;
     /* Storage for extension frame payload.  frame->ext.payload points
      to this structure to avoid frequent memory allocation. */
-    nghttp2_ext_frame_payload ext_frame_payload;
+    http2_ext_frame_payload ext_frame_payload;
     /* The received SETTINGS entry. The protocol says that we only cares
      about the defined settings ID. If unknown ID is received, it is
      ignored.  We use last entry to hold minimum header table size if
@@ -115,15 +115,15 @@ struct SettingsStorage {
 
 //http2_goaway_flag
 enum GoAwayFlags {
-    NGHTTP2_GOAWAY_NONE = 0,
+    NONE = 0,
     /* Flag means that connection should be terminated after sending GOAWAY. */
-    NGHTTP2_GOAWAY_TERM_ON_SEND = 0x1,
+    TERM_ON_SEND = 0x1,
     /* Flag means GOAWAY to terminate session has been sent */
-    NGHTTP2_GOAWAY_TERM_SENT = 0x2,
+    TERM_SENT = 0x2,
     /* Flag means GOAWAY was sent */
-    NGHTTP2_GOAWAY_SENT = 0x4,
+    SENT = 0x4,
     /* Flag means GOAWAY was received */
-    NGHTTP2_GOAWAY_RECV = 0x8,
+    RECV = 0x8,
 }
 
 //http2_update_window_size_arg
@@ -148,28 +148,29 @@ struct CloseStreamOnGoAwayArgs {
 }
 
 class SessionImpl {
-    nghttp2_map /* <nghttp2_stream*> */ streams;
-    nghttp2_stream_roots roots;
+private:
+    http2_map /* <http2_stream*> */ streams;
+    http2_stream_roots roots;
 
     /// Priority Queue for outbound frames other than stream-creating HEADERS and DATA
-    nghttp2_pq /* <nghttp2_outbound_item*> */ ob_pq;
+    http2_pq /* <http2_outbound_item*> */ ob_pq;
 
     /// Priority Queue for outbound stream-creating HEADERS frame
-    nghttp2_pq /* <nghttp2_outbound_item*> */ ob_ss_pq;
+    http2_pq /* <http2_outbound_item*> */ ob_ss_pq;
 
     /// Priority Queue for DATA frame 
-    nghttp2_pq /* <nghttp2_outbound_item*> */ ob_da_pq;
+    http2_pq /* <http2_outbound_item*> */ ob_da_pq;
 
     ActiveOutboundItem aob;
-    nghttp2_inbound_frame iframe;
-    nghttp2_hd_deflater hd_deflater;
-    nghttp2_hd_inflater hd_inflater;
-    nghttp2_session_callbacks callbacks;
+    http2_inbound_frame iframe;
+    http2_hd_deflater hd_deflater;
+    http2_hd_inflater hd_inflater;
+    http2_session_callbacks callbacks;
 
     /// Sequence number of outbound frame to maintain the order of enqueue if priority is equal.
     long next_seq;
 
-    /** Reset count of nghttp2_outbound_item's weight.  We decrements
+    /** Reset count of http2_outbound_item's weight.  We decrements
         weight each time DATA is sent to simulate resource sharing.  We
         use priority queue and larger weight has the precedence.  If
         weight is reached to lowest weight, it resets to its initial
@@ -202,7 +203,7 @@ class SessionImpl {
     Stream idle_stream_tail;
 
     /// In-flight SETTINGS values. NULL does not necessarily mean there is no in-flight SETTINGS. 
-    nghttp2_settings_entry *inflight_iv;
+    http2_settings_entry *inflight_iv;
 
     /// The number of entries in |inflight_iv|. -1 if there is no in-flight SETTINGS.
     size_t inflight_niv;
@@ -236,7 +237,7 @@ class SessionImpl {
     /// Notes: This value will be used as last-stream-id when sending GOAWAY frame.
     int last_proc_stream_id;
 
-    /// Counter of unique ID of PING. Wraps when it exceeds NGHTTP2_MAX_UNIQUE_ID */
+    /// Counter of unique ID of PING. Wraps when it exceeds HTTP2_MAX_UNIQUE_ID */
     uint next_unique_id;
 
     /// This is the last-stream-ID we have sent in GOAWAY
@@ -259,8 +260,8 @@ class SessionImpl {
     /// The amount of recv_window_size cut using submitting negative value to WINDOW_UPDATE
     int recv_reduction;
 
-    /// window size for local flow control. It is initially set to NGHTTP2_INITIAL_CONNECTION_WINDOW_SIZE and could be
-    /// increased/decreased by submitting WINDOW_UPDATE. See nghttp2_submit_window_update().
+    /// window size for local flow control. It is initially set to HTTP2_INITIAL_CONNECTION_WINDOW_SIZE and could be
+    /// increased/decreased by submitting WINDOW_UPDATE. See http2_submit_window_update().
     int local_window_size;
 
     /// Settings value received from the remote endpoint. We just use ID as index. The index = 0 is unused. 
@@ -269,7 +270,7 @@ class SessionImpl {
     /// Settings value of the local endpoint.
     SettingsStorage local_settings;
 
-    /// Option flags. This is bitwise-OR of 0 or more of nghttp2_optmask.
+    /// Option flags. This is bitwise-OR of 0 or more of http2_optmask.
     uint opt_flags;
 
     /// Unacked local SETTINGS_MAX_CONCURRENT_STREAMS value. We use this to refuse the incoming stream if it exceeds this value. 
@@ -280,91 +281,8 @@ class SessionImpl {
 
     /// Flags indicating GOAWAY is sent and/or recieved. 
     GoAwayFlags goaway_flags;
-};
+}
 
-/**
- * @function
- *
- * Initializes |*option_ptr| with default values.
- *
- * When the application finished using this object, it can use
- * `http2_option_del()` to free its memory.
- *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * $(D ErrorCode.NOMEM)
- *     Out of memory.
- */
-ErrorCode http2_option_new(http2_option **option_ptr);
-
-/**
- * @function
- *
- * Frees any resources allocated for |option|.  If |option| is
- * ``NULL``, this function does nothing.
- */
-void http2_option_del(http2_option *option);
-
-/**
- * @function
- *
- * This option prevents the library from sending WINDOW_UPDATE for a
- * connection automatically.  If this option is set to nonzero, the
- * library won't send WINDOW_UPDATE for DATA until application calls
- * `http2_session_consume()` to indicate the consumed amount of
- * data.  Don't use `http2_submit_window_update()` for this purpose.
- * By default, this option is set to zero.
- */
-void http2_option_set_no_auto_window_update(http2_option *option, int val);
-
-/**
- * @function
- *
- * This option sets the SETTINGS_MAX_CONCURRENT_STREAMS value of
- * remote endpoint as if it is received in SETTINGS frame.  Without
- * specifying this option, before the local endpoint receives
- * SETTINGS_MAX_CONCURRENT_STREAMS in SETTINGS frame from remote
- * endpoint, SETTINGS_MAX_CONCURRENT_STREAMS is unlimited.  This may
- * cause problem if local endpoint submits lots of requests initially
- * and sending them at once to the remote peer may lead to the
- * rejection of some requests.  Specifying this option to the sensible
- * value, say 100, may avoid this kind of issue. This value will be
- * overwritten if the local endpoint receives
- * SETTINGS_MAX_CONCURRENT_STREAMS from the remote endpoint.
- */
-void http2_option_set_peer_max_concurrent_streams(http2_option *option,
-                                                    uint val);
-
-/**
- * @function
- *
- * By default, nghttp2 library only handles HTTP/2 frames and does not
- * recognize first 24 bytes of client connection preface.  This design
- * choice is done due to the fact that server may want to detect the
- * application protocol based on first few bytes on clear text
- * communication.  But for simple servers which only speak HTTP/2, it
- * is easier for developers if nghttp2 library takes care of client
- * connection preface.
- *
- * If this option is used with nonzero |val|, nghttp2 library checks
- * first 24 bytes client connection preface.  If it is not a valid
- * one, `http2_session_recv()` and `http2_session_mem_recv()` will
- * return error $(D ErrorCode.BAD_PREFACE), which is fatal error.
- */
-void http2_option_set_recv_client_preface(http2_option *option, int val);
-
-/**
- * @function
- *
- * By default, nghttp2 library enforces subset of HTTP Messaging rules
- * described in `HTTP/2 specification, section 8
- * <https://tools.ietf.org/html/draft-ietf-httpbis-http2-17#section-8>`_.
- * See `HTTP Messaging`_ section for details.  For those applications
- * who use nghttp2 library as non-HTTP use, give nonzero to |val| to
- * disable this enforcement.
- */
-void http2_option_set_no_http_messaging(http2_option *option, int val);
 
 /**
  * @function
@@ -1121,34 +1039,6 @@ string http2_strerror(ErrorCode lib_error_code);
 /**
  * @function
  *
- * Initializes |pri_spec| with the |stream_id| of the stream to depend
- * on with |weight| and its exclusive flag.  If |exclusive| is
- * nonzero, exclusive flag is set.
- *
- * The |weight| must be in [$(D HTTP2_MIN_WEIGHT),
- * $(D HTTP2_MAX_WEIGHT)], inclusive.
- */
-void http2_priority_spec_init(ref PrioritySpec pri_spec, Stream stream_id, int weight, int exclusive);
-
-/**
- * @function
- *
- * Initializes |pri_spec| with the default values.  The default values
- * are: stream_id = 0, weight = :macro:`HTTP2_DEFAULT_WEIGHT` and
- * exclusive = 0.
- */
-void http2_priority_spec_default_init(http2_priority_spec *pri_spec);
-
-/**
- * @function
- *
- * Returns nonzero if the |pri_spec| is filled with default values.
- */
-bool http2_priority_spec_check_default(const http2_priority_spec *pri_spec);
-
-/**
- * @function
- *
  * Submits HEADERS frame and optionally one or more DATA frames.
  *
  * The |pri_spec| is priority specification of this request.  ``NULL``
@@ -1746,277 +1636,19 @@ bool http2_check_header_name(const ubyte *name, size_t len);
 bool http2_check_header_value(const ubyte *value, size_t len);
 
 
-/**
- * @function
- *
- * Initializes |*deflater_ptr| for deflating name/values pairs.
- *
- * The |deflate_hd_table_bufsize_max| is the upper bound of header
- * table size the deflater will use.
- *
- * If this function fails, |*deflater_ptr| is left untouched.
- *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * $(D ErrorCode.NOMEM)
- *     Out of memory.
- */
-ErrorCode http2_hd_deflate_new(http2_hd_deflater **deflater_ptr,
-                           size_t deflate_hd_table_bufsize_max);
-
-/**
- * @function
- *
- * Like `http2_hd_deflate_new()`, but with additional custom memory
- * allocator specified in the |mem|.
- *
- * The |mem| can be ``NULL`` and the call is equivalent to
- * `http2_hd_deflate_new()`.
- *
- * This function does not take ownership |mem|.  The application is
- * responsible for freeing |mem|.
- *
- * The library code does not refer to |mem| pointer after this
- * function returns, so the application can safely free it.
- */
-ErrorCode http2_hd_deflate_new2(http2_hd_deflater **deflater_ptr,
-                            size_t deflate_hd_table_bufsize_max,
-                            http2_mem *mem);
-
-/**
- * @function
- *
- * Deallocates any resources allocated for |deflater|.
- */
-void http2_hd_deflate_del(http2_hd_deflater *deflater);
-
-/**
- * @function
- *
- * Changes header table size of the |deflater| to
- * |settings_hd_table_bufsize_max| bytes.  This may trigger eviction
- * in the dynamic table.
- *
- * The |settings_hd_table_bufsize_max| should be the value received in
- * SETTINGS_HEADER_TABLE_SIZE.
- *
- * The deflater never uses more memory than
- * ``deflate_hd_table_bufsize_max`` bytes specified in
- * `http2_hd_deflate_new()`.  Therefore, if
- * |settings_hd_table_bufsize_max| > ``deflate_hd_table_bufsize_max``,
- * resulting maximum table size becomes
- * ``deflate_hd_table_bufsize_max``.
- *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * $(D ErrorCode.NOMEM)
- *     Out of memory.
- */
-ErrorCode http2_hd_deflate_change_table_size(http2_hd_deflater *deflater,
-                                         size_t settings_hd_table_bufsize_max);
-
-/**
- * @function
- *
- * Deflates the |nva|, which has the |nvlen| name/value pairs, into
- * the |buf| of length |buflen|.
- *
- * If |buf| is not large enough to store the deflated header block,
- * this function fails with $(D ErrorCode.INSUFF_BUFSIZE).  The
- * caller should use `http2_hd_deflate_bound()` to know the upper
- * bound of buffer size required to deflate given header name/value
- * pairs.
- *
- * Once this function fails, subsequent call of this function always
- * returns $(D ErrorCode.HEADER_COMP).
- *
- * After this function returns, it is safe to delete the |nva|.
- *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * $(D ErrorCode.NOMEM)
- *     Out of memory.
- * $(D ErrorCode.HEADER_COMP)
- *     Deflation process has failed.
- * $(D ErrorCode.INSUFF_BUFSIZE)
- *     The provided |buflen| size is too small to hold the output.
- */
-ErrorCode http2_hd_deflate_hd(http2_hd_deflater *deflater, ubyte[] buf, in NVPair[] nva);
-
-/**
- * @function
- *
- * Returns an upper bound on the compressed size after deflation of
- * |nva| of length |nvlen|.
- */
-size_t http2_hd_deflate_bound(http2_hd_deflater *deflater,
-                                const http2_nv *nva, size_t nvlen);
-
-/**
- * @function
- *
- * Initializes |*inflater_ptr| for inflating name/values pairs.
- *
- * If this function fails, |*inflater_ptr| is left untouched.
- *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * $(D ErrorCode.NOMEM)
- *     Out of memory.
- */
-ErrorCode http2_hd_inflate_new(http2_hd_inflater **inflater_ptr);
-
-/**
- * @function
- *
- * Like `http2_hd_inflate_new()`, but with additional custom memory
- * allocator specified in the |mem|.
- *
- * The |mem| can be ``NULL`` and the call is equivalent to
- * `http2_hd_inflate_new()`.
- *
- * This function does not take ownership |mem|.  The application is
- * responsible for freeing |mem|.
- *
- * The library code does not refer to |mem| pointer after this
- * function returns, so the application can safely free it.
- */
-ErrorCode http2_hd_inflate_new2(http2_hd_inflater **inflater_ptr,
-                            http2_mem *mem);
-
-/**
- * @function
- *
- * Deallocates any resources allocated for |inflater|.
- */
-void http2_hd_inflate_del(http2_hd_inflater *inflater);
-
-/**
- * @function
- *
- * Changes header table size in the |inflater|.  This may trigger
- * eviction in the dynamic table.
- *
- * The |settings_hd_table_bufsize_max| should be the value transmitted
- * in SETTINGS_HEADER_TABLE_SIZE.
- *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * $(D ErrorCode.NOMEM)
- *     Out of memory.
- */
-ErrorCode http2_hd_inflate_change_table_size(http2_hd_inflater *inflater,
-                                         size_t settings_hd_table_bufsize_max);
-
-/**
- * @function
- *
- * Inflates name/value block stored in |in| with length |inlen|.  This
- * function performs decompression.  For each successful emission of
- * header name/value pair, $(D HTTP2_HD_INFLATE_EMIT) is set in
- * |*inflate_flags| and name/value pair is assigned to the |nv_out|
- * and the function returns.  The caller must not free the members of
- * |nv_out|.
- *
- * The |nv_out| may include pointers to the memory region in the |in|.
- * The caller must retain the |in| while the |nv_out| is used.
- *
- * The application should call this function repeatedly until the
- * ``(*inflate_flags) & HTTP2_HD_INFLATE_FINAL`` is nonzero and
- * return value is non-negative.  This means the all input values are
- * processed successfully.  Then the application must call
- * `http2_hd_inflate_end_headers()` to prepare for the next header
- * block input.
- *
- * The caller can feed complete compressed header block.  It also can
- * feed it in several chunks.  The caller must set |in_final| to
- * true if the given input is the last block of the compressed
- * header.
- *
- * This function returns the number of bytes processed if it succeeds,
- * or one of the following negative error codes:
- *
- * $(D ErrorCode.NOMEM)
- *     Out of memory.
- * $(D ErrorCode.HEADER_COMP)
- *     Inflation process has failed.
- * $(D ErrorCode.BUFFER_ERROR)
- *     The heder field name or value is too large.
- *
- * Example follows::
- *
- *     int inflate_header_block(http2_hd_inflater *hd_inflater,
- *                              ubyte *in, size_t inlen, int final)
- *     {
- *         size_t rv;
- *
- *         for(;;) {
- *             http2_nv nv;
- *             int inflate_flags = 0;
- *
- *             rv = http2_hd_inflate_hd(hd_inflater, &nv, &inflate_flags,
- *                                        in, inlen, final);
- *
- *             if(rv < 0) {
- *                 fprintf(stderr, "inflate failed with error code %zd", rv);
- *                 return -1;
- *             }
- *
- *             in += rv;
- *             inlen -= rv;
- *
- *             if(inflate_flags & HTTP2_HD_INFLATE_EMIT) {
- *                 fwrite(nv.name, nv.namelen, 1, stderr);
- *                 fprintf(stderr, ": ");
- *                 fwrite(nv.value, nv.valuelen, 1, stderr);
- *                 fprintf(stderr, "\n");
- *             }
- *             if(inflate_flags & HTTP2_HD_INFLATE_FINAL) {
- *                 http2_hd_inflate_end_headers(hd_inflater);
- *                 break;
- *             }
- *             if((inflate_flags & HTTP2_HD_INFLATE_EMIT) == 0 &&
- *                inlen == 0) {
- *                break;
- *             }
- *         }
- *
- *         return 0;
- *     }
- *
- */
-size_t http2_hd_inflate_hd(http2_hd_inflater *inflater, Vector!NVPair nv_out, ref InflateFlag inflate_flags, ubyte[] input, bool in_final);
-
-/**
- * @function
- *
- * Signals the end of decompression for one header block.
- *
- * This function returns 0 if it succeeds. Currently this function
- * always succeeds.
- */
-void http2_hd_inflate_end_headers(http2_hd_inflater *inflater);
-
-
 
 /*
  * Returns true if |stream_id| is initiated by local endpoint.
  */
-bool nghttp2_session_is_my_stream_id(Session session,
-	int32_t stream_id);
+bool http2_session_is_my_stream_id(Session session,
+	int stream_id);
 
 /*
  * Initializes |item|.  No memory allocation is done in this function.
- * Don't call nghttp2_outbound_item_free() until frame member is
+ * Don't call http2_outbound_item_free() until frame member is
  * initialized.
  */
-void nghttp2_session_outbound_item_init(Session session,
-	nghttp2_outbound_item *item);
+void http2_session_outbound_item_init(Session session, ref OutboundItem item);
 
 /*
  * Adds |item| to the outbound queue in |session|.  When this function
@@ -2031,16 +1663,15 @@ void nghttp2_session_outbound_item_init(Session session,
  * ErrorCode.STREAM_CLOSED
  *     Stream already closed (DATA frame only)
  */
-ErrorCode nghttp2_session_add_item(Session session,
-	nghttp2_outbound_item *item);
+ErrorCode http2_session_add_item(Session session, ref OutboundItem item);
 
 /*
  * Adds RST_STREAM frame for the stream |stream_id| with the error
  * code |error_code|. This is a convenient function built on top of
- * nghttp2_session_add_frame() to add RST_STREAM easily.
+ * http2_session_add_frame() to add RST_STREAM easily.
  *
  * This function simply returns 0 without adding RST_STREAM frame if
- * given stream is in NGHTTP2_STREAM_CLOSING state, because multiple
+ * given stream is in HTTP2_STREAM_CLOSING state, because multiple
  * RST_STREAM for a stream is redundant.
  *
  * This function returns 0 if it succeeds, or one of the following
@@ -2049,12 +1680,12 @@ ErrorCode nghttp2_session_add_item(Session session,
  * ErrorCode.NOMEM
  *     Out of memory.
  */
-ErrorCode nghttp2_session_add_rst_stream(Session session, int32_t stream_id,
-	uint32_t error_code);
+ErrorCode http2_session_add_rst_stream(Session session, int stream_id,
+	FrameError error_code);
 
 /*
  * Adds PING frame. This is a convenient functin built on top of
- * nghttp2_session_add_frame() to add PING easily.
+ * http2_session_add_frame() to add PING easily.
  *
  * If the |opaque_data| is not NULL, it must point to 8 bytes memory
  * region of data. The data pointed by |opaque_data| is copied. It can
@@ -2066,15 +1697,15 @@ ErrorCode nghttp2_session_add_rst_stream(Session session, int32_t stream_id,
  * ErrorCode.NOMEM
  *     Out of memory.
  */
-ErrorCode nghttp2_session_add_ping(Session session, uint8_t flags,
+ErrorCode http2_session_add_ping(Session session, uint8_t flags,
 	const uint8_t *opaque_data);
 
 /*
  * Adds GOAWAY frame with the last-stream-ID |last_stream_id| and the
  * error code |error_code|. This is a convenient function built on top
- * of nghttp2_session_add_frame() to add GOAWAY easily.  The
+ * of http2_session_add_frame() to add GOAWAY easily.  The
  * |aux_flags| are bitwise-OR of one or more of
- * nghttp2_goaway_aux_flag.
+ * http2_goaway_aux_flag.
  *
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
@@ -2084,14 +1715,14 @@ ErrorCode nghttp2_session_add_ping(Session session, uint8_t flags,
  * ErrorCode.INVALID_ARGUMENT
  *     The |opaque_data_len| is too large.
  */
-ErrorCode nghttp2_session_add_goaway(Session session, int32_t last_stream_id,
-	uint32_t error_code, const uint8_t *opaque_data,
+ErrorCode http2_session_add_goaway(Session session, int last_stream_id,
+	FrameError error_code, const uint8_t *opaque_data,
 	size_t opaque_data_len, uint8_t aux_flags);
 
 /*
  * Adds WINDOW_UPDATE frame with stream ID |stream_id| and
  * window-size-increment |window_size_increment|. This is a convenient
- * function built on top of nghttp2_session_add_frame() to add
+ * function built on top of http2_session_add_frame() to add
  * WINDOW_UPDATE easily.
  *
  * This function returns 0 if it succeeds, or one of the following
@@ -2100,9 +1731,9 @@ ErrorCode nghttp2_session_add_goaway(Session session, int32_t last_stream_id,
  * ErrorCode.NOMEM
  *     Out of memory.
  */
-ErrorCode nghttp2_session_add_window_update(Session session, uint8_t flags,
-	int32_t stream_id,
-	int32_t window_size_increment);
+ErrorCode http2_session_add_window_update(Session session, uint8_t flags,
+	int stream_id,
+	int window_size_increment);
 
 /*
  * Adds SETTINGS frame.
@@ -2113,28 +1744,28 @@ ErrorCode nghttp2_session_add_window_update(Session session, uint8_t flags,
  * ErrorCode.NOMEM
  *     Out of memory.
  */
-ErrorCode nghttp2_session_add_settings(Session session, uint8_t flags,
-	const nghttp2_settings_entry *iv, size_t niv);
+ErrorCode http2_session_add_settings(Session session, uint8_t flags,
+	const http2_settings_entry *iv, size_t niv);
 
 /*
  * Creates new stream in |session| with stream ID |stream_id|,
  * priority |pri_spec| and flags |flags|.  The |flags| is bitwise OR
- * of nghttp2_stream_flag.  Since this function is called when initial
+ * of http2_stream_flag.  Since this function is called when initial
  * HEADERS is sent or received, these flags are taken from it.  The
  * state of stream is set to |initial_state|. The |stream_user_data|
  * is a pointer to the arbitrary user supplied data to be associated
  * to this stream.
  *
- * If |initial_state| is NGHTTP2_STREAM_RESERVED, this function sets
- * NGHTTP2_STREAM_FLAG_PUSH flag set.
+ * If |initial_state| is HTTP2_STREAM_RESERVED, this function sets
+ * HTTP2_STREAM_FLAG_PUSH flag set.
  *
  * This function returns a pointer to created new stream object, or
  * NULL.
  */
-Stream nghttp2_session_open_stream(Session session,
-	int32_t stream_id, uint8_t flags,
+Stream http2_session_open_stream(Session session,
+	int stream_id, uint8_t flags,
 	PrioritySpec pri_spec,
-	nghttp2_stream_state initial_state,
+	http2_stream_state initial_state,
 	void *stream_user_data);
 
 /*
@@ -2144,7 +1775,7 @@ Stream nghttp2_session_open_stream(Session session,
  *
  * If the session is initialized as server and |stream| is incoming
  * stream, stream is just marked closed and this function calls
- * nghttp2_session_keep_closed_stream() with |stream|.  Otherwise,
+ * http2_session_keep_closed_stream() with |stream|.  Otherwise,
  * |stream| will be deleted from memory.
  *
  * This function returns 0 if it succeeds, or one the following
@@ -2157,24 +1788,24 @@ Stream nghttp2_session_open_stream(Session session,
  * ErrorCode.CALLBACK_FAILURE
  *     The callback function failed.
  */
-ErrorCode nghttp2_session_close_stream(Session session, int32_t stream_id,
-	uint32_t error_code);
+ErrorCode http2_session_close_stream(Session session, int stream_id,
+	FrameError error_code);
 
 /*
  * Deletes |stream| from memory.  After this function returns, stream
  * cannot be accessed.
  *
  */
-void nghttp2_session_destroy_stream(Session session,
+void http2_session_destroy_stream(Session session,
 	Stream stream);
 
 /*
  * Tries to keep incoming closed stream |stream|.  Due to the
  * limitation of maximum number of streams in memory, |stream| is not
  * closed and just deleted from memory (see
- * nghttp2_session_destroy_stream).
+ * http2_session_destroy_stream).
  */
-void nghttp2_session_keep_closed_stream(Session session,
+void http2_session_keep_closed_stream(Session session,
 	Stream stream);
 
 /*
@@ -2182,13 +1813,13 @@ void nghttp2_session_keep_closed_stream(Session session,
  * apply fixed limit for list size.  To fit into that limit, one or
  * more oldest streams are removed from list as necessary.
  */
-void nghttp2_session_keep_idle_stream(Session session,
+void http2_session_keep_idle_stream(Session session,
 	Stream stream);
 
 /*
  * Detaches |stream| from idle streams linked list.
  */
-void nghttp2_session_detach_idle_stream(Session session,
+void http2_session_detach_idle_stream(Session session,
 	Stream stream);
 
 /*
@@ -2198,18 +1829,18 @@ void nghttp2_session_detach_idle_stream(Session session,
  * number of allowed stream when comparing number of active and closed
  * stream and the maximum number.
  */
-void nghttp2_session_adjust_closed_stream(Session session,
+void http2_session_adjust_closed_stream(Session session,
 	ssize_t offset);
 
 /*
  * Deletes idle stream to ensure that number of idle streams is in
  * certain limit.
  */
-void nghttp2_session_adjust_idle_stream(Session session);
+void http2_session_adjust_idle_stream(Session session);
 
 /*
  * If further receptions and transmissions over the stream |stream_id|
- * are disallowed, close the stream with error code NGHTTP2_NO_ERROR.
+ * are disallowed, close the stream with error code HTTP2_NO_ERROR.
  *
  * This function returns 0 if it
  * succeeds, or one of the following negative error codes:
@@ -2217,30 +1848,30 @@ void nghttp2_session_adjust_idle_stream(Session session);
  * ErrorCode.INVALID_ARGUMENT
  *     The specified stream does not exist.
  */
-ErrorCode nghttp2_session_close_stream_if_shut_rdwr(Session session,
+ErrorCode http2_session_close_stream_if_shut_rdwr(Session session,
 	Stream stream);
 
-ErrorCode nghttp2_session_end_request_headers_received(Session session,
-	nghttp2_frame *frame,
+ErrorCode http2_session_end_request_headers_received(Session session,
+	http2_frame *frame,
 	Stream stream);
 
-ErrorCode nghttp2_session_end_response_headers_received(Session session,
-	nghttp2_frame *frame,
+ErrorCode http2_session_end_response_headers_received(Session session,
+	http2_frame *frame,
 	Stream stream);
 
-ErrorCode nghttp2_session_end_headers_received(Session session,
-	nghttp2_frame *frame,
+ErrorCode http2_session_end_headers_received(Session session,
+	http2_frame *frame,
 	Stream stream);
 
-ErrorCode nghttp2_session_on_request_headers_received(Session session,
-	nghttp2_frame *frame);
+ErrorCode http2_session_on_request_headers_received(Session session,
+	http2_frame *frame);
 
-ErrorCode nghttp2_session_on_response_headers_received(Session session,
-	nghttp2_frame *frame,
+ErrorCode http2_session_on_response_headers_received(Session session,
+	http2_frame *frame,
 	Stream stream);
 
-ErrorCode nghttp2_session_on_push_response_headers_received(Session session,
-	nghttp2_frame *frame,
+ErrorCode http2_session_on_push_response_headers_received(Session session,
+	http2_frame *frame,
 	Stream stream);
 
 /*
@@ -2259,8 +1890,8 @@ ErrorCode nghttp2_session_on_push_response_headers_received(Session session,
  * ErrorCode.CALLBACK_FAILURE
  *     The read_callback failed
  */
-ErrorCode nghttp2_session_on_headers_received(Session session,
-	nghttp2_frame *frame,
+ErrorCode http2_session_on_headers_received(Session session,
+	http2_frame *frame,
 	Stream stream);
 
 /*
@@ -2275,8 +1906,8 @@ ErrorCode nghttp2_session_on_headers_received(Session session,
  * ErrorCode.CALLBACK_FAILURE
  *     The read_callback failed
  */
-ErrorCode nghttp2_session_on_priority_received(Session session,
-	nghttp2_frame *frame);
+ErrorCode http2_session_on_priority_received(Session session,
+	http2_frame *frame);
 
 /*
  * Called when RST_STREAM is received, assuming |frame| is properly
@@ -2290,8 +1921,8 @@ ErrorCode nghttp2_session_on_priority_received(Session session,
  * ErrorCode.CALLBACK_FAILURE
  *     The read_callback failed
  */
-ErrorCode nghttp2_session_on_rst_stream_received(Session session,
-	nghttp2_frame *frame);
+ErrorCode http2_session_on_rst_stream_received(Session session,
+	http2_frame *frame);
 
 /*
  * Called when SETTINGS is received, assuming |frame| is properly
@@ -2307,8 +1938,8 @@ ErrorCode nghttp2_session_on_rst_stream_received(Session session,
  * ErrorCode.CALLBACK_FAILURE
  *     The read_callback failed
  */
-ErrorCode nghttp2_session_on_settings_received(Session session,
-	nghttp2_frame *frame, int noack);
+ErrorCode http2_session_on_settings_received(Session session,
+	http2_frame *frame, int noack);
 
 /*
  * Called when PUSH_PROMISE is received, assuming |frame| is properly
@@ -2325,8 +1956,8 @@ ErrorCode nghttp2_session_on_settings_received(Session session,
  * ErrorCode.CALLBACK_FAILURE
  *     The read_callback failed
  */
-ErrorCode nghttp2_session_on_push_promise_received(Session session,
-	nghttp2_frame *frame);
+ErrorCode http2_session_on_push_promise_received(Session session,
+	http2_frame *frame);
 
 /*
  * Called when PING is received, assuming |frame| is properly
@@ -2340,8 +1971,8 @@ ErrorCode nghttp2_session_on_push_promise_received(Session session,
  * ErrorCode.CALLBACK_FAILURE
  *   The callback function failed.
  */
-ErrorCode nghttp2_session_on_ping_received(Session session,
-	nghttp2_frame *frame);
+ErrorCode http2_session_on_ping_received(Session session,
+	http2_frame *frame);
 
 /*
  * Called when GOAWAY is received, assuming |frame| is properly
@@ -2355,8 +1986,7 @@ ErrorCode nghttp2_session_on_ping_received(Session session,
  * ErrorCode.CALLBACK_FAILURE
  *   The callback function failed.
  */
-ErrorCode nghttp2_session_on_goaway_received(Session session,
-	nghttp2_frame *frame);
+ErrorCode http2_session_on_goaway_received(Session session, http2_frame *frame);
 
 /*
  * Called when WINDOW_UPDATE is recieved, assuming |frame| is properly
@@ -2370,8 +2000,7 @@ ErrorCode nghttp2_session_on_goaway_received(Session session,
  * ErrorCode.CALLBACK_FAILURE
  *   The callback function failed.
  */
-ErrorCode nghttp2_session_on_window_update_received(Session session,
-	nghttp2_frame *frame);
+ErrorCode http2_session_on_window_update_received(Session session, http2_frame *frame);
 
 /*
  * Called when DATA is received, assuming |frame| is properly
@@ -2385,24 +2014,23 @@ ErrorCode nghttp2_session_on_window_update_received(Session session,
  * ErrorCode.CALLBACK_FAILURE
  *   The callback function failed.
  */
-ErrorCode nghttp2_session_on_data_received(Session session,
-	nghttp2_frame *frame);
+ErrorCode http2_session_on_data_received(Session session, http2_frame *frame);
 
 /*
- * Returns nghttp2_stream* object whose stream ID is |stream_id|.  It
+ * Returns http2_stream* object whose stream ID is |stream_id|.  It
  * could be NULL if such stream does not exist.  This function returns
  * NULL if stream is marked as closed.
  */
-Stream nghttp2_session_get_stream(Session session,
-	int32_t stream_id);
+Stream http2_session_get_stream(Session session,
+	int stream_id);
 
 /*
- * This function behaves like nghttp2_session_get_stream(), but it
+ * This function behaves like http2_session_get_stream(), but it
  * returns stream object even if it is marked as closed or in
- * NGHTTP2_STREAM_IDLE state.
+ * HTTP2_STREAM_IDLE state.
  */
-Stream nghttp2_session_get_stream_raw(Session session,
-	int32_t stream_id);
+Stream http2_session_get_stream_raw(Session session,
+	int stream_id);
 
 /*
  * Packs DATA frame |frame| in wire frame format and stores it in
@@ -2421,15 +2049,15 @@ Stream nghttp2_session_get_stream_raw(Session session,
  * ErrorCode.CALLBACK_FAILURE
  *     The read_callback failed (session error).
  */
-ErrorCode nghttp2_session_pack_data(Session session, nghttp2_bufs *bufs,
-	size_t datamax, nghttp2_frame *frame,
-	nghttp2_data_aux_data *aux_data);
+ErrorCode http2_session_pack_data(Session session, http2_bufs *bufs,
+	size_t datamax, http2_frame *frame,
+	http2_data_aux_data *aux_data);
 
 /*
  * Returns top of outbound frame queue. This function returns NULL if
  * queue is empty.
  */
-nghttp2_outbound_item *nghttp2_session_get_ob_pq_top(Session session);
+ref OutboundItem http2_session_get_ob_pq_top(Session session);
 
 /*
  * Pops and returns next item to send. If there is no such item,
@@ -2438,8 +2066,7 @@ nghttp2_outbound_item *nghttp2_session_get_ob_pq_top(Session session);
  * session->ob_ss_pq has item and max concurrent streams is reached,
  * then this function returns NULL.
  */
-nghttp2_outbound_item *
-	nghttp2_session_pop_next_ob_item(Session session);
+ref OutboundItem http2_session_pop_next_ob_item(Session session);
 
 /*
  * Returns next item to send. If there is no such item, this function
@@ -2448,17 +2075,17 @@ nghttp2_outbound_item *
  * session->ob_ss_pq has item and max concurrent streams is reached,
  * then this function returns NULL.
  */
-nghttp2_outbound_item *
-	nghttp2_session_get_next_ob_item(Session session);
+ref OutboundItem 
+	http2_session_get_next_ob_item(Session session);
 
 /*
  * Updates local settings with the |iv|. The number of elements in the
  * array pointed by the |iv| is given by the |niv|.  This function
  * assumes that the all settings_id member in |iv| are in range 1 to
- * NGHTTP2_SETTINGS_MAX, inclusive.
+ * HTTP2_SETTINGS_MAX, inclusive.
  *
  * While updating individual stream's local window size, if the window
- * size becomes strictly larger than NGHTTP2_MAX_WINDOW_SIZE,
+ * size becomes strictly larger than HTTP2_MAX_WINDOW_SIZE,
  * RST_STREAM is issued against such a stream.
  *
  * This function returns 0 if it succeeds, or one of the following
@@ -2467,8 +2094,8 @@ nghttp2_outbound_item *
  * ErrorCode.NOMEM
  *     Out of memory
  */
-ErrorCode nghttp2_session_update_local_settings(Session session,
-	nghttp2_settings_entry *iv,
+ErrorCode http2_session_update_local_settings(Session session,
+	http2_settings_entry *iv,
 	size_t niv);
 
 /*
@@ -2481,7 +2108,7 @@ ErrorCode nghttp2_session_update_local_settings(Session session,
  * ErrorCode.NOMEM
  *     Out of memory
  */
-ErrorCode nghttp2_session_reprioritize_stream(Session session, Stream stream, in PrioritySpec pri_spec);
+ErrorCode http2_session_reprioritize_stream(Session session, Stream stream, in PrioritySpec pri_spec);
 
 /*
  * Terminates current |session| with the |error_code|.  The |reason|
@@ -2495,9 +2122,7 @@ ErrorCode nghttp2_session_reprioritize_stream(Session session, Stream stream, in
  * ErrorCode.INVALID_ARGUMENT
  *     The |reason| is too long.
  */
-ErrorCode nghttp2_session_terminate_session_with_reason(Session session,
-	uint32_t error_code,
-	const char *reason);
+ErrorCode http2_session_terminate_session_with_reason(Session session, FrameError error_code, const char *reason);
 
 
 private:
@@ -2507,7 +2132,8 @@ private:
  * than or equal to
  * remote_settings.max_concurrent_streams.
  */
-bool session_is_outgoing_concurrent_streams_max(Session session) {
+bool session_is_outgoing_concurrent_streams_max(Session session) 
+{
     return session->remote_settings.max_concurrent_streams <=
         session->num_outgoing_streams;
 }
@@ -2536,44 +2162,44 @@ bool session_is_incoming_concurrent_streams_pending_max(Session session) {
  * Returns non-zero if |lib_error| is non-fatal error.
  */
 bool is_non_fatal(int lib_error) {
-    return lib_error < 0 && lib_error > NGHTTP2_ERR_FATAL;
+    return lib_error < 0 && lib_error > HTTP2_ERR_FATAL;
 }
 
-bool http2_is_fatal(int lib_error) { return lib_error < NGHTTP2_ERR_FATAL; }
+bool http2_is_fatal(int lib_error) { return lib_error < HTTP2_ERR_FATAL; }
 
 bool session_enforce_http_messaging(Session session) {
-    return (session->opt_flags & NGHTTP2_OPTMASK_NO_HTTP_MESSAGING) == 0;
+    return (session->opt_flags & HTTP2_OPTMASK_NO_HTTP_MESSAGING) == 0;
 }
 
 /*
  * Returns nonzero if |frame| is trailer headers.
  */
 bool session_trailer_headers(Session session,
-    nghttp2_stream *stream,
-    nghttp2_frame *frame) {
-    if (!stream || frame->hd.type != NGHTTP2_HEADERS) {
+    http2_stream *stream,
+    http2_frame *frame) {
+    if (!stream || frame->hd.type != HTTP2_HEADERS) {
         return 0;
     }
     if (session->server) {
-        return frame->headers.cat == NGHTTP2_HCAT_HEADERS;
+        return frame->headers.cat == HTTP2_HCAT_HEADERS;
     }
     
-    return frame->headers.cat == NGHTTP2_HCAT_HEADERS &&
-        (stream->http_flags & NGHTTP2_HTTP_FLAG_EXPECT_FINAL_RESPONSE) == 0;
+    return frame->headers.cat == HTTP2_HCAT_HEADERS &&
+        (stream->http_flags & HTTP2_HTTP_FLAG_EXPECT_FINAL_RESPONSE) == 0;
 }
 
 /* Returns nonzero if the |stream| is in reserved(remote) state */
 bool state_reserved_remote(Session session,
-    nghttp2_stream *stream) {
-    return stream->state == NGHTTP2_STREAM_RESERVED &&
-        !nghttp2_session_is_my_stream_id(session, stream->stream_id);
+    http2_stream *stream) {
+    return stream->state == HTTP2_STREAM_RESERVED &&
+        !http2_session_is_my_stream_id(session, stream->stream_id);
 }
 
 /* Returns nonzero if the |stream| is in reserved(local) state */
 bool state_reserved_local(Session session,
-    nghttp2_stream *stream) {
-    return stream->state == NGHTTP2_STREAM_RESERVED &&
-        nghttp2_session_is_my_stream_id(session, stream->stream_id);
+    http2_stream *stream) {
+    return stream->state == HTTP2_STREAM_RESERVED &&
+        http2_session_is_my_stream_id(session, stream->stream_id);
 }
 
 /*
@@ -2581,8 +2207,171 @@ bool state_reserved_local(Session session,
  * 1 if it succeeds, or 0.
  */
 bool session_is_new_peer_stream_id(Session session,
-    int32_t stream_id) {
+    int stream_id) {
     return stream_id != 0 &&
-        !nghttp2_session_is_my_stream_id(session, stream_id) &&
+        !http2_session_is_my_stream_id(session, stream_id) &&
             session->last_recv_stream_id < stream_id;
+}
+
+
+
+/// Configuration options
+enum OptionFlags {
+	/**
+   * This option prevents the library from sending WINDOW_UPDATE for a
+   * connection automatically.  If this option is set to nonzero, the
+   * library won't send WINDOW_UPDATE for DATA until application calls
+   * nghttp2_session_consume() to indicate the amount of consumed
+   * DATA.  By default, this option is set to zero.
+   */
+	NO_AUTO_WINDOW_UPDATE = 1,
+	/**
+   * This option sets the SETTINGS_MAX_CONCURRENT_STREAMS value of
+   * remote endpoint as if it is received in SETTINGS frame. Without
+   * specifying this option, before the local endpoint receives
+   * SETTINGS_MAX_CONCURRENT_STREAMS in SETTINGS frame from remote
+   * endpoint, SETTINGS_MAX_CONCURRENT_STREAMS is unlimited. This may
+   * cause problem if local endpoint submits lots of requests
+   * initially and sending them at once to the remote peer may lead to
+   * the rejection of some requests. Specifying this option to the
+   * sensible value, say 100, may avoid this kind of issue. This value
+   * will be overwritten if the local endpoint receives
+   * SETTINGS_MAX_CONCURRENT_STREAMS from the remote endpoint.
+   */
+	PEER_MAX_CONCURRENT_STREAMS = 1 << 1,
+	RECV_CLIENT_PREFACE = 1 << 2,
+	NO_HTTP_MESSAGING = 1 << 3,
+}
+
+//http2_option
+/// Struct to store option values for nghttp2_session.
+struct Options {
+	/// Bitwise OR of nghttp2_option_flag to determine which fields are specified.
+	uint opt_set_mask;
+
+	uint peer_max_concurrent_streams;
+
+	bool no_auto_window_update;
+
+	bool recv_client_preface;
+
+	bool no_http_messaging;
+}
+
+
+/**
+ * @function
+ *
+ * Initializes |*option_ptr| with default values.
+ *
+ * When the application finished using this object, it can use
+ * `http2_option_del()` to free its memory.
+ *
+ * This function returns 0 if it succeeds, or one of the following
+ * negative error codes:
+ *
+ * $(D ErrorCode.NOMEM)
+ *     Out of memory.
+ */
+ErrorCode http2_option_new(http2_option **option_ptr);
+
+/**
+ * @function
+ *
+ * Frees any resources allocated for |option|.  If |option| is
+ * ``NULL``, this function does nothing.
+ */
+void http2_option_del(http2_option *option);
+
+/**
+ * @function
+ *
+ * This option prevents the library from sending WINDOW_UPDATE for a
+ * connection automatically.  If this option is set to nonzero, the
+ * library won't send WINDOW_UPDATE for DATA until application calls
+ * `http2_session_consume()` to indicate the consumed amount of
+ * data.  Don't use `http2_submit_window_update()` for this purpose.
+ * By default, this option is set to zero.
+ */
+void http2_option_set_no_auto_window_update(http2_option *option, int val);
+
+/**
+ * @function
+ *
+ * This option sets the SETTINGS_MAX_CONCURRENT_STREAMS value of
+ * remote endpoint as if it is received in SETTINGS frame.  Without
+ * specifying this option, before the local endpoint receives
+ * SETTINGS_MAX_CONCURRENT_STREAMS in SETTINGS frame from remote
+ * endpoint, SETTINGS_MAX_CONCURRENT_STREAMS is unlimited.  This may
+ * cause problem if local endpoint submits lots of requests initially
+ * and sending them at once to the remote peer may lead to the
+ * rejection of some requests.  Specifying this option to the sensible
+ * value, say 100, may avoid this kind of issue. This value will be
+ * overwritten if the local endpoint receives
+ * SETTINGS_MAX_CONCURRENT_STREAMS from the remote endpoint.
+ */
+void http2_option_set_peer_max_concurrent_streams(http2_option *option,
+	uint val);
+
+/**
+ * @function
+ *
+ * By default, nghttp2 library only handles HTTP/2 frames and does not
+ * recognize first 24 bytes of client connection preface.  This design
+ * choice is done due to the fact that server may want to detect the
+ * application protocol based on first few bytes on clear text
+ * communication.  But for simple servers which only speak HTTP/2, it
+ * is easier for developers if nghttp2 library takes care of client
+ * connection preface.
+ *
+ * If this option is used with nonzero |val|, nghttp2 library checks
+ * first 24 bytes client connection preface.  If it is not a valid
+ * one, `http2_session_recv()` and `http2_session_mem_recv()` will
+ * return error $(D ErrorCode.BAD_PREFACE), which is fatal error.
+ */
+void http2_option_set_recv_client_preface(http2_option *option, int val);
+
+/**
+ * @function
+ *
+ * By default, nghttp2 library enforces subset of HTTP Messaging rules
+ * described in `HTTP/2 specification, section 8
+ * <https://tools.ietf.org/html/draft-ietf-httpbis-http2-17#section-8>`_.
+ * See `HTTP Messaging`_ section for details.  For those applications
+ * who use nghttp2 library as non-HTTP use, give nonzero to |val| to
+ * disable this enforcement.
+ */
+void http2_option_set_no_http_messaging(http2_option *option, int val);
+
+int nghttp2_option_new(nghttp2_option **option_ptr) {
+	*option_ptr = calloc(1, sizeof(nghttp2_option));
+	
+	if (*option_ptr == NULL) {
+		return NGHTTP2_ERR_NOMEM;
+	}
+	
+	return 0;
+}
+
+void nghttp2_option_del(nghttp2_option *option) { free(option); }
+
+void nghttp2_option_set_no_auto_window_update(nghttp2_option *option, int val) {
+	option->opt_set_mask |= NGHTTP2_OPT_NO_AUTO_WINDOW_UPDATE;
+	option->no_auto_window_update = val;
+}
+
+void nghttp2_option_set_peer_max_concurrent_streams(nghttp2_option *option,
+	uint32_t val) {
+	option->opt_set_mask |= NGHTTP2_OPT_PEER_MAX_CONCURRENT_STREAMS;
+	option->peer_max_concurrent_streams = val;
+}
+
+void nghttp2_option_set_recv_client_preface(nghttp2_option *option, int val) {
+	option->opt_set_mask |= NGHTTP2_OPT_RECV_CLIENT_PREFACE;
+	option->recv_client_preface = val;
+}
+
+void nghttp2_option_set_no_http_messaging(nghttp2_option *option, int val) {
+	option->opt_set_mask |= NGHTTP2_OPT_NO_HTTP_MESSAGING;
+	option->no_http_messaging = val;
 }

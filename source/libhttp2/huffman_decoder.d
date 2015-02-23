@@ -589,10 +589,10 @@ long http2_hd_huff_decode(http2_hd_huff_decode_context *ctx, http2_bufs *bufs, i
             const nghttp2_huff_decode *t;
             
             t = &huff_decode_table[ctx.state][input];
-            if (t.flags & NGHTTP2_HUFF_FAIL) {
-                return NGHTTP2_ERR_HEADER_COMP;
+            if (t.flags & HTTP2_HUFF_FAIL) {
+                return HTTP2_ERR_HEADER_COMP;
             }
-            if (t.flags & NGHTTP2_HUFF_SYM) {
+            if (t.flags & HTTP2_HUFF_SYM) {
                 if (avail) {
                     nghttp2_bufs_fast_addb(bufs, t.sym);
                     --avail;
@@ -605,12 +605,12 @@ long http2_hd_huff_decode(http2_hd_huff_decode_context *ctx, http2_bufs *bufs, i
                 }
             }
             ctx.state = t.state;
-            ctx.accept = (t.flags & NGHTTP2_HUFF_ACCEPTED) != 0;
+            ctx.accept = (t.flags & HTTP2_HUFF_ACCEPTED) != 0;
             input = src[i] & 0xf;
         }
     }
     if (final_ && !ctx.accept) {
-        return NGHTTP2_ERR_HEADER_COMP;
+        return HTTP2_ERR_HEADER_COMP;
     }
     return cast(size_t)i;
 }
@@ -720,6 +720,264 @@ static uint hash(const ubyte *s, size_t n) {
     }
     return h;
 }
+
+
+/**
+ * @function
+ *
+ * Initializes |*deflater_ptr| for deflating name/values pairs.
+ *
+ * The |deflate_hd_table_bufsize_max| is the upper bound of header
+ * table size the deflater will use.
+ *
+ * If this function fails, |*deflater_ptr| is left untouched.
+ *
+ * This function returns 0 if it succeeds, or one of the following
+ * negative error codes:
+ *
+ * $(D ErrorCode.NOMEM)
+ *     Out of memory.
+ */
+ErrorCode http2_hd_deflate_new(http2_hd_deflater **deflater_ptr,
+	size_t deflate_hd_table_bufsize_max);
+
+/**
+ * @function
+ *
+ * Like `http2_hd_deflate_new()`, but with additional custom memory
+ * allocator specified in the |mem|.
+ *
+ * The |mem| can be ``NULL`` and the call is equivalent to
+ * `http2_hd_deflate_new()`.
+ *
+ * This function does not take ownership |mem|.  The application is
+ * responsible for freeing |mem|.
+ *
+ * The library code does not refer to |mem| pointer after this
+ * function returns, so the application can safely free it.
+ */
+ErrorCode http2_hd_deflate_new2(http2_hd_deflater **deflater_ptr,
+	size_t deflate_hd_table_bufsize_max,
+	http2_mem *mem);
+
+/**
+ * @function
+ *
+ * Deallocates any resources allocated for |deflater|.
+ */
+void http2_hd_deflate_del(http2_hd_deflater *deflater);
+
+/**
+ * @function
+ *
+ * Changes header table size of the |deflater| to
+ * |settings_hd_table_bufsize_max| bytes.  This may trigger eviction
+ * in the dynamic table.
+ *
+ * The |settings_hd_table_bufsize_max| should be the value received in
+ * SETTINGS_HEADER_TABLE_SIZE.
+ *
+ * The deflater never uses more memory than
+ * ``deflate_hd_table_bufsize_max`` bytes specified in
+ * `http2_hd_deflate_new()`.  Therefore, if
+ * |settings_hd_table_bufsize_max| > ``deflate_hd_table_bufsize_max``,
+ * resulting maximum table size becomes
+ * ``deflate_hd_table_bufsize_max``.
+ *
+ * This function returns 0 if it succeeds, or one of the following
+ * negative error codes:
+ *
+ * $(D ErrorCode.NOMEM)
+ *     Out of memory.
+ */
+ErrorCode http2_hd_deflate_change_table_size(http2_hd_deflater *deflater,
+	size_t settings_hd_table_bufsize_max);
+
+/**
+ * @function
+ *
+ * Deflates the |nva|, which has the |nvlen| name/value pairs, into
+ * the |buf| of length |buflen|.
+ *
+ * If |buf| is not large enough to store the deflated header block,
+ * this function fails with $(D ErrorCode.INSUFF_BUFSIZE).  The
+ * caller should use `http2_hd_deflate_bound()` to know the upper
+ * bound of buffer size required to deflate given header name/value
+ * pairs.
+ *
+ * Once this function fails, subsequent call of this function always
+ * returns $(D ErrorCode.HEADER_COMP).
+ *
+ * After this function returns, it is safe to delete the |nva|.
+ *
+ * This function returns 0 if it succeeds, or one of the following
+ * negative error codes:
+ *
+ * $(D ErrorCode.NOMEM)
+ *     Out of memory.
+ * $(D ErrorCode.HEADER_COMP)
+ *     Deflation process has failed.
+ * $(D ErrorCode.INSUFF_BUFSIZE)
+ *     The provided |buflen| size is too small to hold the output.
+ */
+ErrorCode http2_hd_deflate_hd(http2_hd_deflater *deflater, ubyte[] buf, in NVPair[] nva);
+
+/**
+ * @function
+ *
+ * Returns an upper bound on the compressed size after deflation of
+ * |nva| of length |nvlen|.
+ */
+size_t http2_hd_deflate_bound(http2_hd_deflater *deflater,
+	const http2_nv *nva, size_t nvlen);
+
+/**
+ * @function
+ *
+ * Initializes |*inflater_ptr| for inflating name/values pairs.
+ *
+ * If this function fails, |*inflater_ptr| is left untouched.
+ *
+ * This function returns 0 if it succeeds, or one of the following
+ * negative error codes:
+ *
+ * $(D ErrorCode.NOMEM)
+ *     Out of memory.
+ */
+ErrorCode http2_hd_inflate_new(http2_hd_inflater **inflater_ptr);
+
+/**
+ * @function
+ *
+ * Like `http2_hd_inflate_new()`, but with additional custom memory
+ * allocator specified in the |mem|.
+ *
+ * The |mem| can be ``NULL`` and the call is equivalent to
+ * `http2_hd_inflate_new()`.
+ *
+ * This function does not take ownership |mem|.  The application is
+ * responsible for freeing |mem|.
+ *
+ * The library code does not refer to |mem| pointer after this
+ * function returns, so the application can safely free it.
+ */
+ErrorCode http2_hd_inflate_new2(http2_hd_inflater **inflater_ptr,
+	http2_mem *mem);
+
+/**
+ * @function
+ *
+ * Deallocates any resources allocated for |inflater|.
+ */
+void http2_hd_inflate_del(http2_hd_inflater *inflater);
+
+/**
+ * @function
+ *
+ * Changes header table size in the |inflater|.  This may trigger
+ * eviction in the dynamic table.
+ *
+ * The |settings_hd_table_bufsize_max| should be the value transmitted
+ * in SETTINGS_HEADER_TABLE_SIZE.
+ *
+ * This function returns 0 if it succeeds, or one of the following
+ * negative error codes:
+ *
+ * $(D ErrorCode.NOMEM)
+ *     Out of memory.
+ */
+ErrorCode http2_hd_inflate_change_table_size(http2_hd_inflater *inflater,
+	size_t settings_hd_table_bufsize_max);
+
+/**
+ * @function
+ *
+ * Inflates name/value block stored in |in| with length |inlen|.  This
+ * function performs decompression.  For each successful emission of
+ * header name/value pair, $(D HTTP2_HD_INFLATE_EMIT) is set in
+ * |*inflate_flags| and name/value pair is assigned to the |nv_out|
+ * and the function returns.  The caller must not free the members of
+ * |nv_out|.
+ *
+ * The |nv_out| may include pointers to the memory region in the |in|.
+ * The caller must retain the |in| while the |nv_out| is used.
+ *
+ * The application should call this function repeatedly until the
+ * ``(*inflate_flags) & HTTP2_HD_INFLATE_FINAL`` is nonzero and
+ * return value is non-negative.  This means the all input values are
+ * processed successfully.  Then the application must call
+ * `http2_hd_inflate_end_headers()` to prepare for the next header
+ * block input.
+ *
+ * The caller can feed complete compressed header block.  It also can
+ * feed it in several chunks.  The caller must set |in_final| to
+ * true if the given input is the last block of the compressed
+ * header.
+ *
+ * This function returns the number of bytes processed if it succeeds,
+ * or one of the following negative error codes:
+ *
+ * $(D ErrorCode.NOMEM)
+ *     Out of memory.
+ * $(D ErrorCode.HEADER_COMP)
+ *     Inflation process has failed.
+ * $(D ErrorCode.BUFFER_ERROR)
+ *     The heder field name or value is too large.
+ *
+ * Example follows::
+ *
+ *     int inflate_header_block(http2_hd_inflater *hd_inflater,
+ *                              ubyte *in, size_t inlen, int final)
+ *     {
+ *         size_t rv;
+ *
+ *         for(;;) {
+ *             http2_nv nv;
+ *             int inflate_flags = 0;
+ *
+ *             rv = http2_hd_inflate_hd(hd_inflater, &nv, &inflate_flags,
+ *                                        in, inlen, final);
+ *
+ *             if(rv < 0) {
+ *                 fprintf(stderr, "inflate failed with error code %zd", rv);
+ *                 return -1;
+ *             }
+ *
+ *             in += rv;
+ *             inlen -= rv;
+ *
+ *             if(inflate_flags & HTTP2_HD_INFLATE_EMIT) {
+ *                 fwrite(nv.name, nv.namelen, 1, stderr);
+ *                 fprintf(stderr, ": ");
+ *                 fwrite(nv.value, nv.valuelen, 1, stderr);
+ *                 fprintf(stderr, "\n");
+ *             }
+ *             if(inflate_flags & HTTP2_HD_INFLATE_FINAL) {
+ *                 http2_hd_inflate_end_headers(hd_inflater);
+ *                 break;
+ *             }
+ *             if((inflate_flags & HTTP2_HD_INFLATE_EMIT) == 0 &&
+ *                inlen == 0) {
+ *                break;
+ *             }
+ *         }
+ *
+ *         return 0;
+ *     }
+ *
+ */
+size_t http2_hd_inflate_hd(http2_hd_inflater *inflater, Vector!NVPair nv_out, ref InflateFlag inflate_flags, ubyte[] input, bool in_final);
+
+/**
+ * @function
+ *
+ * Signals the end of decompression for one header block.
+ *
+ * This function returns 0 if it succeeds. Currently this function
+ * always succeeds.
+ */
+void http2_hd_inflate_end_headers(http2_hd_inflater *inflater);
+
 
 
 void http2_hd_entry_free(http2_hd_entry *ent) {

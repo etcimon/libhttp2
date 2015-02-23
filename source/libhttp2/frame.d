@@ -156,8 +156,9 @@ struct OutboundItem {
     bool queued;
 }
 
-void http2_frame_pack_frame_hd(ubyte *buf, const http2_frame_hd *hd) {
-    http2_put_uint32be(&buf[0], (uint)(hd.length << 8));
+void http2_frame_pack_frame_hd(ubyte *buf, const http2_frame_hd *hd)
+{
+    http2_put_uint32be(&buf[0], cast(uint)(hd.length << 8));
   buf[3] = hd.type;
   buf[4] = hd.flags;
   http2_put_uint32be(&buf[5], hd.stream_id);
@@ -290,9 +291,7 @@ void http2_frame_ping_free(http2_ping *frame) {}
  * this function takes ownership of |opaque_data|, so caller must not
  * free it. If the |opaque_data_len| is 0, opaque_data could be NULL.
  */
-void http2_frame_goaway_init(http2_goaway *frame, int last_stream_id,
-                               uint error_code, ubyte *opaque_data,
-                               size_t opaque_data_len) {
+void http2_frame_goaway_init(http2_goaway *frame, int last_stream_id, uint error_code, ubyte *opaque_data, size_t opaque_data_len) {
   http2_frame_hd_init(&frame.hd, 8 + opaque_data_len, GOAWAY,
                         FrameFlags.NONE, 0);
   frame.last_stream_id = last_stream_id;
@@ -1044,8 +1043,7 @@ void http2_nv_array_del(http2_nv *nva, http2_mem *mem) {
   http2_mem_free(mem, nva);
 }
 
-static int bytes_compar(const ubyte *a, size_t alen, const ubyte *b,
-                        size_t blen) {
+static int bytes_compar(const ubyte *a, size_t alen, const ubyte *b, size_t blen) {
   int rv;
 
   if (alen == blen) {
@@ -1138,7 +1136,8 @@ int http2_nv_array_copy(http2_nv **nva_ptr, const http2_nv *nva,
   return 0;
 }
 
-int http2_iv_check(const http2_settings_entry *iv, size_t niv) {
+int http2_iv_check(const http2_settings_entry *iv, size_t niv) 
+{
   size_t i;
   for (i = 0; i < niv; ++i) {
     switch (iv[i].settings_id) {
@@ -1172,7 +1171,8 @@ int http2_iv_check(const http2_settings_entry *iv, size_t niv) {
   return 1;
 }
 
-static void frame_set_pad(http2_buf *buf, size_t padlen) {
+static void frame_set_pad(http2_buf *buf, size_t padlen) 
+{
   size_t trail_padlen;
   size_t newlen;
 
@@ -1199,8 +1199,8 @@ static void frame_set_pad(http2_buf *buf, size_t padlen) {
   return;
 }
 
-int http2_frame_add_pad(http2_bufs *bufs, http2_frame_hd *hd,
-                          size_t padlen) {
+int http2_frame_add_pad(http2_bufs *bufs, http2_frame_hd *hd, size_t padlen) 
+{
   http2_buf *buf;
 
   if (padlen == 0) {
@@ -1242,4 +1242,137 @@ int http2_frame_add_pad(http2_bufs *bufs, http2_frame_hd *hd,
                  padlen));
 
   return 0;
+}
+
+
+
+static size_t inbound_frame_payload_readlen(InboundFrame *iframe, const ubyte *input, const ubyte *last)
+{
+	return http2_min(cast (size_t)(last - input), iframe.payloadleft);
+}
+
+/*
+ * Resets iframe.sbuf and advance its mark pointer by |left| bytes.
+ */
+static void inbound_frame_set_mark(InboundFrame *iframe, size_t left)
+{
+	http2_buf_reset(&iframe.sbuf);
+	iframe.sbuf.mark += left;
+}
+
+static size_t inbound_frame_buf_read(InboundFrame *iframe, const ubyte *input, const ubyte *last) 
+{
+	size_t readlen;
+	
+	readlen = http2_min(last - input, http2_buf_mark_avail(&iframe.sbuf));
+	
+	iframe.sbuf.last = http2_cpymem(iframe.sbuf.last, input, readlen);
+	
+	return readlen;
+}
+
+/*
+ * Unpacks SETTINGS entry in iframe.sbuf.
+ */
+static void inbound_frame_set_settings_entry(InboundFrame *iframe) 
+{
+	http2_settings_entry iv;
+	size_t i;
+	
+	http2_frame_unpack_settings_entry(&iv, iframe.sbuf.pos);
+	
+	with(Setting) switch (iv.settings_id) {
+		case HEADER_TABLE_SIZE:
+		case ENABLE_PUSH:
+		case MAX_CONCURRENT_STREAMS:
+		case INITIAL_WINDOW_SIZE:
+		case MAX_FRAME_SIZE:
+		case MAX_HEADER_LIST_SIZE:
+			break;
+		default:
+			DEBUGF(fprintf(stderr, "recv: ignore unknown settings id=0x%02x\n",
+					iv.settings_id));
+			return;
+	}
+	
+	for (i = 0; i < iframe.niv; ++i) {
+		if (iframe.iv[i].settings_id == iv.settings_id) {
+			iframe.iv[i] = iv;
+			break;
+		}
+	}
+	
+	if (i == iframe.niv) {
+		iframe.iv[iframe.niv++] = iv;
+	}
+	
+	if (iv.settings_id == Setting.HEADER_TABLE_SIZE &&
+		iv.value < iframe.iv[http2_INBOUND_NUM_IV - 1].value) {
+		
+		iframe.iv[http2_INBOUND_NUM_IV - 1] = iv;
+	}
+}
+
+/*
+ * Checks PADDED flags and set iframe.sbuf to read them accordingly.
+ * If padding is set, this function returns 1.  If no padding is set,
+ * this function returns 0.  On error, returns -1.
+ */
+static int inbound_frame_handle_pad(InboundFrame *iframe, http2_frame_hd *hd)
+{
+	if (hd.flags & FrameFlags.PADDED) {
+		if (hd.length < 1) {
+			return -1;
+		}
+		inbound_frame_set_mark(iframe, 1);
+		return 1;
+	}
+	DEBUGF(fprintf(stderr, "recv: no padding in payload\n"));
+	return 0;
+}
+
+/*
+ * Computes number of padding based on flags. This function returns
+ * the calculated length if it succeeds, or -1.
+ */
+static size_t inbound_frame_compute_pad(InboundFrame *iframe) 
+{
+	size_t padlen;
+	
+	/* 1 for Pad Length field */
+	padlen = iframe.sbuf.pos[0] + 1;
+	
+	DEBUGF(fprintf(stderr, "recv: padlen=%zu\n", padlen));
+	
+	/* We cannot use iframe.frame.hd.length because of CONTINUATION */
+	if (padlen - 1 > iframe.payloadleft) {
+		return -1;
+	}
+	
+	iframe.padlen = padlen;
+	
+	return padlen;
+}
+
+/*
+ * This function returns the effective payload length in the data of
+ * length |readlen| when the remaning payload is |payloadleft|. The
+ * |payloadleft| does not include |readlen|. If padding was started
+ * strictly before this data chunk, this function returns -1.
+ */
+static size_t inbound_frame_effective_readlen(InboundFrame *iframe, size_t payloadleft, size_t readlen) 
+{
+	size_t trail_padlen =
+		http2_frame_trail_padlen(&iframe.frame, iframe.padlen);
+	
+	if (trail_padlen > payloadleft) {
+		size_t padlen;
+		padlen = trail_padlen - payloadleft;
+		if (readlen < padlen) {
+			return -1;
+		} else {
+			return readlen - padlen;
+		}
+	}
+	return readlen;
 }

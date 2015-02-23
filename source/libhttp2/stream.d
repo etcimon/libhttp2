@@ -508,7 +508,7 @@ class StreamImpl {
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
  *
- * NGHTTP2_ERR_NOMEM
+ * HTTP2_ERR_NOMEM
  *     Out of memory
  */
     int http2_stream_attach_item(
@@ -533,7 +533,7 @@ class StreamImpl {
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
  *
- * NGHTTP2_ERR_NOMEM
+ * HTTP2_ERR_NOMEM
  *     Out of memory
  */
     int http2_stream_detach_item(
@@ -550,14 +550,14 @@ class StreamImpl {
     /*
  * Defer |m_item|.  We won't call this function in the situation
  * where |m_item| == null.  The |flags| is bitwise OR of zero or
- * more of NGHTTP2_STREAM_FLAG_DEFERRED_USER and
- * NGHTTP2_STREAM_FLAG_DEFERRED_FLOW_CONTROL.  The |flags| indicates
+ * more of HTTP2_STREAM_FLAG_DEFERRED_USER and
+ * HTTP2_STREAM_FLAG_DEFERRED_FLOW_CONTROL.  The |flags| indicates
  * the reason of this action.
  *
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
  *
- * NGHTTP2_ERR_NOMEM
+ * HTTP2_ERR_NOMEM
  *     Out of memory
  */
     int http2_stream_defer_item( ubyte flags,
@@ -575,8 +575,8 @@ class StreamImpl {
     /*
  * Put back deferred data in this stream to active state.  The |flags|
  * are one or more of bitwise OR of the following values:
- * NGHTTP2_STREAM_FLAG_DEFERRED_USER and
- * NGHTTP2_STREAM_FLAG_DEFERRED_FLOW_CONTROL and given masks are
+ * HTTP2_STREAM_FLAG_DEFERRED_USER and
+ * HTTP2_STREAM_FLAG_DEFERRED_FLOW_CONTROL and given masks are
  * cleared if they are set.  So even if this function is called, if
  * one of flag is still set, data does not become active.
  */
@@ -659,7 +659,7 @@ class StreamImpl {
     /*
      * Call this function if promised stream |stream| is replied with
      * HEADERS.  This function makes the state of the |stream| to
-     * NGHTTP2_STREAM_OPENED.
+     * HTTP2_STREAM_OPENED.
      */
     void http2_stream_promise_fulfilled(http2_stream *stream) {
         m_state = HTTP2_STREAM_OPENED;
@@ -955,7 +955,7 @@ class StreamImpl {
      * This function returns 0 if it succeeds, or one of the following
      * negative error codes:
      *
-     * NGHTTP2_ERR_NOMEM
+     * HTTP2_ERR_NOMEM
      *     Out of memory
      */
     int http2_stream_dep_insert_subtree(Stream dep_stream, Session session) {
@@ -1019,7 +1019,7 @@ class StreamImpl {
      * This function returns 0 if it succeeds, or one of the following
      * negative error codes:
      *
-     * NGHTTP2_ERR_NOMEM
+     * HTTP2_ERR_NOMEM
      *     Out of memory
      */
     int http2_stream_dep_add_subtree(Stream dep_stream, Stream stream, Session session) {
@@ -1060,7 +1060,7 @@ class StreamImpl {
      * This function returns 0 if it succeeds, or one of the following
      * negative error codes:
      *
-     * NGHTTP2_ERR_NOMEM
+     * HTTP2_ERR_NOMEM
      *     Out of memory
      */
     void http2_stream_dep_remove_subtree(Stream stream) {
@@ -1120,7 +1120,7 @@ class StreamImpl {
      * This function returns 0 if it succeeds, or one of the following
      * negative error codes:
      *
-     * NGHTTP2_ERR_NOMEM
+     * HTTP2_ERR_NOMEM
      *     Out of memory
      */
     int http2_stream_dep_make_root(http2_stream *stream,
@@ -1149,7 +1149,7 @@ class StreamImpl {
      * This function returns 0 if it succeeds, or one of the following
      * negative error codes:
      *
-     * NGHTTP2_ERR_NOMEM
+     * HTTP2_ERR_NOMEM
      *     Out of memory
      */
     int http2_stream_dep_all_your_stream_are_belong_to_us(Session session)
@@ -1314,34 +1314,34 @@ private:
 /// nghttp2_stream_state
 /**
  * If local peer is stream initiator:
- * NGHTTP2_STREAM_OPENING : upon sending request HEADERS
- * NGHTTP2_STREAM_OPENED : upon receiving response HEADERS
- * NGHTTP2_STREAM_CLOSING : upon queuing RST_STREAM
+ * HTTP2_STREAM_OPENING : upon sending request HEADERS
+ * HTTP2_STREAM_OPENED : upon receiving response HEADERS
+ * HTTP2_STREAM_CLOSING : upon queuing RST_STREAM
  *
  * If remote peer is stream initiator:
- * NGHTTP2_STREAM_OPENING : upon receiving request HEADERS
- * NGHTTP2_STREAM_OPENED : upon sending response HEADERS
- * NGHTTP2_STREAM_CLOSING : upon queuing RST_STREAM
+ * HTTP2_STREAM_OPENING : upon receiving request HEADERS
+ * HTTP2_STREAM_OPENED : upon sending response HEADERS
+ * HTTP2_STREAM_CLOSING : upon queuing RST_STREAM
  */
 enum StreamState : ubyte {
     /// Initial state
-    NGHTTP2_STREAM_INITIAL,
+    HTTP2_STREAM_INITIAL,
 
     /// For stream initiator: request HEADERS has been sent, but response HEADERS has not been received yet. 
     /// For receiver: request HEADERS has been received, but it does not send response HEADERS yet. 
-    NGHTTP2_STREAM_OPENING,
+    HTTP2_STREAM_OPENING,
 
     /// For stream initiator: response HEADERS is received. For receiver: response HEADERS is sent.
-    NGHTTP2_STREAM_OPENED,
+    HTTP2_STREAM_OPENED,
 
     /// RST_STREAM is received, but somehow we need to keep stream in memory.
-    NGHTTP2_STREAM_CLOSING,
+    HTTP2_STREAM_CLOSING,
 
     /// PUSH_PROMISE is received or sent
-    NGHTTP2_STREAM_RESERVED,
+    HTTP2_STREAM_RESERVED,
 
     /// Stream is created in this state if it is used as anchor in dependency tree.
-    NGHTTP2_STREAM_IDLE
+    HTTP2_STREAM_IDLE
 }
 
 //http2_shut_flag
@@ -1355,7 +1355,7 @@ enum ShutdownFlag {
     WR = 0x02,
 
     /// Indicates both further receptions and transmissions will be disallowed.
-    RDWR = NGHTTP2_SHUT_RD | NGHTTP2_SHUT_WR
+    RDWR = RD | WR
 }
 
 //http2_stream_flag
@@ -1414,3 +1414,44 @@ enum StreamDPRI {
     REST = 0x04
 }
 
+
+//http2_priority_spec
+/// The structure to specify stream dependency.
+struct PrioritySpecImpl
+{
+	/// The stream ID of the stream to depend on. Specifying 0 makes stream not depend any other stream.
+	Stream parent;
+	int weight;
+	bool exclusive;
+}
+
+alias PrioritySpec = RefCounted!PrioritySpecImpl;
+
+
+/**
+ * @function
+ *
+ * Initializes |pri_spec| with the |stream_id| of the stream to depend
+ * on with |weight| and its exclusive flag.  If |exclusive| is
+ * nonzero, exclusive flag is set.
+ *
+ * The |weight| must be in [$(D HTTP2_MIN_WEIGHT),
+ * $(D HTTP2_MAX_WEIGHT)], inclusive.
+ */
+void http2_priority_spec_init(ref PrioritySpec pri_spec, Stream stream_id, int weight, int exclusive);
+
+/**
+ * @function
+ *
+ * Initializes |pri_spec| with the default values.  The default values
+ * are: stream_id = 0, weight = :macro:`HTTP2_DEFAULT_WEIGHT` and
+ * exclusive = 0.
+ */
+void http2_priority_spec_default_init(http2_priority_spec *pri_spec);
+
+/**
+ * @function
+ *
+ * Returns nonzero if the |pri_spec| is filled with default values.
+ */
+bool http2_priority_spec_check_default(const http2_priority_spec *pri_spec);

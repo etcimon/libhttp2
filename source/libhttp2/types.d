@@ -317,17 +317,6 @@ struct Data
     size_t padlen;
 }
 
-//http2_priority_spec
-/// The structure to specify stream dependency.
-struct PrioritySpecImpl
-{
-    /// The stream ID of the stream to depend on. Specifying 0 makes stream not depend any other stream.
-    Stream parent;
-    int weight;
-    bool exclusive;
-}
-
-alias PrioritySpec = RefCounted!PrioritySpecImpl;
 
 // http2_headers
 /// The HEADERS frame.  It has the following members:

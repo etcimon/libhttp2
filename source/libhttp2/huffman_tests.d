@@ -22,16 +22,6 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-#include "http2_hd_test.h"
-
-#include <stdio.h>
-#include <assert.h>
-
-#include <CUnit/CUnit.h>
-
-#include "http2_hd.h"
-#include "http2_frame.h"
-#include "http2_test_helper.h"
 
 #define GET_TABLE_ENT(context, index) http2_hd_table_get(context, index)
 

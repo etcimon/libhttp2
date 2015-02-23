@@ -47,8 +47,11 @@ const INITIAL_WINDOW_SIZE = ushort.max;
 /// The initial window size for connection level flow control.
 const INITIAL_CONNECTION_WINDOW_SIZE = ushort.max;
 
+/// Default maximum concurrent streams.
+const INITIAL_MAX_CONCURRENT_STREAMS = ((1U << 31) - 1);
+
 /// The default header table size.
-const DEFAULT_HEADER_TABLE_SIZE = (1 << 12);
+const DEFAULT_HEADER_TABLE_SIZE = (1U << 12);
 
 /// The client connection preface.
 const CLIENT_CONNECTION_PREFACE = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
