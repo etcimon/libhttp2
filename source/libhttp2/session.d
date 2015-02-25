@@ -12,6 +12,8 @@ module libhttp2.session;
 import libhttp2.types;
 import libhttp2.frame;
 import libhttp2.stream;
+import libhttp2.policy;
+import libhttp2.huffman_decoder;
 
 import memutils.circularbuffer;
 import memutils.vector;
@@ -162,10 +164,10 @@ private:
     http2_pq /* <http2_outbound_item*> */ ob_da_pq;
 
     ActiveOutboundItem aob;
-    http2_inbound_frame iframe;
-    http2_hd_deflater hd_deflater;
-    http2_hd_inflater hd_inflater;
-    http2_session_callbacks callbacks;
+    InboundFrame iframe;
+    HuffmanDeflater hd_deflater;
+    HuffmanInflater hd_inflater;
+    Policy policy;
 
     /// Sequence number of outbound frame to maintain the order of enqueue if priority is equal.
     long next_seq;
@@ -186,27 +188,24 @@ private:
     ulong last_cycle;
     void *user_data;
 
-    /// Points to the latest closed stream.  NULL if there is no closed stream.  
+    /// Points to the latest closed stream.  null if there is no closed stream.  
     /// Notes: Only used when session is initialized as server.
     Stream closed_stream_head;
 
-    /// Points to the oldest closed stream.  NULL if there is no closed stream.  
+    /// Points to the oldest closed stream.  null if there is no closed stream.  
     /// Notes: Only used when session is initialized as server.
     Stream closed_stream_tail;
 
-    /// Points to the latest idle stream.  NULL if there is no idle stream.  
+    /// Points to the latest idle stream.  null if there is no idle stream.  
     /// Notes: Only used when session is initialized as server .
     Stream idle_stream_head;
 
-    /// Points to the oldest idle stream.  NULL if there is no idle stream. 
+    /// Points to the oldest idle stream.  null if there is no idle stream. 
     /// Notes: Only used when session is initialized as server.
     Stream idle_stream_tail;
 
-    /// In-flight SETTINGS values. NULL does not necessarily mean there is no in-flight SETTINGS. 
-    http2_settings_entry *inflight_iv;
-
-    /// The number of entries in |inflight_iv|. -1 if there is no in-flight SETTINGS.
-    size_t inflight_niv;
+    /// In-flight SETTINGS values. null for no in-flight SETTINGS. 
+	Setting[] inflight_iv;
 
     /// The number of outgoing streams. This will be capped by remote_settings.max_concurrent_streams.
     size_t num_outgoing_streams;
@@ -288,14 +287,14 @@ private:
  * @function
  *
  * Initializes |*session_ptr| for client use.  The all members of
- * |callbacks| are copied to |*session_ptr|.  Therefore |*session_ptr|
- * does not store |callbacks|.  The |user_data| is an arbitrary user
+ * |policy| are copied to |*session_ptr|.  Therefore |*session_ptr|
+ * does not store |policy|.  The |user_data| is an arbitrary user
  * supplied data, which will be passed to the callback functions.
  *
  * The :type:`http2_send_callback` must be specified.  If the
  * application code uses `http2_session_recv()`, the
  * :type:`http2_recv_callback` must be specified.  The other members
- * of |callbacks| can be ``NULL``.
+ * of |policy| can be `null`.
  *
  * If this function fails, |*session_ptr| is left untouched.
  *
@@ -305,22 +304,20 @@ private:
  * $(D ErrorCode.NOMEM)
  *     Out of memory.
  */
-ErrorCode http2_session_client_new(Session *session_ptr,
-                               in Policy callbacks,
-                               void *user_data);
+ErrorCode http2_session_client_new(Session *session_ptr, in Policy policy, void *user_data);
 
 /**
  * @function
  *
  * Initializes |*session_ptr| for server use.  The all members of
- * |callbacks| are copied to |*session_ptr|. Therefore |*session_ptr|
- * does not store |callbacks|.  The |user_data| is an arbitrary user
+ * |policy| are copied to |*session_ptr|. Therefore |*session_ptr|
+ * does not store |policy|.  The |user_data| is an arbitrary user
  * supplied data, which will be passed to the callback functions.
  *
  * The :type:`http2_send_callback` must be specified.  If the
  * application code uses `http2_session_recv()`, the
  * :type:`http2_recv_callback` must be specified.  The other members
- * of |callbacks| can be ``NULL``.
+ * of |policy| can be `null`.
  *
  * If this function fails, |*session_ptr| is left untouched.
  *
@@ -331,7 +328,7 @@ ErrorCode http2_session_client_new(Session *session_ptr,
  *     Out of memory.
  */
 ErrorCode http2_session_server_new(Session *session_ptr,
-                                   in Policy callbacks,
+                                   in Policy policy,
                                    void *user_data);
 
 /**
@@ -340,7 +337,7 @@ ErrorCode http2_session_server_new(Session *session_ptr,
  * Like `http2_session_client_new()`, but with additional options
  * specified in the |option|.
  *
- * The |option| can be ``NULL`` and the call is equivalent to
+ * The |option| can be `null` and the call is equivalent to
  * `http2_session_client_new()`.
  *
  * This function does not take ownership |option|.  The application is
@@ -355,9 +352,7 @@ ErrorCode http2_session_server_new(Session *session_ptr,
  * $(D ErrorCode.NOMEM)
  *     Out of memory.
  */
-ErrorCode http2_session_client_new2(Session *session_ptr,
-                                    in Policy callbacks,
-                                    void *user_data, const http2_option *option);
+ErrorCode http2_session_client_new2(Session *session_ptr, in Policy policy, void *user_data, const http2_option *option);
 
 /**
  * @function
@@ -365,7 +360,7 @@ ErrorCode http2_session_client_new2(Session *session_ptr,
  * Like `http2_session_server_new()`, but with additional options
  * specified in the |option|.
  *
- * The |option| can be ``NULL`` and the call is equivalent to
+ * The |option| can be `null` and the call is equivalent to
  * `http2_session_server_new()`.
  *
  * This function does not take ownership |option|.  The application is
@@ -380,9 +375,7 @@ ErrorCode http2_session_client_new2(Session *session_ptr,
  * $(D ErrorCode.NOMEM)
  *     Out of memory.
  */
-ErrorCode http2_session_server_new2(Session *session_ptr,
-                                in Policy callbacks,
-                                void *user_data, const http2_option *option);
+ErrorCode http2_session_server_new2(Session *session_ptr, in Policy policy, void *user_data, const http2_option *option);
 
 /**
  * @function
@@ -390,7 +383,7 @@ ErrorCode http2_session_server_new2(Session *session_ptr,
  * Like `http2_session_client_new2()`, but with additional custom
  * memory allocator specified in the |mem|.
  *
- * The |mem| can be ``NULL`` and the call is equivalent to
+ * The |mem| can be `null` and the call is equivalent to
  * `http2_session_client_new2()`.
  *
  * This function does not take ownership |mem|.  The application is
@@ -405,10 +398,7 @@ ErrorCode http2_session_server_new2(Session *session_ptr,
  * $(D ErrorCode.NOMEM)
  *     Out of memory.
  */
-ErrorCode http2_session_client_new3(Session *session_ptr,
-                                    in Policy callbacks,
-                                    void *user_data, const http2_option *option,
-                                    http2_mem *mem);
+ErrorCode http2_session_client_new3(Session *session_ptr, in Policy policy, void *user_data, const http2_option *option, http2_mem *mem);
 
 /**
  * @function
@@ -416,7 +406,7 @@ ErrorCode http2_session_client_new3(Session *session_ptr,
  * Like `http2_session_server_new2()`, but with additional custom
  * memory allocator specified in the |mem|.
  *
- * The |mem| can be ``NULL`` and the call is equivalent to
+ * The |mem| can be `null` and the call is equivalent to
  * `http2_session_server_new2()`.
  *
  * This function does not take ownership |mem|.  The application is
@@ -432,7 +422,7 @@ ErrorCode http2_session_client_new3(Session *session_ptr,
  *     Out of memory.
  */
 ErrorCode http2_session_server_new3(Session *session_ptr,
-                                    in Policy callbacks,
+                                    in Policy policy,
                                     void *user_data, const http2_option *option,
                                     http2_mem *mem);
 
@@ -440,7 +430,7 @@ ErrorCode http2_session_server_new3(Session *session_ptr,
  * @function
  *
  * Frees any resources allocated for |session|.  If |session| is
- * ``NULL``, this function does nothing.
+ * `null`, this function does nothing.
  */
 void http2_session_del(Session session);
 
@@ -501,7 +491,7 @@ ErrorCode http2_session_send(Session session);
  * This function behaves like `http2_session_send()` except that it
  * does not use :type:`http2_send_callback` to transmit data.
  * Instead, it assigns the pointer to the serialized data to the
- * |*data_ptr| and returns its length.  The other callbacks are called
+ * |*data_ptr| and returns its length.  The other policy are called
  * in the same way as they are in `http2_session_send()`.
  *
  * If no data is available to send, this function returns 0.
@@ -523,8 +513,7 @@ ErrorCode http2_session_send(Session session);
  * $(D ErrorCode.NOMEM)
  *     Out of memory.
  */
-size_t http2_session_mem_send(Session session,
-                                 const ubyte **data_ptr);
+size_t http2_session_mem_send(Session session, const ubyte **data_ptr);
 
 /**
  * @function
@@ -600,7 +589,7 @@ ErrorCode http2_session_recv(Session session);
  * This function behaves like `http2_session_recv()` except that it
  * does not use :type:`http2_recv_callback` to receive data; the
  * |in| is the only data for the invocation of this function.  If all
- * bytes are processed, this function returns.  The other callbacks
+ * bytes are processed, this function returns.  The other policy
  * are called in the same way as they are in `http2_session_recv()`.
  *
  * In the current implementation, this function always tries to
@@ -675,8 +664,8 @@ bool http2_session_want_write(Session session);
  * `http2_session_set_stream_user_data()`.  Unless it is set using
  * `http2_session_set_stream_user_data()`, if the stream is
  * initiated by the remote endpoint, stream_user_data is always
- * ``NULL``.  If the stream does not exist, this function returns
- * ``NULL``.
+ * `null`.  If the stream does not exist, this function returns
+ * `null`.
  */
 void *http2_session_get_stream_user_data(Session session, int stream_id);
 
@@ -686,7 +675,7 @@ void *http2_session_get_stream_user_data(Session session, int stream_id);
  * Sets the |stream_user_data| to the stream denoted by the
  * |stream_id|.  If a stream user data is already set to the stream,
  * it is replaced with the |stream_user_data|.  It is valid to specify
- * ``NULL`` in the |stream_user_data|, which nullifies the associated
+ * `null` in the |stream_user_data|, which nullifies the associated
  * data pointer.
  *
  * It is valid to set the |stream_user_data| to the stream reserved by
@@ -722,8 +711,7 @@ size_t http2_session_get_outbound_queue_size(Session session);
  *
  * This function returns -1 if it fails.
  */
-int
-http2_session_get_stream_effective_recv_data_length(Session session, int stream_id);
+int http2_session_get_stream_effective_recv_data_length(Session session, int stream_id);
 
 /**
  * @function
@@ -735,8 +723,7 @@ http2_session_get_stream_effective_recv_data_length(Session session, int stream_
  *
  * This function returns -1 if it fails.
  */
-int
-http2_session_get_stream_effective_local_window_size(Session session, int stream_id);
+int http2_session_get_stream_effective_local_window_size(Session session, int stream_id);
 
 /**
  * @function
@@ -752,8 +739,7 @@ http2_session_get_stream_effective_local_window_size(Session session, int stream
  *
  * This function returns -1 if it fails.
  */
-int
-http2_session_get_effective_recv_data_length(Session session);
+int http2_session_get_effective_recv_data_length(Session session);
 
 /**
  * @function
@@ -765,8 +751,7 @@ http2_session_get_effective_recv_data_length(Session session);
  *
  * This function returns -1 if it fails.
  */
-int
-http2_session_get_effective_local_window_size(Session session);
+int http2_session_get_effective_local_window_size(Session session);
 
 /**
  * @function
@@ -799,8 +784,7 @@ int http2_session_get_remote_window_size(Session session);
  * Returns 1 if local peer half closed the given stream |stream_id|.
  * Returns 0 if it did not.  Returns -1 if no such stream exists.
  */
-bool http2_session_get_stream_local_close(Session session,
-                                           int stream_id);
+bool http2_session_get_stream_local_close(Session session, int stream_id);
 
 /**
  * @function
@@ -808,8 +792,7 @@ bool http2_session_get_stream_local_close(Session session,
  * Returns 1 if remote peer half closed the given stream |stream_id|.
  * Returns 0 if it did not.  Returns -1 if no such stream exists.
  */
-bool http2_session_get_stream_remote_close(Session session,
-                                            int stream_id);
+bool http2_session_get_stream_remote_close(Session session, int stream_id);
 
 /**
  * @function
@@ -838,7 +821,7 @@ bool http2_session_get_stream_remote_close(Session session,
  *     Out of memory.
  */
 ErrorCode http2_session_terminate_session(Session session,
-                                      uint error_code);
+                                      FrameError error_code);
 
 /**
  * @function
@@ -866,9 +849,7 @@ ErrorCode http2_session_terminate_session(Session session,
  * $(D ErrorCode.INVALID_ARGUMENT)
  *     The |last_stream_id| is invalid.
  */
-ErrorCode http2_session_terminate_session2(Session session,
-                                       int last_stream_id,
-                                       uint error_code);
+ErrorCode http2_session_terminate_session2(Session session, int last_stream_id, FrameError error_code);
 
 /**
  * @function
@@ -962,8 +943,7 @@ uint http2_session_get_next_stream_id(Session session);
  * $(D ErrorCode.INVALID_STATE)
  *     Automatic WINDOW_UPDATE is not disabled.
  */
-ErrorCode http2_session_consume(Session session, int stream_id,
-                            size_t size);
+ErrorCode http2_session_consume(Session session, int stream_id, size_t size);
 
 /**
  * @function
@@ -973,7 +953,7 @@ ErrorCode http2_session_consume(Session session, int stream_id,
  * different in each other.
  *
  * If called from client side, the |settings_payload| must be the
- * value sent in ``HTTP2-Settings`` header field and must be decoded
+ * value sent in `HTTP2-Settings` header field and must be decoded
  * by base64url decoder.  The |settings_payloadlen| is the length of
  * |settings_payload|.  The |settings_payload| is unpacked and its
  * setting values will be submitted using `http2_submit_settings()`.
@@ -983,7 +963,7 @@ ErrorCode http2_session_consume(Session session, int stream_id,
  * stream becomes half-closed (local) state.
  *
  * If called from server side, the |settings_payload| must be the
- * value received in ``HTTP2-Settings`` header field and must be
+ * value received in `HTTP2-Settings` header field and must be
  * decoded by base64url decoder.  The |settings_payloadlen| is the
  * length of |settings_payload|.  It is treated as if the SETTINGS
  * frame with that payload is received.  Thus, callback functions for
@@ -1011,9 +991,9 @@ ErrorCode http2_session_upgrade(Session session,
  * Serializes the SETTINGS values |iv| in the |buf|.  The size of the
  * |buf| is specified by |buflen|.  The number of entries in the |iv|
  * array is given by |niv|.  The required space in |buf| for the |niv|
- * entries is ``8*niv`` bytes and if the given buffer is too small, an
+ * entries is `8*niv` bytes and if the given buffer is too small, an
  * error is returned.  This function is used mainly for creating a
- * SETTINGS payload to be sent with the ``HTTP2-Settings`` header
+ * SETTINGS payload to be sent with the `HTTP2-Settings` header
  * field in an HTTP Upgrade request.  The data written in |buf| is NOT
  * base64url encoded and the application is responsible for encoding.
  *
@@ -1041,10 +1021,10 @@ string http2_strerror(ErrorCode lib_error_code);
  *
  * Submits HEADERS frame and optionally one or more DATA frames.
  *
- * The |pri_spec| is priority specification of this request.  ``NULL``
+ * The |pri_spec| is priority specification of this request.  `null`
  * means the default priority (see
  * `http2_priority_spec_default_init()`).  To specify the priority,
- * use `http2_priority_spec_init()`.  If |pri_spec| is not ``NULL``,
+ * use `http2_priority_spec_init()`.  If |pri_spec| is not `null`,
  * this function will copy its data members.
  *
  * The `pri_spec->weight` must be in [$(D HTTP2_MIN_WEIGHT),
@@ -1066,13 +1046,13 @@ string http2_strerror(ErrorCode lib_error_code);
  * HTTP/2 specification has requirement about header fields in the
  * request HEADERS.  See the specification for more details.
  *
- * If |data_prd| is not ``NULL``, it provides data which will be sent
+ * If |data_prd| is not `null`, it provides data which will be sent
  * in subsequent DATA frames.  In this case, a method that allows
  * request message bodies
  * (http://www.w3.org/Protocols/rfc2616/rfc2616-sec9.html#sec9) must
- * be specified with ``:method`` key in |nva| (e.g. ``POST``).  This
+ * be specified with `:method` key in |nva| (e.g. `POST`).  This
  * function does not take ownership of the |data_prd|.  The function
- * copies the members of the |data_prd|.  If |data_prd| is ``NULL``,
+ * copies the members of the |data_prd|.  If |data_prd| is `null`,
  * HEADERS have END_STREAM set.  The |stream_user_data| is data
  * associated to the stream opened by this request and can be an
  * arbitrary pointer, which can be retrieved later by
@@ -1121,10 +1101,10 @@ ErrorCode http2_submit_request(Session session,
  * HTTP/2 specification has requirement about header fields in the
  * response HEADERS.  See the specification for more details.
  *
- * If |data_prd| is not ``NULL``, it provides data which will be sent
+ * If |data_prd| is not `null`, it provides data which will be sent
  * in subsequent DATA frames.  This function does not take ownership
  * of the |data_prd|.  The function copies the members of the
- * |data_prd|.  If |data_prd| is ``NULL``, HEADERS will have
+ * |data_prd|.  If |data_prd| is `null`, HEADERS will have
  * END_STREAM flag set.
  *
  * This method can be used as normal HTTP response and push response.
@@ -1175,10 +1155,10 @@ ErrorCode http2_submit_response(Session session, int stream_id,
  * assigned stream ID will be returned.  Otherwise, specify stream ID
  * in |stream_id|.
  *
- * The |pri_spec| is priority specification of this request.  ``NULL``
+ * The |pri_spec| is priority specification of this request.  `null`
  * means the default priority (see
  * `http2_priority_spec_default_init()`).  To specify the priority,
- * use `http2_priority_spec_init()`.  If |pri_spec| is not ``NULL``,
+ * use `http2_priority_spec_init()`.  If |pri_spec| is not `null`,
  * this function will copy its data members.
  *
  * The `pri_spec->weight` must be in [$(D HTTP2_MIN_WEIGHT),
@@ -1278,7 +1258,7 @@ ErrorCode http2_submit_data(Session session, FrameFlags flags, int stream_id, in
  * The |flags| is currently ignored and should be
  * $(D FrameFlags.NONE).
  *
- * The |pri_spec| is priority specification of this request.  ``NULL``
+ * The |pri_spec| is priority specification of this request.  `null`
  * is not allowed for this function. To specify the priority, use
  * `http2_priority_spec_init()`.  This function will copy its data
  * members.
@@ -1295,7 +1275,7 @@ ErrorCode http2_submit_data(Session session, FrameFlags flags, int stream_id, in
  * $(D ErrorCode.NOMEM)
  *     Out of memory.
  * $(D ErrorCode.INVALID_ARGUMENT)
- *     The |stream_id| is 0; or the |pri_spec| is NULL; or trying to
+ *     The |stream_id| is 0; or the |pri_spec| is null; or trying to
  *     depend on itself.
  */
 ErrorCode http2_submit_priority(Session session, ubyte flags, int stream_id, const ref PrioritySpec pri_spec);
@@ -1415,9 +1395,9 @@ ErrorCode http2_submit_push_promise(Session session, int stream_id, in NVPair[] 
  * The |flags| is currently ignored and should be
  * $(D FrameFlags.NONE).
  *
- * If the |opaque_data| is non ``NULL``, then it should point to the 8
+ * If the |opaque_data| is non `null`, then it should point to the 8
  * bytes array of memory to specify opaque data to send with PING
- * frame.  If the |opaque_data| is ``NULL``, zero-cleared 8 bytes will
+ * frame.  If the |opaque_data| is `null`, zero-cleared 8 bytes will
  * be sent as opaque data.
  *
  * This function returns 0 if it succeeds, or one of the following
@@ -1450,12 +1430,12 @@ ErrorCode http2_submit_ping(Session session, ubyte flags, const ubyte *opaque_da
  * |last_stream_id| and the last_stream_id previously sent to the
  * peer.
  *
- * If the |opaque_data| is not ``NULL`` and |opaque_data_len| is not
+ * If the |opaque_data| is not `null` and |opaque_data_len| is not
  * zero, those data will be sent as additional debug data.  The
  * library makes a copy of the memory region pointed by |opaque_data|
  * with the length |opaque_data_len|, so the caller does not need to
  * keep this memory after the return of this function.  If the
- * |opaque_data_len| is 0, the |opaque_data| could be ``NULL``.
+ * |opaque_data_len| is 0, the |opaque_data| could be `null`.
  *
  * After successful transmission of GOAWAY, following things happen.
  * All incoming streams having strictly more than |last_stream_id| are
@@ -1474,7 +1454,7 @@ ErrorCode http2_submit_ping(Session session, ubyte flags, const ubyte *opaque_da
  *     invalid.
  */
 ErrorCode http2_submit_goaway(Session session, ubyte flags,
-                          int last_stream_id, uint error_code,
+                          int last_stream_id, FrameError error_code,
                           const ubyte *opaque_data, size_t opaque_data_len);
 
 /**
@@ -1529,11 +1509,11 @@ ErrorCode http2_submit_window_update(Session session, ubyte flags,
 /**
  * @function
  *
- * Compares ``lhs->name`` of length ``lhs->namelen`` bytes and
- * ``rhs->name`` of length ``rhs->namelen`` bytes.  Returns negative
- * integer if ``lhs->name`` is found to be less than ``rhs->name``; or
- * returns positive integer if ``lhs->name`` is found to be greater
- * than ``rhs->name``; or returns 0 otherwise.
+ * Compares `lhs->name` of length `lhs->namelen` bytes and
+ * `rhs->name` of length `rhs->namelen` bytes.  Returns negative
+ * integer if `lhs->name` is found to be less than `rhs->name`; or
+ * returns positive integer if `lhs->name` is found to be greater
+ * than `rhs->name`; or returns 0 otherwise.
  */
 int http2_nv_compare_name(const http2_nv *lhs, const http2_nv *rhs);
 
@@ -1543,8 +1523,8 @@ int http2_nv_compare_name(const http2_nv *lhs, const http2_nv *rhs);
  * A helper function for dealing with NPN in client side or ALPN in
  * server side.  The |in| contains peer's protocol list in preferable
  * order.  The format of |in| is length-prefixed and not
- * null-terminated.  For example, ``HTTP-draft-04/2.0`` and
- * ``http/1.1`` stored in |in| like this::
+ * null-terminated.  For example, `HTTP-draft-04/2.0` and
+ * `http/1.1` stored in |in| like this::
  *
  *     in[0] = 17
  *     in[1..17] = "HTTP-draft-04/2.0"
@@ -1557,14 +1537,14 @@ int http2_nv_compare_name(const http2_nv *lhs, const http2_nv *rhs);
  * 1. If peer's list contains HTTP/2 protocol the library supports,
  *    it is selected and returns 1. The following step is not taken.
  *
- * 2. If peer's list contains ``http/1.1``, this function selects
- *    ``http/1.1`` and returns 0.  The following step is not taken.
+ * 2. If peer's list contains `http/1.1`, this function selects
+ *    `http/1.1` and returns 0.  The following step is not taken.
  *
  * 3. This function selects nothing and returns -1 (So called
  *    non-overlap case).  In this case, |out| and |outlen| are left
  *    untouched.
  *
- * Selecting ``HTTP-draft-04/2.0`` means that ``HTTP-draft-04/2.0`` is
+ * Selecting `HTTP-draft-04/2.0` means that `HTTP-draft-04/2.0` is
  * written into |*out| and its length (which is 17) is assigned to
  * |*outlen|.
  *
@@ -1603,7 +1583,7 @@ int http2_select_next_protocol(ref char[] output, in char[] input);
  * about the run-time library in use.  The |least_version| argument
  * can be set to a 24 bit numerical value for the least accepted
  * version number and if the condition is not met, this function will
- * return a ``NULL``.  Pass in 0 to skip the version checking.
+ * return a `null`.  Pass in 0 to skip the version checking.
  */
 http2_info *http2_version(int least_version);
 
@@ -1687,9 +1667,9 @@ ErrorCode http2_session_add_rst_stream(Session session, int stream_id,
  * Adds PING frame. This is a convenient functin built on top of
  * http2_session_add_frame() to add PING easily.
  *
- * If the |opaque_data| is not NULL, it must point to 8 bytes memory
+ * If the |opaque_data| is not null, it must point to 8 bytes memory
  * region of data. The data pointed by |opaque_data| is copied. It can
- * be NULL. In this case, 8 bytes NULL is used.
+ * be null. In this case, 8 bytes null is used.
  *
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
@@ -1760,7 +1740,7 @@ ErrorCode http2_session_add_settings(Session session, uint8_t flags,
  * HTTP2_STREAM_FLAG_PUSH flag set.
  *
  * This function returns a pointer to created new stream object, or
- * NULL.
+ * null.
  */
 Stream http2_session_open_stream(Session session,
 	int stream_id, uint8_t flags,
@@ -2018,8 +1998,8 @@ ErrorCode http2_session_on_data_received(Session session, http2_frame *frame);
 
 /*
  * Returns http2_stream* object whose stream ID is |stream_id|.  It
- * could be NULL if such stream does not exist.  This function returns
- * NULL if stream is marked as closed.
+ * could be null if such stream does not exist.  This function returns
+ * null if stream is marked as closed.
  */
 Stream http2_session_get_stream(Session session,
 	int stream_id);
@@ -2049,31 +2029,29 @@ Stream http2_session_get_stream_raw(Session session,
  * ErrorCode.CALLBACK_FAILURE
  *     The read_callback failed (session error).
  */
-ErrorCode http2_session_pack_data(Session session, http2_bufs *bufs,
-	size_t datamax, http2_frame *frame,
-	http2_data_aux_data *aux_data);
+ErrorCode http2_session_pack_data(Session session, http2_bufs *bufs, size_t datamax, http2_frame *frame, http2_data_aux_data *aux_data);
 
 /*
- * Returns top of outbound frame queue. This function returns NULL if
+ * Returns top of outbound frame queue. This function returns null if
  * queue is empty.
  */
 ref OutboundItem http2_session_get_ob_pq_top(Session session);
 
 /*
  * Pops and returns next item to send. If there is no such item,
- * returns NULL.  This function takes into account max concurrent
+ * returns null.  This function takes into account max concurrent
  * streams. That means if session->ob_pq is empty but
  * session->ob_ss_pq has item and max concurrent streams is reached,
- * then this function returns NULL.
+ * then this function returns null.
  */
 ref OutboundItem http2_session_pop_next_ob_item(Session session);
 
 /*
  * Returns next item to send. If there is no such item, this function
- * returns NULL.  This function takes into account max concurrent
+ * returns null.  This function takes into account max concurrent
  * streams. That means if session->ob_pq is empty but
  * session->ob_ss_pq has item and max concurrent streams is reached,
- * then this function returns NULL.
+ * then this function returns null.
  */
 ref OutboundItem 
 	http2_session_get_next_ob_item(Session session);
@@ -2112,7 +2090,7 @@ ErrorCode http2_session_reprioritize_stream(Session session, Stream stream, in P
 
 /*
  * Terminates current |session| with the |error_code|.  The |reason|
- * is NULL-terminated debug string.
+ * is null-terminated debug string.
  *
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
@@ -2279,7 +2257,7 @@ ErrorCode http2_option_new(http2_option **option_ptr);
  * @function
  *
  * Frees any resources allocated for |option|.  If |option| is
- * ``NULL``, this function does nothing.
+ * `null`, this function does nothing.
  */
 void http2_option_del(http2_option *option);
 
@@ -2346,7 +2324,7 @@ void http2_option_set_no_http_messaging(http2_option *option, int val);
 int nghttp2_option_new(nghttp2_option **option_ptr) {
 	*option_ptr = calloc(1, sizeof(nghttp2_option));
 	
-	if (*option_ptr == NULL) {
+	if (*option_ptr == null) {
 		return NGHTTP2_ERR_NOMEM;
 	}
 	

@@ -401,7 +401,7 @@ size_t http2_hd_decode_length(uint *res, size_t *shift_ptr, int *final_, uint in
  * and points where next output should be placed. The number of
  * unfilled bits in the pointed location is returned.
  */
-long huff_encode_sym(http2_bufs *bufs, size_t *avail_ptr, size_t rembits, const http2_huff_sym *sym) {
+int huff_encode_sym(http2_bufs *bufs, size_t *avail_ptr, size_t rembits, const http2_huff_sym *sym) {
     int rv;
     size_t nbits = sym.nbits;
     uint code = sym.code;
@@ -469,7 +469,7 @@ long huff_encode_sym(http2_bufs *bufs, size_t *avail_ptr, size_t rembits, const 
     
     http2_bufs_fast_addb_hold(bufs, code);
     *avail_ptr = http2_bufs_cur_avail(bufs);
-    return cast(long)(8 - nbits);
+    return cast(int)(8 - nbits);
 }
 
 /* Huffman encoding/decoding functions */
@@ -573,7 +573,7 @@ void http2_hd_huff_decode_context_init(http2_hd_huff_decode_context *ctx)
  * HTTP2_ERR_HEADER_COMP
  *     Decoding process has failed.
  */
-long http2_hd_huff_decode(http2_hd_huff_decode_context *ctx, http2_bufs *bufs, in ubyte[] src, int final_)
+int http2_hd_huff_decode(http2_hd_huff_decode_context *ctx, http2_bufs *bufs, in ubyte[] src, int final_)
 {
     size_t i, j;
     int rv;
@@ -612,13 +612,13 @@ long http2_hd_huff_decode(http2_hd_huff_decode_context *ctx, http2_bufs *bufs, i
     if (final_ && !ctx.accept) {
         return HTTP2_ERR_HEADER_COMP;
     }
-    return cast(size_t)i;
+    return cast(int)i;
 }
 
 const STATIC_TABLE_LENGTH = 61;
 
 /* Make scalar initialization form of http2_nv */
-string MAKE_STATIC_ENT(int I, string N, string V, long NH, long VH) {
+string MAKE_STATIC_ENT(int I, string N, string V, int NH, int VH) {
     return `StaticEntry( HDEntry( NVPair( ` ~ N ~ `, ` ~ V ~ `, NVFlags.NONE), ` ~ NH.to!string ~ `, ` ~ VH.to!string ~ `, 1, HDFlags.NONE ) , ` ~ I ~ `)`;
 }
 
@@ -756,9 +756,7 @@ ErrorCode http2_hd_deflate_new(http2_hd_deflater **deflater_ptr,
  * The library code does not refer to |mem| pointer after this
  * function returns, so the application can safely free it.
  */
-ErrorCode http2_hd_deflate_new2(http2_hd_deflater **deflater_ptr,
-	size_t deflate_hd_table_bufsize_max,
-	http2_mem *mem);
+ErrorCode http2_hd_deflate_new2(http2_hd_deflater **deflater_ptr, size_t deflate_hd_table_bufsize_max, http2_mem *mem);
 
 /**
  * @function
@@ -1185,7 +1183,7 @@ static size_t encode_length(ubyte *buf, size_t n, size_t prefix) {
  * in the next call will be stored in |*shift_ptr|) and returns number
  * of bytes processed, or returns -1, indicating decoding error.
  */
-static size_t decode_length(uint *res, size_t *shift_ptr, int *final_,
+static int decode_length(uint *res, size_t *shift_ptr, int *final_,
     uint initial, size_t shift, ubyte *input,
     ubyte *last, size_t prefix) {
     uint k = (1 << prefix) - 1;
@@ -1206,7 +1204,7 @@ static size_t decode_length(uint *res, size_t *shift_ptr, int *final_,
         
         if (++input == last) {
             *res = n;
-            return cast(size_t)(input - start);
+            return cast(int)(input - start);
         }
     }
     
@@ -1236,12 +1234,12 @@ static size_t decode_length(uint *res, size_t *shift_ptr, int *final_,
     
     if (input == last) {
         *res = n;
-        return cast(size_t)(input - start);
+        return cast(int)(input - start);
     }
     
     *res = n;
     *final_ = 1;
-    return cast(size_t)(input + 1 - start);
+    return cast(int)(input + 1 - start);
 }
 
 static int emit_table_size(http2_bufs *bufs, size_t table_size) {
@@ -1526,10 +1524,9 @@ struct SearchResult {
     ubyte name_value_match;
 }
 
-static search_result search_hd_table(http2_hd_context *context,
-    const http2_nv *nv, uint name_hash,
+static search_result search_hd_table(http2_hd_context *context, const http2_nv *nv, uint name_hash,
     uint value_hash) {
-    size_t left = -1, right = cast(size_t)STATIC_TABLE_LENGTH;
+    size_t left = -1, right = cast(int)STATIC_TABLE_LENGTH;
     search_result res = {-1, 0};
     size_t i;
     int use_index = (nv.flags & NVFlags.NO_INDEX) == 0;
@@ -1544,11 +1541,11 @@ static search_result search_hd_table(http2_hd_context *context,
             }
             
             if (res.index == -1) {
-                res.index = cast(size_t)(i + HTTP2_STATIC_TABLE_LENGTH);
+                res.index = cast(int)(i + HTTP2_STATIC_TABLE_LENGTH);
             }
             
             if (ent.value_hash == value_hash && value_eq(&ent.nv, nv)) {
-                res.index = cast(size_t)(i + HTTP2_STATIC_TABLE_LENGTH);
+                res.index = cast(int)(i + HTTP2_STATIC_TABLE_LENGTH);
                 res.name_value_match = 1;
                 return res;
             }
@@ -1573,11 +1570,11 @@ static search_result search_hd_table(http2_hd_context *context,
         
         if (name_eq(&ent.nv, nv)) {
             if (res.index == -1) {
-                res.index = cast(size_t)(static_table[i].index);
+                res.index = cast(int)(static_table[i].index);
             }
             if (use_index && ent.value_hash == value_hash &&
                 value_eq(&ent.nv, nv)) {
-                res.index = cast(size_t)(static_table[i].index);
+                res.index = cast(int)(static_table[i].index);
                 res.name_value_match = 1;
                 return res;
             }
@@ -1703,7 +1700,7 @@ static int deflate_nv(http2_hd_deflater *deflater, http2_bufs *bufs,
     
     if (hd_deflate_should_indexing(deflater, nv)) {
         http2_hd_entry *new_ent;
-        if (idx != -1 && idx < cast(size_t)HTTP2_STATIC_TABLE_LENGTH) {
+        if (idx != -1 && idx < cast(int)HTTP2_STATIC_TABLE_LENGTH) {
             http2_nv nv_indname;
             nv_indname = *nv;
             nv_indname.name = http2_hd_table_get(&deflater.ctx, idx).nv.name;
@@ -1817,7 +1814,7 @@ size_t http2_hd_deflate_hd(http2_hd_deflater *deflater, ubyte *buf,
         return rv;
     }
     
-    return cast(size_t)buflen;
+    return cast(int)buflen;
 }
 
 size_t http2_hd_deflate_bound(http2_hd_deflater *deflater, in NVPair[] nva) {
@@ -1982,15 +1979,15 @@ static size_t hd_inflate_read_huff(HuffmanInflater inflater, http2_bufs *bufs, u
  *     Out of buffer space.
  */
 static size_t hd_inflate_read(HuffmanInflater inflater,
-    http2_bufs *bufs, ubyte *in, ubyte *last) {
+    http2_bufs *bufs, ubyte *input, ubyte *last) {
     int rv;
-    size_t len = http2_min(cast(size_t)(last - in), inflater.left);
-    rv = http2_bufs_add(bufs, in, len);
+    size_t len = http2_min(cast(size_t)(last - input), inflater.left);
+    rv = http2_bufs_add(bufs, input, len);
     if (rv != 0) {
         return rv;
     }
     inflater.left -= len;
-    return cast(size_t)len;
+    return cast(int)len;
 }
 
 /*
@@ -2213,7 +2210,7 @@ static int hd_inflate_commit_indname(HuffmanInflater inflater,
     return 0;
 }
 
-long http2_hd_inflate_hd(HuffmanInflater inflater, http2_nv *nv_out, ref int inflate_flags, ubyte[] input, int in_final)
+int http2_hd_inflate_hd(HuffmanInflater inflater, http2_nv *nv_out, ref int inflate_flags, ubyte[] input, int in_final)
 {
     ubyte* pos = input.ptr;
     size_t rv = 0;
@@ -2319,7 +2316,7 @@ long http2_hd_inflate_hd(HuffmanInflater inflater, http2_nv *nv_out, ref int inf
                     /* If rv == 1, no header was emitted */
                     if (rv == 0) {
                         *inflate_flags |= InflateFlag.EMIT;
-                        return cast(long)(pos - first);
+                        return cast(int)(pos - first);
                     }
                 } else {
                     inflater.index = inflater.left;
@@ -2436,7 +2433,7 @@ long http2_hd_inflate_hd(HuffmanInflater inflater, http2_nv *nv_out, ref int inf
                     }
                     inflater.state = InflateState.OPCODE;
                     inflate_flags |= InflateFlag.EMIT;
-                    return cast(long)(pos - first);
+                    return cast(int)(pos - first);
                 }
                 
                 if (inflater.huffman_encoded) {
@@ -2477,7 +2474,7 @@ long http2_hd_inflate_hd(HuffmanInflater inflater, http2_nv *nv_out, ref int inf
                 inflater.state = InflateState.OPCODE;
                 inflate_flags |= InflateFlag.EMIT;
                 
-                return cast(long)(pos - first);
+                return cast(int)(pos - first);
             case InflateState.READ_VALUE:
                 rv = hd_inflate_read(inflater, &inflater.nvbufs, pos, last);
                 if (rv < 0) {
@@ -2508,7 +2505,7 @@ long http2_hd_inflate_hd(HuffmanInflater inflater, http2_nv *nv_out, ref int inf
                 inflater.state = InflateState.OPCODE;
                 inflate_flags |= InflateFlag.EMIT;
                 
-                return cast(long)(pos - first);
+                return cast(int)(pos - first);
         }
     }
     
@@ -2528,7 +2525,7 @@ long http2_hd_inflate_hd(HuffmanInflater inflater, http2_nv *nv_out, ref int inf
         }
         inflate_flags |= InflateFlag.FINAL;
     }
-    return cast(long)(pos - first);
+    return cast(int)(pos - first);
     
 almost_ok:
     if (in_final && inflater.state != InflateState.OPCODE) {
@@ -2538,7 +2535,7 @@ almost_ok:
         
         goto fail;
     }
-    return cast(size_t)(pos - first);
+    return cast(int)(pos - first);
     
 fail:
     DEBUGF(fprintf(stderr, "inflatehd: error return %zd\n", rv));

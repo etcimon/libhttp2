@@ -29,6 +29,8 @@ import libhttp2.types;
 import libhttp2.frame;
 import std.algorithm : max;
 
+const MAX_DEP_TREE_LENGTH = 100;
+
 alias StreamRoots = RefCounted!StreamRootsImpl;
 class StreamRootsImpl {
     void http2_stream_roots_init(http2_stream_roots *roots) {
@@ -123,7 +125,7 @@ class StreamImpl {
         m_closed_prev = null;
         m_closed_next = null;
         
-        m_dpri = HTTP2_STREAM_DPRI_NO_ITEM;
+        m_dpri = StreamDPRI.NO_ITEM;
         m_num_substreams = 1;
         m_weight = weight;
         m_effective_weight = m_weight;
@@ -278,18 +280,18 @@ class StreamImpl {
                 m_sum_norest_weight, m_sum_top_weight));
         
         /* m_sum_norest_weight == 0 means there is no
-     HTTP2_STREAM_DPRI_TOP under stream */
-        if (m_dpri != HTTP2_STREAM_DPRI_NO_ITEM ||
+     StreamDPRI.TOP under stream */
+        if (m_dpri != StreamDPRI.NO_ITEM ||
             m_sum_norest_weight == 0) {
             return;
         }
         
         /* If there is no direct descendant whose dpri is
-     HTTP2_STREAM_DPRI_TOP, indirect descendants have the chance to
+     StreamDPRI.TOP, indirect descendants have the chance to
      send data, so recursively set weight for descendants. */
         if (m_sum_top_weight == 0) {
             for (si = m_dep_next; si; si = si.sib_next) {
-                if (si.dpri != HTTP2_STREAM_DPRI_REST) {
+                if (si.dpri != StreamDPRI.REST) {
                     si.effective_weight =
                         http2_stream_dep_distributed_effective_weight(stream, si.weight);
                 }
@@ -300,11 +302,11 @@ class StreamImpl {
         }
         
         /* If there is at least one direct descendant whose dpri is
-     HTTP2_STREAM_DPRI_TOP, we won't give a chance to indirect
+     StreamDPRI.TOP, we won't give a chance to indirect
      descendants, since closed or blocked stream's weight is
      distributed among its siblings */
         for (si = m_dep_next; si; si = si.sib_next) {
-            if (si.dpri == HTTP2_STREAM_DPRI_TOP) {
+            if (si.dpri == StreamDPRI.TOP) {
                 si.effective_weight =
                     stream_dep_distributed_top_effective_weight(stream, si.weight);
                 
@@ -314,12 +316,12 @@ class StreamImpl {
                 continue;
             }
             
-            if (si.dpri == HTTP2_STREAM_DPRI_NO_ITEM) {
+            if (si.dpri == StreamDPRI.NO_ITEM) {
                 DEBUGF(fprintf(stderr, "stream: stream=%d no_item, ignored\n",
                         si.stream_id));
                 
-                /* Since we marked HTTP2_STREAM_DPRI_TOP under si, we make
-         them HTTP2_STREAM_DPRI_REST again. */
+                /* Since we marked StreamDPRI.TOP under si, we make
+         them StreamDPRI.REST again. */
                 stream_update_dep_set_rest(si.dep_next);
             } else {
                 DEBUGF(
@@ -335,12 +337,12 @@ class StreamImpl {
         
         DEBUGF(fprintf(stderr, "stream: stream=%d is rest\n", m_stream_id));
         
-        if (m_dpri == HTTP2_STREAM_DPRI_REST) {
+        if (m_dpri == StreamDPRI.REST) {
             return;
         }
         
-        if (m_dpri == HTTP2_STREAM_DPRI_TOP) {
-            m_dpri = HTTP2_STREAM_DPRI_REST;
+        if (m_dpri == StreamDPRI.TOP) {
+            m_dpri = StreamDPRI.REST;
             
             stream_update_dep_set_rest(m_sib_next);
             
@@ -353,20 +355,20 @@ class StreamImpl {
     
     /*
  * Performs dfs starting |stream|, search stream which can become
- * HTTP2_STREAM_DPRI_TOP and set its dpri.
+ * StreamDPRI.TOP and set its dpri.
  */
     static void stream_update_dep_set_top(http2_stream *stream) {
         http2_stream *si;
         
-        if (m_dpri == HTTP2_STREAM_DPRI_TOP) {
+        if (m_dpri == StreamDPRI.TOP) {
             return;
         }
         
-        if (m_dpri == HTTP2_STREAM_DPRI_REST) {
+        if (m_dpri == StreamDPRI.REST) {
             DEBUGF(
                 fprintf(stderr, "stream: stream=%d item is top\n", m_stream_id));
             
-            m_dpri = HTTP2_STREAM_DPRI_TOP;
+            m_dpri = StreamDPRI.TOP;
             
             return;
         }
@@ -378,7 +380,7 @@ class StreamImpl {
     
     /*
  * Performs dfs starting |stream|, and dueue stream whose dpri is
- * HTTP2_STREAM_DPRI_TOP and has not been queued yet.
+ * StreamDPRI.TOP and has not been queued yet.
  *
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
@@ -391,11 +393,11 @@ class StreamImpl {
         int rv;
         http2_stream *si;
         
-        if (m_dpri == HTTP2_STREAM_DPRI_REST) {
+        if (m_dpri == StreamDPRI.REST) {
             return 0;
         }
         
-        if (m_dpri == HTTP2_STREAM_DPRI_TOP) {
+        if (m_dpri == StreamDPRI.TOP) {
             if (!m_item.queued) {
                 DEBUGF(fprintf(stderr, "stream: stream=%d enqueue\n", m_stream_id));
                 rv = stream_push_item(stream, session);
@@ -422,16 +424,16 @@ class StreamImpl {
     /*
  * Updates m_sum_norest_weight and m_sum_top_weight
  * recursively.  We have to gather effective sum of weight of
- * descendants.  If m_dpri == HTTP2_STREAM_DPRI_NO_ITEM, we
+ * descendants.  If m_dpri == StreamDPRI.NO_ITEM, we
  * have to go deeper and check that any of its descendants has dpri
- * value of HTTP2_STREAM_DPRI_TOP.  If so, we have to add weight of
+ * value of StreamDPRI.TOP.  If so, we have to add weight of
  * its direct descendants to m_sum_norest_weight.  To make this
  * work, this function returns 1 if any of its descendants has dpri
- * value of HTTP2_STREAM_DPRI_TOP, otherwise 0.
+ * value of StreamDPRI.TOP, otherwise 0.
  *
  * Calculating m_sum_top-weight is very simple compared to
  * m_sum_norest_weight.  It just adds up the weight of direct
- * descendants whose dpri is HTTP2_STREAM_DPRI_TOP.
+ * descendants whose dpri is StreamDPRI.TOP.
  */
     static int stream_update_dep_sum_norest_weight(http2_stream *stream) {
         http2_stream *si;
@@ -440,11 +442,11 @@ class StreamImpl {
         m_sum_norest_weight = 0;
         m_sum_top_weight = 0;
         
-        if (m_dpri == HTTP2_STREAM_DPRI_TOP) {
+        if (m_dpri == StreamDPRI.TOP) {
             return 1;
         }
         
-        if (m_dpri == HTTP2_STREAM_DPRI_REST) {
+        if (m_dpri == StreamDPRI.REST) {
             return 0;
         }
         
@@ -457,7 +459,7 @@ class StreamImpl {
                 m_sum_norest_weight += si.weight;
             }
             
-            if (si.dpri == HTTP2_STREAM_DPRI_TOP) {
+            if (si.dpri == StreamDPRI.TOP) {
                 m_sum_top_weight += si.weight;
             }
         }
@@ -469,7 +471,7 @@ class StreamImpl {
         http2_session *session) {
         http2_stream *root_stream;
         
-        m_dpri = HTTP2_STREAM_DPRI_REST;
+        m_dpri = StreamDPRI.REST;
         
         stream_update_dep_set_rest(m_dep_next);
         
@@ -489,7 +491,7 @@ class StreamImpl {
         http2_session *session) {
         http2_stream *root_stream;
         
-        m_dpri = HTTP2_STREAM_DPRI_NO_ITEM;
+        m_dpri = StreamDPRI.NO_ITEM;
         
         root_stream = http2_stream_get_dep_root(stream);
         
@@ -514,7 +516,7 @@ class StreamImpl {
     int http2_stream_attach_item(
         http2_outbound_item *item,
         http2_session *session) {
-        assert((m_flags & HTTP2_STREAM_FLAG_DEFERRED_ALL) == 0);
+        assert((m_flags & StreamFlags.DEFERRED_ALL) == 0);
         assert(m_item == null);
         
         DEBUGF(fprintf(stderr, "stream: stream=%d attach item=%p\n",
@@ -542,7 +544,7 @@ class StreamImpl {
                 m_stream_id, m_item));
         
         m_item = null;
-        m_flags &= ~HTTP2_STREAM_FLAG_DEFERRED_ALL;
+        m_flags &= ~StreamFlags.DEFERRED_ALL;
         
         return stream_update_dep_on_detach_item(stream, session);
     }
@@ -550,8 +552,8 @@ class StreamImpl {
     /*
  * Defer |m_item|.  We won't call this function in the situation
  * where |m_item| == null.  The |flags| is bitwise OR of zero or
- * more of HTTP2_STREAM_FLAG_DEFERRED_USER and
- * HTTP2_STREAM_FLAG_DEFERRED_FLOW_CONTROL.  The |flags| indicates
+ * more of StreamFlags.DEFERRED_USER and
+ * StreamFlags.DEFERRED_FLOW_CONTROL.  The |flags| indicates
  * the reason of this action.
  *
  * This function returns 0 if it succeeds, or one of the following
@@ -575,8 +577,8 @@ class StreamImpl {
     /*
  * Put back deferred data in this stream to active state.  The |flags|
  * are one or more of bitwise OR of the following values:
- * HTTP2_STREAM_FLAG_DEFERRED_USER and
- * HTTP2_STREAM_FLAG_DEFERRED_FLOW_CONTROL and given masks are
+ * StreamFlags.DEFERRED_USER and
+ * StreamFlags.DEFERRED_FLOW_CONTROL and given masks are
  * cleared if they are set.  So even if this function is called, if
  * one of flag is still set, data does not become active.
  */
@@ -589,7 +591,7 @@ class StreamImpl {
         
         m_flags &= ~flags;
         
-        if (m_flags & HTTP2_STREAM_FLAG_DEFERRED_ALL) {
+        if (m_flags & StreamFlags.DEFERRED_ALL) {
             return 0;
         }
         
@@ -600,7 +602,7 @@ class StreamImpl {
  * Returns nonzero if item is deferred by whatever reason.
  */
     int http2_stream_check_deferred_item(http2_stream *stream) {
-        return m_item && (m_flags & HTTP2_STREAM_FLAG_DEFERRED_ALL);
+        return m_item && (m_flags & StreamFlags.DEFERRED_ALL);
     }
     
     /*
@@ -608,7 +610,7 @@ class StreamImpl {
  */
     int http2_stream_check_deferred_by_flow_control(http2_stream *stream) {
         return m_item &&
-            (m_flags & HTTP2_STREAM_FLAG_DEFERRED_FLOW_CONTROL);
+            (m_flags & StreamFlags.DEFERRED_FLOW_CONTROL);
     }
     
     static int update_initial_window_size(int *window_size_ptr,
@@ -659,11 +661,11 @@ class StreamImpl {
     /*
      * Call this function if promised stream |stream| is replied with
      * HEADERS.  This function makes the state of the |stream| to
-     * HTTP2_STREAM_OPENED.
+     * OPENED.
      */
     void http2_stream_promise_fulfilled(http2_stream *stream) {
-        m_state = HTTP2_STREAM_OPENED;
-        m_flags &= ~HTTP2_STREAM_FLAG_PUSH;
+		m_state = StreamState.OPENED;
+        m_flags &= ~StreamFlags.PUSH;
     }
     
     /*
@@ -1314,34 +1316,34 @@ private:
 /// nghttp2_stream_state
 /**
  * If local peer is stream initiator:
- * HTTP2_STREAM_OPENING : upon sending request HEADERS
- * HTTP2_STREAM_OPENED : upon receiving response HEADERS
- * HTTP2_STREAM_CLOSING : upon queuing RST_STREAM
+ * OPENING : upon sending request HEADERS
+ * OPENED : upon receiving response HEADERS
+ * CLOSING : upon queuing RST_STREAM
  *
  * If remote peer is stream initiator:
- * HTTP2_STREAM_OPENING : upon receiving request HEADERS
- * HTTP2_STREAM_OPENED : upon sending response HEADERS
- * HTTP2_STREAM_CLOSING : upon queuing RST_STREAM
+ * OPENING : upon receiving request HEADERS
+ * OPENED : upon sending response HEADERS
+ * CLOSING : upon queuing RST_STREAM
  */
 enum StreamState : ubyte {
     /// Initial state
-    HTTP2_STREAM_INITIAL,
+    INITIAL,
 
     /// For stream initiator: request HEADERS has been sent, but response HEADERS has not been received yet. 
     /// For receiver: request HEADERS has been received, but it does not send response HEADERS yet. 
-    HTTP2_STREAM_OPENING,
+    OPENING,
 
     /// For stream initiator: response HEADERS is received. For receiver: response HEADERS is sent.
-    HTTP2_STREAM_OPENED,
+    OPENED,
 
     /// RST_STREAM is received, but somehow we need to keep stream in memory.
-    HTTP2_STREAM_CLOSING,
+    CLOSING,
 
     /// PUSH_PROMISE is received or sent
-    HTTP2_STREAM_RESERVED,
+    RESERVED,
 
     /// Stream is created in this state if it is used as anchor in dependency tree.
-    HTTP2_STREAM_IDLE
+    IDLE
 }
 
 //http2_shut_flag

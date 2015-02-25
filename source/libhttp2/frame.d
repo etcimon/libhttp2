@@ -1335,7 +1335,7 @@ static int inbound_frame_handle_pad(InboundFrame *iframe, http2_frame_hd *hd)
  * Computes number of padding based on flags. This function returns
  * the calculated length if it succeeds, or -1.
  */
-static size_t inbound_frame_compute_pad(InboundFrame *iframe) 
+static int inbound_frame_compute_pad(InboundFrame *iframe) 
 {
 	size_t padlen;
 	
@@ -1360,10 +1360,9 @@ static size_t inbound_frame_compute_pad(InboundFrame *iframe)
  * |payloadleft| does not include |readlen|. If padding was started
  * strictly before this data chunk, this function returns -1.
  */
-static size_t inbound_frame_effective_readlen(InboundFrame *iframe, size_t payloadleft, size_t readlen) 
+static int inbound_frame_effective_readlen(InboundFrame *iframe, size_t payloadleft, size_t readlen) 
 {
-	size_t trail_padlen =
-		http2_frame_trail_padlen(&iframe.frame, iframe.padlen);
+	size_t trail_padlen = http2_frame_trail_padlen(&iframe.frame, iframe.padlen);
 	
 	if (trail_padlen > payloadleft) {
 		size_t padlen;

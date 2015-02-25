@@ -23,7 +23,7 @@ interface Policy
      * the application uses solely `http2_session_mem_send()` instead,
      * this callback function is unnecessary.
      */
-    size_t write(Session session, in ubyte[] data);
+    int write(Session session, in ubyte[] data);
     
     /**
      * Callback function invoked when |session| wants to receive data from
@@ -43,7 +43,7 @@ interface Policy
      * If the application uses solely `http2_session_mem_recv()`
      * instead, this callback function is unnecessary.
      */
-    size_t read(Session session, ref ubyte[] data);
+    int read(Session session, ref ubyte[] data);
 
     /**
      * Callback function invoked by `http2_session_recv()` when a frame
@@ -264,7 +264,7 @@ interface Policy
      * `http2_session_send()` function immediately return
      * $(D ErrorCode.CALLBACK_FAILURE).
      */
-    size_t selectPaddingLength(Session session, const Frame frame, size_t max_payloadlen);
+    int selectPaddingLength(Session session, const Frame frame, int max_payloadlen);
 
     /**
      * Callback function invoked when library wants to get max length of
@@ -285,9 +285,7 @@ interface Policy
      * $(D ErrorCode.CALLBACK_FAILURE) will signal the entire session
      * failure..
      */
-    size_t maxFrameSize(Session session, FrameType frame_type, Stream stream, 
-                        int session_remote_window_size, int stream_remote_window_size, 
-                        uint remote_max_frame_size);
+    int maxFrameSize(Session session, FrameType frame_type, Stream stream,  int session_remote_window_size, int stream_remote_window_size, uint remote_max_frame_size);
 
 
 }
