@@ -1419,16 +1419,13 @@ enum StreamDPRI {
 
 //http2_priority_spec
 /// The structure to specify stream dependency.
-struct PrioritySpecImpl
+struct PrioritySpec
 {
 	/// The stream ID of the stream to depend on. Specifying 0 makes stream not depend any other stream.
-	Stream parent;
+	int parent;
 	int weight;
 	bool exclusive;
 }
-
-alias PrioritySpec = RefCounted!PrioritySpecImpl;
-
 
 /**
  * @function

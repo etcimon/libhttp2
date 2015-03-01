@@ -11,7 +11,9 @@ module libhttp2.types;
 
 import libhttp2.constants;
 import memutils.refcounted;
+import memutils.utils;
 
+alias Mem = ThreadMem;
 
 /// Return values used in this library.  The code range is [-999, -500], inclusive.
 enum ErrorCode : int {
@@ -213,17 +215,6 @@ enum FrameError : uint
 	HTTP_1_1_REQUIRED = 0x0d
 }
 
-//http2_frame_hd
-struct FrameHeader 
-{
-	/// The length after this header
-	size_t length;
-	Stream stream;
-	FrameType type;
-	FrameFlags flags;
-    /// 0
-	ubyte reserved;
-}
 
 //http2_data_source
 /// This union represents the some kind of data source passed to nghttp2_data_source_read_callback
@@ -318,24 +309,6 @@ struct Data
 }
 
 
-// http2_headers
-/// The HEADERS frame.  It has the following members:
-struct Headers
-{    
-    FrameHeader hd;
-
-    /// The length of the padding in this frame.  This includes PAD_HIGH and PAD_LOW.
-    size_t padlen;
-
-    /// The priority specification
-    PrioritySpec pri_spec;
-
-    /// The name/value pairs.
-    NVPair[] nva;
-
-    /// The category of this HEADERS frame.
-    HeadersCategory cat;
-}
 
 //http2_priority
 /// The PRIORITY frame.  It has the following members:
@@ -390,7 +363,7 @@ struct PushPromise {
     NVPair[] nva;
 
     /// The promised stream ID
-    Stream promised;
+    int promised_stream_id;
 
     /// 0
     ubyte reserved;
@@ -407,7 +380,7 @@ struct Ping {
 /// The GOAWAY frame. 
 struct GoAway {
     FrameHeader hd;
-    Stream last;
+    int last_stream_id;
     FrameError error_code;
     /// The additional debug data
     ubyte[] opaque_data;
@@ -456,7 +429,8 @@ struct ExtALTSVC {
  * calls as http2_frame type.  The CONTINUATION frame is omitted
  * from here because the library deals with it internally.
  */
-union FrameUnion {
+union Frame
+{
 	FrameHeader hd;
 	Data data;
 	Headers headers;
@@ -469,5 +443,3 @@ union FrameUnion {
 	WindowUpdate window_update;
 	Extension ext;
 }
-
-alias Frame = RefCounted!FrameUnion;

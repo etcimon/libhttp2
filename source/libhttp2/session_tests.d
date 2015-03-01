@@ -2548,7 +2548,7 @@ void test_http2_session_on_data_received(void) {
                                        &pri_spec_default,
                                        HTTP2_STREAM_OPENING, NULL);
 
-  http2_frame_hd_init(&frame.hd, 4096, HTTP2_DATA, FrameFlags.NONE, 2);
+  frame.hd = FrameHeader(4096, HTTP2_DATA, FrameFlags.NONE, 2);
 
   assert(0 == http2_session_on_data_received(session, &frame));
   assert(0 == stream.shut_flags);
@@ -3643,14 +3643,12 @@ void test_http2_submit_priority(void) {
   http2_priority_spec_init(&pri_spec, 0, 3, 0);
 
   /* depends on stream 0 */
-  assert(0 ==
-            http2_submit_priority(session, FrameFlags.NONE, 1, &pri_spec));
+  assert(0 == http2_submit_priority(session, 1, &pri_spec));
   assert(0 == http2_session_send(session));
   assert(3 == stream.weight);
 
   /* submit against idle stream */
-  assert(0 ==
-            http2_submit_priority(session, FrameFlags.NONE, 3, &pri_spec));
+  assert(0 == http2_submit_priority(session, 3, &pri_spec));
 
   ud.frame_send_cb_called = 0;
   assert(0 == http2_session_send(session));
