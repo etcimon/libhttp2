@@ -10,6 +10,7 @@
 module libhttp2.types;
 
 import libhttp2.constants;
+import libhttp2.helpers;
 import memutils.refcounted;
 import memutils.utils;
 
@@ -301,147 +302,105 @@ enum HeadersCategory : ubyte
 }
 
 
-// http2_data
-/// The DATA frame.  The received data is delivered via http2_on_data_chunk_recv_callback
-struct Data
-{
-    FrameHeader hd;
-    /// The length of the padding in this frame.  This includes PAD_HIGH and PAD_LOW.
-    size_t padlen;
-}
-
-
-
-//http2_priority
-/// The PRIORITY frame.  It has the following members:
-struct Priority {
-    FrameHeader hd;
-    PrioritySpec pri_spec;
-}
-
-//http2_rst_stream
-/// The RST_STREAM frame.  It has the following members:
-struct Reset {
-    
-    FrameHeader hd;
-
-    /// The error code.  See :type:`nghttp2_error_code`.
-    StatusCode error_code;
-}
-
-
-//http2_settings_entry
-struct Setting {
-	alias SettingCode = ubyte;
-	/// Notes: If we add SETTINGS, update the capacity of HTTP2_INBOUND_NUM_IV as well
-	enum : SettingCode {
-		HEADER_TABLE_SIZE = 0x01,
-		ENABLE_PUSH = 0x02,
-		MAX_CONCURRENT_STREAMS = 0x03,
-		INITIAL_WINDOW_SIZE = 0x04,
-		MAX_FRAME_SIZE = 0x05,
-		MAX_HEADER_LIST_SIZE = 0x06
-	}
-	/// The SETTINGS ID.
-    SettingCode id;
-    uint value;
-}
-
-/// The SETTINGS frame
-struct Settings {
-    FrameHeader hd;
-    Setting[] settings;
-}
-
-//http2_push_promise
-/// The PUSH_PROMISE frame.  
-struct PushPromise {    
-    FrameHeader hd;
-
-    /// The length of the padding in this frame.  This includes PAD_HIGH and PAD_LOW.
-    size_t padlen;
-
-    /// The name/value pairs.
-    NVPair[] nva;
-
-    /// The promised stream ID
-    int promised_stream_id;
-
-    /// 0
-    ubyte reserved;
-}
-
-// http2_ping
-/// The PING frame.
-struct Ping {    
-    FrameHeader hd;
-    ubyte[8] opaque_data;
-}
-
-//http2_goaway
-/// The GOAWAY frame. 
-struct GoAway {
-    FrameHeader hd;
-    int last_stream_id;
-    FrameError error_code;
-    /// The additional debug data
-    ubyte[] opaque_data;
-    /// 0
-    ubyte reserved;
-}
-
-//http2_window_update
-/// The WINDOW_UPDATE frame.
-struct WindowUpdate {    
-    FrameHeader hd;
-
-    int window_size_increment;
-
-    /// 0
-    ubyte reserved;
-}
-
-//http2_extension
-/// The extension frame.
-struct Extension {    
-    FrameHeader hd;
-
-    /**
-   * The pointer to extension payload.  The exact pointer type is
-   * determined by hd.type.
-   *
-   * If hd.type == ALTSVC it is a pointer to http2_ext_altsvc
-   */
-    void *payload;
-}
-
-// http2_ext_altsvc
-/// The ALTSVC extension frame payload.  It has following members:
-struct ExtALTSVC {
-	ubyte[] protocol_id;
-	ubyte[] host;
-	ubyte[] origin;
-	uint max_age;
-	ushort port;
-}
-
-//http2_frame
-/*
- * This union includes all frames to pass them to various function
- * calls as http2_frame type.  The CONTINUATION frame is omitted
- * from here because the library deals with it internally.
+/// nghttp2_stream_state
+/**
+ * If local peer is stream initiator:
+ * OPENING : upon sending request HEADERS
+ * OPENED : upon receiving response HEADERS
+ * CLOSING : upon queuing RST_STREAM
+ *
+ * If remote peer is stream initiator:
+ * OPENING : upon receiving request HEADERS
+ * OPENED : upon sending response HEADERS
+ * CLOSING : upon queuing RST_STREAM
  */
-union Frame
-{
-	FrameHeader hd;
-	Data data;
-	Headers headers;
-	Priority priority;
-	Reset rst_stream;
-	Settings settings;
-	PushPromise push_promise;
-	Ping ping;
-	GoAway goaway;
-	WindowUpdate window_update;
-	Extension ext;
+enum StreamState : ubyte {
+	/// Initial state
+	INITIAL,
+	
+	/// For stream initiator: request HEADERS has been sent, but response HEADERS has not been received yet. 
+	/// For receiver: request HEADERS has been received, but it does not send response HEADERS yet. 
+	OPENING,
+	
+	/// For stream initiator: response HEADERS is received. For receiver: response HEADERS is sent.
+	OPENED,
+	
+	/// RST_STREAM is received, but somehow we need to keep stream in memory.
+	CLOSING,
+	
+	/// PUSH_PROMISE is received or sent
+	RESERVED,
+	
+	/// Stream is created in this state if it is used as anchor in dependency tree.
+	IDLE
+}
+
+//http2_shut_flag
+enum ShutdownFlag {
+	NONE = 0,
+	
+	/// Indicates further receptions will be disallowed.
+	RD = 0x01,
+	
+	/// Indicates further transmissions will be disallowed.
+	WR = 0x02,
+	
+	/// Indicates both further receptions and transmissions will be disallowed.
+	RDWR = RD | WR
+}
+
+//http2_stream_flag
+enum StreamFlags : ubyte {
+	NONE = 0,
+	
+	/// Indicates that this stream is pushed stream and not opened yet.
+	PUSH = 0x01,
+	
+	/// Indicates that this stream was closed
+	CLOSED = 0x02,
+	
+	/// Indicates the item is deferred due to flow control.
+	DEFERRED_FLOW_CONTROL = 0x04,
+	
+	/// Indicates the item is deferred by user callback
+	DEFERRED_USER = 0x08,
+	
+	/// bitwise OR of DEFERRED_FLOW_CONTROL and DEFERRED_USER. */
+	DEFERRED_ALL = 0x0c    
+}
+
+//http2_http_flag
+/// HTTP related flags to enforce HTTP semantics
+enum HTTPFlags {
+	NONE = 0,
+	
+	/// header field seen so far 
+	_AUTHORITY = 1,
+	_PATH = 1 << 1,
+	_METHOD = 1 << 2,
+	_SCHEME = 1 << 3,
+	
+	/// host is not pseudo header, but we require either host or :authority 
+	HOST = 1 << 4,
+	_STATUS = 1 << 5,
+	
+	/// required header fields for HTTP request except for CONNECT method.
+	REQ_HEADERS = _METHOD | _PATH | _SCHEME,
+	PSEUDO_HEADER_DISALLOWED = 1 << 6,
+	
+	/* HTTP method flags */
+	METH_CONNECT = 1 << 7,
+	METH_HEAD = 1 << 8,
+	METH_ALL =
+	METH_CONNECT | METH_HEAD,
+	
+	/* set if final response is expected */
+	EXPECT_FINAL_RESPONSE = 1 << 9,
+}
+
+enum StreamDPRI {
+	NONE = 0,
+	NO_ITEM = 0x01,
+	TOP = 0x02,
+	REST = 0x04
 }

@@ -392,7 +392,7 @@ void test_http2_session_recv(void) {
   nvlen = ARRLEN(reqnv);
   http2_nv_array_copy(&nva, reqnv, nvlen, mem);
   http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 1,
-                             HTTP2_HCAT_HEADERS, NULL, nva, nvlen);
+                             HTTP2_HCAT_HEADERS, null, nva, nvlen);
   rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 
   assert(0 == rv);
@@ -446,7 +446,7 @@ void test_http2_session_recv(void) {
   http2_session_server_new(&session, &callbacks, &user_data);
 
   /* Receive PING with too large payload */
-  http2_frame_ping_init(&frame.ping, FrameFlags.NONE, NULL);
+  http2_frame_ping_init(&frame.ping, FrameFlags.NONE, null);
 
   rv = http2_frame_pack_ping(&bufs, &frame.ping);
 
@@ -508,7 +508,7 @@ void test_http2_session_recv_invalid_stream_id(void) {
   nvlen = ARRLEN(reqnv);
   http2_nv_array_copy(&nva, reqnv, nvlen, mem);
   http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 2,
-                             HTTP2_HCAT_HEADERS, NULL, nva, nvlen);
+                             HTTP2_HCAT_HEADERS, null, nva, nvlen);
   rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 
   assert(0 == rv);
@@ -553,7 +553,7 @@ void test_http2_session_recv_invalid_frame(void) {
   nvlen = ARRLEN(reqnv);
   http2_nv_array_copy(&nva, reqnv, nvlen, mem);
   http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 1,
-                             HTTP2_HCAT_HEADERS, NULL, nva, nvlen);
+                             HTTP2_HCAT_HEADERS, null, nva, nvlen);
   rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 
   assert(0 == rv);
@@ -589,7 +589,7 @@ void test_http2_session_recv_eof(void) {
   callbacks.send_callback = null_send_callback;
   callbacks.recv_callback = eof_recv_callback;
 
-  http2_session_client_new(&session, &callbacks, NULL);
+  http2_session_client_new(&session, &callbacks, null);
   assert(HTTP2_ERR_EOF == http2_session_recv(session));
 
   http2_session_del(session);
@@ -640,7 +640,7 @@ void test_http2_session_recv_data(void) {
   /* Create stream 1 with CLOSING state. DATA is ignored. */
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_CLOSING, NULL);
+                                       HTTP2_STREAM_CLOSING, null);
   /* Set initial window size 16383 to check stream flow control,
      isolating it from the conneciton flow control */
   stream.local_window_size = 16383;
@@ -653,7 +653,7 @@ void test_http2_session_recv_data(void) {
   assert(0 == ud.data_chunk_recv_cb_called);
   assert(0 == ud.frame_recv_cb_called);
   item = http2_session_get_next_ob_item(session);
-  assert(NULL == item);
+  assert(null == item);
 
   /* This is normal case. DATA is acceptable. */
   stream.state = HTTP2_STREAM_OPENED;
@@ -666,7 +666,7 @@ void test_http2_session_recv_data(void) {
   assert(1 == ud.data_chunk_recv_cb_called);
   assert(1 == ud.frame_recv_cb_called);
 
-  assert(NULL == http2_session_get_next_ob_item(session));
+  assert(null == http2_session_get_next_ob_item(session));
 
   ud.data_chunk_recv_cb_called = 0;
   ud.frame_recv_cb_called = 0;
@@ -752,7 +752,7 @@ void test_http2_session_recv_continuation(void) {
   nvlen = ARRLEN(reqnv);
   http2_nv_array_copy(&nva, reqnv, nvlen, mem);
   http2_frame_headers_init(&frame.headers, FrameFlags.NONE, 1,
-                             HTTP2_HCAT_HEADERS, NULL, nva, nvlen);
+                             HTTP2_HCAT_HEADERS, null, nva, nvlen);
   rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 
   assert(0 == rv);
@@ -815,7 +815,7 @@ void test_http2_session_recv_continuation(void) {
   nvlen = ARRLEN(reqnv);
   http2_nv_array_copy(&nva, reqnv, nvlen, mem);
   http2_frame_headers_init(&frame.headers, FrameFlags.NONE, 1,
-                             HTTP2_HCAT_HEADERS, NULL, nva, nvlen);
+                             HTTP2_HCAT_HEADERS, null, nva, nvlen);
   http2_bufs_reset(&bufs);
   rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 
@@ -952,10 +952,10 @@ void test_http2_session_recv_headers_with_priority(void) {
 
   stream = http2_session_get_stream(session, 5);
 
-  assert(NULL == stream);
+  assert(null == stream);
 
   item = http2_session_get_next_ob_item(session);
-  assert(NULL != item);
+  assert(null != item);
   assert(HTTP2_GOAWAY == item.frame.hd.type);
   assert(HTTP2_FRAME_SIZE_ERROR == item.frame.goaway.error_code);
 
@@ -997,10 +997,10 @@ void test_http2_session_recv_headers_with_priority(void) {
 
   stream = http2_session_get_stream(session, 1);
 
-  assert(NULL == stream);
+  assert(null == stream);
 
   item = http2_session_get_next_ob_item(session);
-  assert(NULL != item);
+  assert(null != item);
   assert(HTTP2_GOAWAY == item.frame.hd.type);
   assert(HTTP2_PROTOCOL_ERROR == item.frame.goaway.error_code);
 
@@ -1037,7 +1037,7 @@ void test_http2_session_recv_premature_headers(void) {
   nvlen = ARRLEN(reqnv);
   http2_nv_array_copy(&nva, reqnv, nvlen, mem);
   http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 1,
-                             HTTP2_HCAT_HEADERS, NULL, nva, nvlen);
+                             HTTP2_HCAT_HEADERS, null, nva, nvlen);
   rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 
   assert(0 == rv);
@@ -1056,7 +1056,7 @@ void test_http2_session_recv_premature_headers(void) {
   assert((size_t)(http2_buf_len(buf) - 1) == rv);
 
   item = http2_session_get_next_ob_item(session);
-  assert(NULL != item);
+  assert(null != item);
   assert(HTTP2_RST_STREAM == item.frame.hd.type);
   assert(HTTP2_COMPRESSION_ERROR == item.frame.rst_stream.error_code);
 
@@ -1091,7 +1091,7 @@ void test_http2_session_recv_unknown_frame(void) {
 
   assert(rv == (size_t)datalen);
   assert(0 == ud.frame_recv_cb_called);
-  assert(NULL == http2_session_get_next_ob_item(session));
+  assert(null == http2_session_get_next_ob_item(session));
 
   http2_session_del(session);
 }
@@ -1224,7 +1224,7 @@ void test_http2_session_recv_settings_header_table_size(void) {
   /* 2 SETTINGS_HEADER_TABLE_SIZE; first entry clears dynamic header
      table. */
 
-  http2_submit_request(session, NULL, &nv, 1, NULL, NULL);
+  http2_submit_request(session, null, &nv, 1, null, null);
   http2_session_send(session);
 
   assert(0 < session.hd_deflater.ctx.hd_table.len);
@@ -1267,7 +1267,7 @@ void test_http2_session_recv_settings_header_table_size(void) {
   /* 2 SETTINGS_HEADER_TABLE_SIZE; second entry clears dynamic header
      table. */
 
-  http2_submit_request(session, NULL, &nv, 1, NULL, NULL);
+  http2_submit_request(session, null, &nv, 1, null, null);
   http2_session_send(session);
 
   assert(0 < session.hd_deflater.ctx.hd_table.len);
@@ -1324,7 +1324,7 @@ void test_http2_session_recv_too_large_frame_length(void) {
 
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
 
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   http2_frame_pack_frame_hd(buf, &hd);
 
@@ -1332,7 +1332,7 @@ void test_http2_session_recv_too_large_frame_length(void) {
 
   item = http2_session_get_next_ob_item(session);
 
-  assert(item != NULL);
+  assert(item != null);
   assert(HTTP2_GOAWAY == item.frame.hd.type);
 
   http2_session_del(session);
@@ -1380,7 +1380,7 @@ void test_http2_session_continue(void) {
   nvlen = ARRLEN(nv1);
   http2_nv_array_copy(&nva, nv1, nvlen, mem);
   http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 1,
-                             HTTP2_HCAT_HEADERS, NULL, nva, nvlen);
+                             HTTP2_HCAT_HEADERS, null, nva, nvlen);
   rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 
   assert(0 == rv);
@@ -1397,7 +1397,7 @@ void test_http2_session_continue(void) {
   nvlen = ARRLEN(nv2);
   http2_nv_array_copy(&nva, nv2, nvlen, mem);
   http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 3,
-                             HTTP2_HCAT_HEADERS, NULL, nva, nvlen);
+                             HTTP2_HCAT_HEADERS, null, nva, nvlen);
   http2_bufs_reset(&bufs);
   rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 
@@ -1517,7 +1517,7 @@ void test_http2_session_continue(void) {
 
   /* And finally call on_frame_recv_callback with 0 size input */
   user_data.frame_recv_cb_called = 0;
-  rv = http2_session_mem_recv(session, NULL, 0);
+  rv = http2_session_mem_recv(session, null, 0);
   assert(0 == rv);
   assert(1 == user_data.frame_recv_cb_called);
 
@@ -1557,7 +1557,7 @@ void test_http2_session_add_frame(void) {
 
   http2_frame_headers_init(
       &frame.headers, FrameFlags.END_HEADERS | FrameFlags.PRIORITY,
-      session.next_stream_id, HTTP2_HCAT_REQUEST, NULL, nva, nvlen);
+      session.next_stream_id, HTTP2_HCAT_REQUEST, null, nva, nvlen);
 
   session.next_stream_id += 2;
 
@@ -1596,7 +1596,7 @@ void test_http2_session_on_request_headers_received(void) {
 
   http2_frame_headers_init(
       &frame.headers, FrameFlags.END_HEADERS | FrameFlags.PRIORITY,
-      stream_id, HTTP2_HCAT_REQUEST, &pri_spec, NULL, 0);
+      stream_id, HTTP2_HCAT_REQUEST, &pri_spec, null, 0);
 
   user_data.begin_headers_cb_called = 0;
   user_data.invalid_frame_recv_cb_called = 0;
@@ -1613,7 +1613,7 @@ void test_http2_session_on_request_headers_received(void) {
   session.pending_local_max_concurrent_stream = 1;
   http2_frame_headers_init(&frame.headers,
                              FrameFlags.END_HEADERS | FrameFlags.PRIORITY,
-                             3, HTTP2_HCAT_HEADERS, NULL, NULL, 0);
+                             3, HTTP2_HCAT_HEADERS, null, null, 0);
   user_data.invalid_frame_recv_cb_called = 0;
   assert(HTTP2_ERR_IGN_HEADER_BLOCK ==
             http2_session_on_request_headers_received(session, &frame));
@@ -1628,7 +1628,7 @@ void test_http2_session_on_request_headers_received(void) {
      HEADERS is just ignored due to race condition */
   http2_frame_headers_init(&frame.headers,
                              FrameFlags.END_HEADERS | FrameFlags.PRIORITY,
-                             3, HTTP2_HCAT_HEADERS, NULL, NULL, 0);
+                             3, HTTP2_HCAT_HEADERS, null, null, 0);
   user_data.invalid_frame_recv_cb_called = 0;
   assert(HTTP2_ERR_IGN_HEADER_BLOCK ==
             http2_session_on_request_headers_received(session, &frame));
@@ -1641,7 +1641,7 @@ void test_http2_session_on_request_headers_received(void) {
      connection error */
   http2_frame_headers_init(&frame.headers,
                              FrameFlags.END_HEADERS | FrameFlags.PRIORITY,
-                             2, HTTP2_HCAT_HEADERS, NULL, NULL, 0);
+                             2, HTTP2_HCAT_HEADERS, null, null, 0);
   user_data.invalid_frame_recv_cb_called = 0;
   assert(HTTP2_ERR_IGN_HEADER_BLOCK ==
             http2_session_on_request_headers_received(session, &frame));
@@ -1659,7 +1659,7 @@ void test_http2_session_on_request_headers_received(void) {
   http2_nv_array_copy(&nva, malformed_nva, nvlen, mem);
   http2_frame_headers_init(&frame.headers,
                              FrameFlags.END_HEADERS | FrameFlags.PRIORITY,
-                             1, HTTP2_HCAT_HEADERS, NULL, nva, nvlen);
+                             1, HTTP2_HCAT_HEADERS, null, nva, nvlen);
   user_data.begin_headers_cb_called = 0;
   user_data.invalid_frame_recv_cb_called = 0;
   assert(0 == http2_session_on_request_headers_received(session, &frame));
@@ -1675,7 +1675,7 @@ void test_http2_session_on_request_headers_received(void) {
 
   /* Receiving peer's idle stream ID is subject to connection error */
   http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 2,
-                             HTTP2_HCAT_REQUEST, NULL, NULL, 0);
+                             HTTP2_HCAT_REQUEST, null, null, 0);
 
   user_data.invalid_frame_recv_cb_called = 0;
   assert(HTTP2_ERR_IGN_HEADER_BLOCK ==
@@ -1691,7 +1691,7 @@ void test_http2_session_on_request_headers_received(void) {
 
   /* Receiving our's idle stream ID is subject to connection error */
   http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 1,
-                             HTTP2_HCAT_REQUEST, NULL, NULL, 0);
+                             HTTP2_HCAT_REQUEST, null, null, 0);
 
   user_data.invalid_frame_recv_cb_called = 0;
   assert(HTTP2_ERR_IGN_HEADER_BLOCK ==
@@ -1710,7 +1710,7 @@ void test_http2_session_on_request_headers_received(void) {
   /* Stream ID which is not idle and not in stream map is just
      ignored */
   http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 3,
-                             HTTP2_HCAT_REQUEST, NULL, NULL, 0);
+                             HTTP2_HCAT_REQUEST, null, null, 0);
 
   user_data.invalid_frame_recv_cb_called = 0;
   assert(HTTP2_ERR_IGN_HEADER_BLOCK ==
@@ -1728,7 +1728,7 @@ void test_http2_session_on_request_headers_received(void) {
   session.local_last_stream_id = 3;
 
   http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 3,
-                             HTTP2_HCAT_REQUEST, NULL, NULL, 0);
+                             HTTP2_HCAT_REQUEST, null, null, 0);
 
   assert(0 == http2_session_on_request_headers_received(session, &frame));
 
@@ -1736,7 +1736,7 @@ void test_http2_session_on_request_headers_received(void) {
 
   /* If GOAWAY has been sent, new stream is ignored */
   http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 5,
-                             HTTP2_HCAT_REQUEST, NULL, NULL, 0);
+                             HTTP2_HCAT_REQUEST, null, null, 0);
 
   session.goaway_flags |= GoAwayFlags.SENT;
   user_data.invalid_frame_recv_cb_called = 0;
@@ -1766,9 +1766,9 @@ void test_http2_session_on_response_headers_received(void) {
   http2_session_client_new(&session, &callbacks, &user_data);
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
   http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 1,
-                             HTTP2_HCAT_HEADERS, NULL, NULL, 0);
+                             HTTP2_HCAT_HEADERS, null, null, 0);
 
   user_data.begin_headers_cb_called = 0;
   user_data.invalid_frame_recv_cb_called = 0;
@@ -1798,10 +1798,10 @@ void test_http2_session_on_headers_received(void) {
   http2_session_client_new(&session, &callbacks, &user_data);
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default, HTTP2_STREAM_OPENED,
-                                       NULL);
+                                       null);
   http2_stream_shutdown(stream, HTTP2_SHUT_WR);
   http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 1,
-                             HTTP2_HCAT_HEADERS, NULL, NULL, 0);
+                             HTTP2_HCAT_HEADERS, null, null, 0);
 
   user_data.begin_headers_cb_called = 0;
   user_data.invalid_frame_recv_cb_called = 0;
@@ -1820,7 +1820,7 @@ void test_http2_session_on_headers_received(void) {
      discarded. */
   stream = http2_session_open_stream(session, 3, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_CLOSING, NULL);
+                                       HTTP2_STREAM_CLOSING, null);
   frame.hd.stream_id = 3;
   frame.hd.flags = FrameFlags.END_HEADERS;
   assert(HTTP2_ERR_IGN_HEADER_BLOCK ==
@@ -1832,7 +1832,7 @@ void test_http2_session_on_headers_received(void) {
   /* Server initiated stream */
   stream = http2_session_open_stream(session, 2, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
 
   /* half closed (remote) */
   frame.hd.flags = FrameFlags.END_HEADERS | FrameFlags.END_STREAM;
@@ -1872,9 +1872,9 @@ void test_http2_session_on_push_response_headers_received(void) {
   http2_session_client_new(&session, &callbacks, &user_data);
   stream = http2_session_open_stream(session, 2, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_RESERVED, NULL);
+                                       HTTP2_STREAM_RESERVED, null);
   http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 2,
-                             HTTP2_HCAT_HEADERS, NULL, NULL, 0);
+                             HTTP2_HCAT_HEADERS, null, null, 0);
   /* http2_session_on_push_response_headers_received assumes
      stream's state is HTTP2_STREAM_RESERVED and session.server is
      0. */
@@ -1894,7 +1894,7 @@ void test_http2_session_on_push_response_headers_received(void) {
   session.pending_local_max_concurrent_stream = 1;
   stream = http2_session_open_stream(session, 4, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_RESERVED, NULL);
+                                       HTTP2_STREAM_RESERVED, null);
   frame.hd.stream_id = 4;
   assert(HTTP2_ERR_IGN_HEADER_BLOCK ==
             http2_session_on_push_response_headers_received(session, &frame,
@@ -1913,7 +1913,7 @@ void test_http2_session_on_push_response_headers_received(void) {
 
   stream = http2_session_open_stream(session, 6, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_RESERVED, NULL);
+                                       HTTP2_STREAM_RESERVED, null);
   frame.hd.stream_id = 6;
 
   assert(HTTP2_ERR_IGN_HEADER_BLOCK ==
@@ -1944,7 +1944,7 @@ void test_http2_session_on_priority_received(void) {
   http2_session_server_new(&session, &callbacks, &user_data);
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
 
   http2_priority_spec_init(&pri_spec, 0, 2, 0);
 
@@ -1957,11 +1957,11 @@ void test_http2_session_on_priority_received(void) {
 
   stream = http2_session_open_stream(session, 2, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
 
   dep_stream = http2_session_open_stream(session, 3, HTTP2_STREAM_FLAG_NONE,
                                            &pri_spec_default,
-                                           HTTP2_STREAM_OPENING, NULL);
+                                           HTTP2_STREAM_OPENING, null);
 
   frame.hd.stream_id = 2;
 
@@ -1988,7 +1988,7 @@ void test_http2_session_on_priority_received(void) {
   /* Check dep_stream_id == stream_id case */
   http2_session_server_new(&session, &callbacks, &user_data);
   http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENED, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENED, null);
 
   http2_priority_spec_init(&pri_spec, 1, 0, 0);
 
@@ -2012,12 +2012,12 @@ void test_http2_session_on_rst_stream_received(void) {
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
   http2_session_server_new(&session, &callbacks, &user_data);
   http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
 
   http2_frame_rst_stream_init(&frame.rst_stream, 1, HTTP2_PROTOCOL_ERROR);
 
   assert(0 == http2_session_on_rst_stream_received(session, &frame));
-  assert(NULL == http2_session_get_stream(session, 1));
+  assert(null == http2_session_get_stream(session, 1));
 
   http2_frame_rst_stream_free(&frame.rst_stream);
   http2_session_del(session);
@@ -2060,10 +2060,10 @@ void test_http2_session_on_settings_received(void) {
 
   stream1 = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                         &pri_spec_default,
-                                        HTTP2_STREAM_OPENING, NULL);
+                                        HTTP2_STREAM_OPENING, null);
   stream2 = http2_session_open_stream(session, 2, HTTP2_STREAM_FLAG_NONE,
                                         &pri_spec_default,
-                                        HTTP2_STREAM_OPENING, NULL);
+                                        HTTP2_STREAM_OPENING, null);
   /* Set window size for each streams and will see how settings
      updates these values */
   stream1.remote_window_size = 16 * 1024;
@@ -2098,7 +2098,7 @@ void test_http2_session_on_settings_received(void) {
   http2_session_del(session);
 
   /* Check ACK with niv > 0 */
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
   http2_frame_settings_init(&frame.settings, FrameFlags.ACK, dup_iv(iv, 1),
                               1);
   /* Specify inflight_iv deliberately */
@@ -2107,22 +2107,22 @@ void test_http2_session_on_settings_received(void) {
 
   assert(0 == http2_session_on_settings_received(session, &frame, 0));
   item = http2_session_get_next_ob_item(session);
-  assert(item != NULL);
+  assert(item != null);
   assert(HTTP2_GOAWAY == item.frame.hd.type);
 
-  session.inflight_iv = NULL;
+  session.inflight_iv = null;
   session.inflight_niv = -1;
 
   http2_frame_settings_free(&frame.settings, mem);
   http2_session_del(session);
 
   /* Check ACK against no inflight SETTINGS */
-  http2_session_server_new(&session, &callbacks, NULL);
-  http2_frame_settings_init(&frame.settings, FrameFlags.ACK, NULL, 0);
+  http2_session_server_new(&session, &callbacks, null);
+  http2_frame_settings_init(&frame.settings, FrameFlags.ACK, null, 0);
 
   assert(0 == http2_session_on_settings_received(session, &frame, 0));
   item = http2_session_get_next_ob_item(session);
-  assert(item != NULL);
+  assert(item != null);
   assert(HTTP2_GOAWAY == item.frame.hd.type);
 
   http2_frame_settings_free(&frame.settings, mem);
@@ -2130,9 +2130,9 @@ void test_http2_session_on_settings_received(void) {
 
   /* Check that 2 SETTINGS_HEADER_TABLE_SIZE 0 and 4096 are included
      and header table size is once cleared to 0. */
-  http2_session_client_new(&session, &callbacks, NULL);
+  http2_session_client_new(&session, &callbacks, null);
 
-  http2_submit_request(session, NULL, &nv, 1, NULL, NULL);
+  http2_submit_request(session, null, &nv, 1, null, null);
 
   http2_session_send(session);
 
@@ -2157,7 +2157,7 @@ void test_http2_session_on_settings_received(void) {
   http2_session_del(session);
 
   /* Check too large SETTINGS_MAX_FRAME_SIZE */
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   iv[0].settings_id = HTTP2_SETTINGS_MAX_FRAME_SIZE;
   iv[0].value = HTTP2_MAX_FRAME_SIZE_MAX + 1;
@@ -2169,7 +2169,7 @@ void test_http2_session_on_settings_received(void) {
 
   item = http2_session_get_next_ob_item(session);
 
-  assert(item != NULL);
+  assert(item != null);
   assert(HTTP2_GOAWAY == item.frame.hd.type);
 
   http2_frame_settings_free(&frame.settings, mem);
@@ -2198,9 +2198,9 @@ void test_http2_session_on_push_promise_received(void) {
 
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
   http2_frame_push_promise_init(&frame.push_promise, FrameFlags.END_HEADERS,
-                                  1, 2, NULL, 0);
+                                  1, 2, null, 0);
 
   user_data.begin_headers_cb_called = 0;
   user_data.invalid_frame_recv_cb_called = 0;
@@ -2223,7 +2223,7 @@ void test_http2_session_on_push_promise_received(void) {
 
   assert(0 == user_data.begin_headers_cb_called);
   assert(1 == user_data.invalid_frame_recv_cb_called);
-  assert(NULL == http2_session_get_stream(session, 4));
+  assert(null == http2_session_get_stream(session, 4));
   item = http2_session_get_next_ob_item(session);
   assert(HTTP2_RST_STREAM == item.frame.hd.type);
   assert(4 == item.frame.hd.stream_id);
@@ -2242,7 +2242,7 @@ void test_http2_session_on_push_promise_received(void) {
             http2_session_on_push_promise_received(session, &frame));
 
   assert(0 == user_data.begin_headers_cb_called);
-  assert(NULL == http2_session_get_stream(session, 6));
+  assert(null == http2_session_get_stream(session, 6));
   item = http2_session_get_next_ob_item(session);
   assert(HTTP2_RST_STREAM == item.frame.hd.type);
   assert(6 == item.frame.hd.stream_id);
@@ -2259,7 +2259,7 @@ void test_http2_session_on_push_promise_received(void) {
             http2_session_on_push_promise_received(session, &frame));
 
   assert(0 == user_data.begin_headers_cb_called);
-  assert(NULL == http2_session_get_stream(session, 8));
+  assert(null == http2_session_get_stream(session, 8));
   item = http2_session_get_next_ob_item(session);
   assert(HTTP2_GOAWAY == item.frame.hd.type);
   assert(0 == item.frame.hd.stream_id);
@@ -2272,7 +2272,7 @@ void test_http2_session_on_push_promise_received(void) {
 
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
 
   /* Same ID twice */
   stream.state = HTTP2_STREAM_OPENING;
@@ -2283,7 +2283,7 @@ void test_http2_session_on_push_promise_received(void) {
             http2_session_on_push_promise_received(session, &frame));
 
   assert(0 == user_data.begin_headers_cb_called);
-  assert(NULL == http2_session_get_stream(session, 8));
+  assert(null == http2_session_get_stream(session, 8));
   item = http2_session_get_next_ob_item(session);
   assert(HTTP2_GOAWAY == item.frame.hd.type);
   assert(HTTP2_PROTOCOL_ERROR == item.frame.goaway.error_code);
@@ -2298,8 +2298,8 @@ void test_http2_session_on_push_promise_received(void) {
             http2_session_on_push_promise_received(session, &frame));
 
   assert(0 == user_data.begin_headers_cb_called);
-  assert(NULL == http2_session_get_stream(session, 10));
-  assert(NULL == http2_session_get_next_ob_item(session));
+  assert(null == http2_session_get_stream(session, 10));
+  assert(null == http2_session_get_next_ob_item(session));
 
   http2_frame_push_promise_free(&frame.push_promise, mem);
   http2_session_del(session);
@@ -2308,10 +2308,10 @@ void test_http2_session_on_push_promise_received(void) {
 
   stream = http2_session_open_stream(session, 2, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_RESERVED, NULL);
+                                       HTTP2_STREAM_RESERVED, null);
   /* Attempt to PUSH_PROMISE against reserved (remote) stream */
   http2_frame_push_promise_init(&frame.push_promise, FrameFlags.END_HEADERS,
-                                  2, 4, NULL, 0);
+                                  2, 4, null, 0);
 
   user_data.begin_headers_cb_called = 0;
   user_data.invalid_frame_recv_cb_called = 0;
@@ -2329,12 +2329,12 @@ void test_http2_session_on_push_promise_received(void) {
 
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
 
   session.local_settings.enable_push = 0;
 
   http2_frame_push_promise_init(&frame.push_promise, FrameFlags.END_HEADERS,
-                                  1, 2, NULL, 0);
+                                  1, 2, null, 0);
 
   user_data.begin_headers_cb_called = 0;
   user_data.invalid_frame_recv_cb_called = 0;
@@ -2352,7 +2352,7 @@ void test_http2_session_on_push_promise_received(void) {
 
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
   nvlen = ARRLEN(malformed_nva);
   http2_nv_array_copy(&nva, malformed_nva, nvlen, mem);
   http2_frame_push_promise_init(&frame.push_promise, FrameFlags.END_HEADERS,
@@ -2391,7 +2391,7 @@ void test_http2_session_on_ping_received(void) {
 
   /* Since this ping frame has PONG flag set, no further action is
      performed. */
-  assert(NULL == http2_session_get_ob_pq_top(session));
+  assert(null == http2_session_get_ob_pq_top(session));
 
   /* Clear the flag, and receive it again */
   frame.hd.flags = FrameFlags.NONE;
@@ -2430,7 +2430,7 @@ void test_http2_session_on_goaway_received(void) {
     open_stream(session, i);
   }
 
-  http2_frame_goaway_init(&frame.goaway, 3, HTTP2_PROTOCOL_ERROR, NULL, 0);
+  http2_frame_goaway_init(&frame.goaway, 3, HTTP2_PROTOCOL_ERROR, null, 0);
 
   user_data.stream_close_cb_called = 0;
 
@@ -2441,13 +2441,13 @@ void test_http2_session_on_goaway_received(void) {
   /* on_stream_close should be callsed for 2 times (stream 5 and 7) */
   assert(2 == user_data.stream_close_cb_called);
 
-  assert(NULL != http2_session_get_stream(session, 1));
-  assert(NULL != http2_session_get_stream(session, 2));
-  assert(NULL != http2_session_get_stream(session, 3));
-  assert(NULL != http2_session_get_stream(session, 4));
-  assert(NULL == http2_session_get_stream(session, 5));
-  assert(NULL != http2_session_get_stream(session, 6));
-  assert(NULL == http2_session_get_stream(session, 7));
+  assert(null != http2_session_get_stream(session, 1));
+  assert(null != http2_session_get_stream(session, 2));
+  assert(null != http2_session_get_stream(session, 3));
+  assert(null != http2_session_get_stream(session, 4));
+  assert(null == http2_session_get_stream(session, 5));
+  assert(null != http2_session_get_stream(session, 6));
+  assert(null == http2_session_get_stream(session, 7));
 
   http2_frame_goaway_free(&frame.goaway, mem);
   http2_session_del(session);
@@ -2470,7 +2470,7 @@ void test_http2_session_on_window_update_received(void) {
 
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default, HTTP2_STREAM_OPENED,
-                                       NULL);
+                                       null);
 
   data_item = create_data_ob_item();
 
@@ -2500,7 +2500,7 @@ void test_http2_session_on_window_update_received(void) {
      connection error */
   stream = http2_session_open_stream(session, 2, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_RESERVED, NULL);
+                                       HTTP2_STREAM_RESERVED, null);
 
   http2_frame_window_update_init(&frame.window_update, FrameFlags.NONE, 2,
                                    4096);
@@ -2518,7 +2518,7 @@ void test_http2_session_on_window_update_received(void) {
 
   stream = http2_session_open_stream(session, 2, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_RESERVED, NULL);
+                                       HTTP2_STREAM_RESERVED, null);
 
   http2_frame_window_update_init(&frame.window_update, FrameFlags.NONE, 2,
                                    4096);
@@ -2546,7 +2546,7 @@ void test_http2_session_on_data_received(void) {
   http2_session_client_new(&session, &callbacks, &user_data);
   stream = http2_session_open_stream(session, 2, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
 
   frame.hd = FrameHeader(4096, HTTP2_DATA, FrameFlags.NONE, 2);
 
@@ -2561,13 +2561,13 @@ void test_http2_session_on_data_received(void) {
   /* If HTTP2_STREAM_CLOSING state, DATA frame is discarded. */
   stream = http2_session_open_stream(session, 4, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_CLOSING, NULL);
+                                       HTTP2_STREAM_CLOSING, null);
 
   frame.hd.flags = FrameFlags.NONE;
   frame.hd.stream_id = 4;
 
   assert(0 == http2_session_on_data_received(session, &frame));
-  assert(NULL == http2_session_get_ob_pq_top(session));
+  assert(null == http2_session_get_ob_pq_top(session));
 
   /* Check INVALID_STREAM case: DATA frame with stream ID which does
      not exist. */
@@ -2577,7 +2577,7 @@ void test_http2_session_on_data_received(void) {
   assert(0 == http2_session_on_data_received(session, &frame));
   top = http2_session_get_ob_pq_top(session);
   /* DATA against nonexistent stream is just ignored for now */
-  assert(top == NULL);
+  assert(top == null);
   /* assert(HTTP2_RST_STREAM == top.frame.hd.type); */
   /* assert(HTTP2_PROTOCOL_ERROR == top.frame.rst_stream.error_code); */
 
@@ -2594,7 +2594,7 @@ void test_http2_session_send_headers_start_stream(void) {
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
   callbacks.send_callback = null_send_callback;
 
-  http2_session_client_new(&session, &callbacks, NULL);
+  http2_session_client_new(&session, &callbacks, null);
 
   item = malloc(sizeof(http2_outbound_item));
 
@@ -2604,7 +2604,7 @@ void test_http2_session_send_headers_start_stream(void) {
 
   http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS,
                              session.next_stream_id, HTTP2_HCAT_REQUEST,
-                             NULL, NULL, 0);
+                             null, null, 0);
   session.next_stream_id += 2;
 
   http2_session_add_item(session, item);
@@ -2625,9 +2625,9 @@ void test_http2_session_send_headers_reply(void) {
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
   callbacks.send_callback = null_send_callback;
 
-  assert(0 == http2_session_client_new(&session, &callbacks, NULL));
+  assert(0 == http2_session_client_new(&session, &callbacks, null));
   http2_session_open_stream(session, 2, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
 
   item = malloc(sizeof(http2_outbound_item));
 
@@ -2636,7 +2636,7 @@ void test_http2_session_send_headers_reply(void) {
   frame = &item.frame;
 
   http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 2,
-                             HTTP2_HCAT_HEADERS, NULL, NULL, 0);
+                             HTTP2_HCAT_HEADERS, null, null, 0);
   http2_session_add_item(session, item);
   assert(0 == http2_session_send(session));
   stream = http2_session_get_stream(session, 2);
@@ -2687,7 +2687,7 @@ void test_http2_session_send_headers_frame_size_error(void) {
 
   http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS,
                              session.next_stream_id, HTTP2_HCAT_REQUEST,
-                             NULL, nva, nvlen);
+                             null, nva, nvlen);
 
   session.next_stream_id += 2;
 
@@ -2717,9 +2717,9 @@ void test_http2_session_send_headers_push_reply(void) {
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
   callbacks.send_callback = null_send_callback;
 
-  assert(0 == http2_session_server_new(&session, &callbacks, NULL));
+  assert(0 == http2_session_server_new(&session, &callbacks, null));
   http2_session_open_stream(session, 2, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_RESERVED, NULL);
+                              &pri_spec_default, HTTP2_STREAM_RESERVED, null);
 
   item = malloc(sizeof(http2_outbound_item));
 
@@ -2728,7 +2728,7 @@ void test_http2_session_send_headers_push_reply(void) {
   frame = &item.frame;
 
   http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 2,
-                             HTTP2_HCAT_HEADERS, NULL, NULL, 0);
+                             HTTP2_HCAT_HEADERS, null, null, 0);
   http2_session_add_item(session, item);
   assert(0 == session.num_outgoing_streams);
   assert(0 == http2_session_send(session));
@@ -2750,7 +2750,7 @@ void test_http2_session_send_rst_stream(void) {
   callbacks.send_callback = null_send_callback;
   http2_session_client_new(&session, &callbacks, &user_data);
   http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
 
   item = malloc(sizeof(http2_outbound_item));
 
@@ -2762,7 +2762,7 @@ void test_http2_session_send_rst_stream(void) {
   http2_session_add_item(session, item);
   assert(0 == http2_session_send(session));
 
-  assert(NULL == http2_session_get_stream(session, 1));
+  assert(null == http2_session_get_stream(session, 1));
 
   http2_session_del(session);
 }
@@ -2784,7 +2784,7 @@ void test_http2_session_send_push_promise(void) {
 
   http2_session_server_new(&session, &callbacks, &ud);
   http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
 
   item = malloc(sizeof(http2_outbound_item));
 
@@ -2794,7 +2794,7 @@ void test_http2_session_send_push_promise(void) {
 
   http2_frame_push_promise_init(&frame.push_promise,
                                   FrameFlags.END_HEADERS, 1,
-                                  session.next_stream_id, NULL, 0);
+                                  session.next_stream_id, null, 0);
 
   session.next_stream_id += 2;
 
@@ -2821,7 +2821,7 @@ void test_http2_session_send_push_promise(void) {
   frame = &item.frame;
 
   http2_frame_push_promise_init(&frame.push_promise,
-                                  FrameFlags.END_HEADERS, 1, -1, NULL, 0);
+                                  FrameFlags.END_HEADERS, 1, -1, null, 0);
   http2_session_add_item(session, item);
 
   ud.frame_not_send_cb_called = 0;
@@ -2836,7 +2836,7 @@ void test_http2_session_send_push_promise(void) {
   /* PUSH_PROMISE from client is error */
   http2_session_client_new(&session, &callbacks, &ud);
   http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
   item = malloc(sizeof(http2_outbound_item));
 
   http2_session_outbound_item_init(session, item);
@@ -2844,11 +2844,11 @@ void test_http2_session_send_push_promise(void) {
   frame = &item.frame;
 
   http2_frame_push_promise_init(&frame.push_promise,
-                                  FrameFlags.END_HEADERS, 1, -1, NULL, 0);
+                                  FrameFlags.END_HEADERS, 1, -1, null, 0);
   http2_session_add_item(session, item);
 
   assert(0 == http2_session_send(session));
-  assert(NULL == http2_session_get_stream(session, 3));
+  assert(null == http2_session_get_stream(session, 3));
 
   http2_session_del(session);
 }
@@ -2857,7 +2857,7 @@ void test_http2_session_is_my_stream_id(void) {
   http2_session *session;
   http2_session_callbacks callbacks;
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   assert(0 == http2_session_is_my_stream_id(session, 0));
   assert(0 == http2_session_is_my_stream_id(session, 1));
@@ -2865,7 +2865,7 @@ void test_http2_session_is_my_stream_id(void) {
 
   http2_session_del(session);
 
-  http2_session_client_new(&session, &callbacks, NULL);
+  http2_session_client_new(&session, &callbacks, null);
 
   assert(0 == http2_session_is_my_stream_id(session, 0));
   assert(1 == http2_session_is_my_stream_id(session, 1));
@@ -2893,11 +2893,11 @@ void test_http2_session_upgrade(void) {
       settings_payload, sizeof(settings_payload), iv, 2);
 
   /* Check client side */
-  http2_session_client_new(&session, &callbacks, NULL);
+  http2_session_client_new(&session, &callbacks, null);
   assert(0 == http2_session_upgrade(session, settings_payload,
                                          settings_payloadlen, &callbacks));
   stream = http2_session_get_stream(session, 1);
-  assert(stream != NULL);
+  assert(stream != null);
   assert(&callbacks == stream.stream_user_data);
   assert(HTTP2_SHUT_WR == stream.shut_flags);
   item = http2_session_get_next_ob_item(session);
@@ -2917,14 +2917,14 @@ void test_http2_session_upgrade(void) {
   http2_session_del(session);
 
   /* Check server side */
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
   assert(0 == http2_session_upgrade(session, settings_payload,
                                          settings_payloadlen, &callbacks));
   stream = http2_session_get_stream(session, 1);
-  assert(stream != NULL);
-  assert(NULL == stream.stream_user_data);
+  assert(stream != null);
+  assert(null == stream.stream_user_data);
   assert(HTTP2_SHUT_RD == stream.shut_flags);
-  assert(NULL == http2_session_get_next_ob_item(session));
+  assert(null == http2_session_get_next_ob_item(session));
   assert(1 == session.remote_settings.max_concurrent_streams);
   assert(4095 == session.remote_settings.initial_window_size);
   /* Call http2_session_upgrade() again is error */
@@ -2935,11 +2935,11 @@ void test_http2_session_upgrade(void) {
 
   /* Empty SETTINGS is OK */
   settings_payloadlen = http2_pack_settings_payload(
-      settings_payload, sizeof(settings_payload), NULL, 0);
+      settings_payload, sizeof(settings_payload), null, 0);
 
-  http2_session_client_new(&session, &callbacks, NULL);
+  http2_session_client_new(&session, &callbacks, null);
   assert(0 == http2_session_upgrade(session, settings_payload,
-                                         settings_payloadlen, NULL));
+                                         settings_payloadlen, null));
   http2_session_del(session);
 }
 
@@ -2958,14 +2958,14 @@ void test_http2_session_reprioritize_stream(void) {
 
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
 
   http2_priority_spec_init(&pri_spec, 0, 10, 0);
 
   http2_session_reprioritize_stream(session, stream, &pri_spec);
 
   assert(10 == stream.weight);
-  assert(NULL == stream.dep_prev);
+  assert(null == stream.dep_prev);
 
   /* If depenency to idle stream which is not in depdenency tree yet */
 
@@ -3021,11 +3021,11 @@ void test_http2_session_reprioritize_stream_with_idle_stream_dep(void) {
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
   callbacks.send_callback = block_count_send_callback;
 
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
 
   session.pending_local_max_concurrent_stream = 1;
 
@@ -3066,7 +3066,7 @@ void test_http2_submit_data(void) {
   framebufs = &aob.framebufs;
 
   http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
   assert(
       0 == http2_submit_data(session, FrameFlags.END_STREAM, 1, &data_prd));
 
@@ -3108,7 +3108,7 @@ void test_http2_submit_data_read_length_too_large(void) {
   framebufs = &aob.framebufs;
 
   http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
   assert(
       0 == http2_submit_data(session, FrameFlags.END_STREAM, 1, &data_prd));
 
@@ -3135,7 +3135,7 @@ void test_http2_submit_data_read_length_too_large(void) {
   session.remote_settings.max_frame_size = HTTP2_MAX_FRAME_SIZE_MAX;
 
   http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
   assert(
       0 == http2_submit_data(session, FrameFlags.END_STREAM, 1, &data_prd));
 
@@ -3187,7 +3187,7 @@ void test_http2_submit_data_read_length_smallest(void) {
   framebufs = &aob.framebufs;
 
   http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
   assert(
       0 == http2_submit_data(session, FrameFlags.END_STREAM, 1, &data_prd));
 
@@ -3254,7 +3254,7 @@ void test_http2_submit_data_twice(void) {
   assert(0 == http2_session_client_new(&session, &callbacks, &ud));
 
   http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
 
   assert(0 == http2_submit_data(session, FrameFlags.NONE, 1, &data_prd));
 
@@ -3279,8 +3279,8 @@ void test_http2_submit_request_with_data(void) {
   data_prd.read_callback = fixed_length_data_source_read_callback;
   ud.data_source_length = 64 * 1024 - 1;
   assert(0 == http2_session_client_new(&session, &callbacks, &ud));
-  assert(1 == http2_submit_request(session, NULL, reqnv, ARRLEN(reqnv),
-                                        &data_prd, NULL));
+  assert(1 == http2_submit_request(session, null, reqnv, ARRLEN(reqnv),
+                                        &data_prd, null));
   item = http2_session_get_next_ob_item(session);
   assert(ARRLEN(reqnv) == item.frame.headers.nvlen);
   assert_nv_equal(reqnv, item.frame.headers.nva, item.frame.headers.nvlen);
@@ -3294,7 +3294,7 @@ void test_http2_submit_request_without_data(void) {
   http2_session *session;
   http2_session_callbacks callbacks;
   accumulator acc;
-  DataProvider data_prd = {{-1}, NULL};
+  DataProvider data_prd = {{-1}, null};
   http2_outbound_item *item;
   my_user_data ud;
   http2_frame frame;
@@ -3314,8 +3314,8 @@ void test_http2_submit_request_without_data(void) {
   assert(0 == http2_session_client_new(&session, &callbacks, &ud));
 
   http2_hd_inflate_init(&inflater, mem);
-  assert(1 == http2_submit_request(session, NULL, reqnv, ARRLEN(reqnv),
-                                        &data_prd, NULL));
+  assert(1 == http2_submit_request(session, null, reqnv, ARRLEN(reqnv),
+                                        &data_prd, null));
   item = http2_session_get_next_ob_item(session);
   assert(ARRLEN(reqnv) == item.frame.headers.nvlen);
   assert_nv_equal(reqnv, item.frame.headers.nva, item.frame.headers.nvlen);
@@ -3351,7 +3351,7 @@ void test_http2_submit_response_with_data(void) {
   ud.data_source_length = 64 * 1024 - 1;
   assert(0 == http2_session_server_new(&session, &callbacks, &ud));
   http2_session_open_stream(session, 1, FrameFlags.END_STREAM,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
   assert(0 == http2_submit_response(session, 1, resnv, ARRLEN(resnv),
                                          &data_prd));
   item = http2_session_get_next_ob_item(session);
@@ -3367,7 +3367,7 @@ void test_http2_submit_response_without_data(void) {
   http2_session *session;
   http2_session_callbacks callbacks;
   accumulator acc;
-  DataProvider data_prd = {{-1}, NULL};
+  DataProvider data_prd = {{-1}, null};
   http2_outbound_item *item;
   my_user_data ud;
   http2_frame frame;
@@ -3388,7 +3388,7 @@ void test_http2_submit_response_without_data(void) {
 
   http2_hd_inflate_init(&inflater, mem);
   http2_session_open_stream(session, 1, FrameFlags.END_STREAM,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
   assert(0 == http2_submit_response(session, 1, resnv, ARRLEN(resnv),
                                          &data_prd));
   item = http2_session_get_next_ob_item(session);
@@ -3418,9 +3418,9 @@ void test_http2_submit_headers_start_stream(void) {
   http2_outbound_item *item;
 
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
-  assert(0 == http2_session_client_new(&session, &callbacks, NULL));
+  assert(0 == http2_session_client_new(&session, &callbacks, null));
   assert(1 == http2_submit_headers(session, FrameFlags.END_STREAM, -1,
-                                        NULL, reqnv, ARRLEN(reqnv), NULL));
+                                        null, reqnv, ARRLEN(reqnv), null));
   item = http2_session_get_next_ob_item(session);
   assert(ARRLEN(reqnv) == item.frame.headers.nvlen);
   assert_nv_equal(reqnv, item.frame.headers.nva, item.frame.headers.nvlen);
@@ -3444,7 +3444,7 @@ void test_http2_submit_headers_reply(void) {
 
   assert(0 == http2_session_server_new(&session, &callbacks, &ud));
   assert(0 == http2_submit_headers(session, FrameFlags.END_STREAM, 1,
-                                        NULL, resnv, ARRLEN(resnv), NULL));
+                                        null, resnv, ARRLEN(resnv), null));
   item = http2_session_get_next_ob_item(session);
   assert(ARRLEN(resnv) == item.frame.headers.nvlen);
   assert_nv_equal(resnv, item.frame.headers.nva, item.frame.headers.nvlen);
@@ -3460,10 +3460,10 @@ void test_http2_submit_headers_reply(void) {
 
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
 
   assert(0 == http2_submit_headers(session, FrameFlags.END_STREAM, 1,
-                                        NULL, resnv, ARRLEN(resnv), NULL));
+                                        null, resnv, ARRLEN(resnv), null));
   assert(0 == http2_session_send(session));
   assert(1 == ud.frame_send_cb_called);
   assert(HTTP2_HEADERS == ud.sent_frame_type);
@@ -3486,8 +3486,8 @@ void test_http2_submit_headers_push_reply(void) {
   assert(0 == http2_session_server_new(&session, &callbacks, &ud));
   stream = http2_session_open_stream(session, 2, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_RESERVED, NULL);
-  assert(0 == http2_submit_headers(session, FrameFlags.NONE, 2, NULL,
+                                       HTTP2_STREAM_RESERVED, null);
+  assert(0 == http2_submit_headers(session, FrameFlags.NONE, 2, null,
                                         resnv, ARRLEN(resnv), &foo));
 
   ud.frame_send_cb_called = 0;
@@ -3505,9 +3505,9 @@ void test_http2_submit_headers_push_reply(void) {
   assert(0 == http2_session_client_new(&session, &callbacks, &ud));
   stream = http2_session_open_stream(session, 2, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_RESERVED, NULL);
-  assert(0 == http2_submit_headers(session, FrameFlags.NONE, 2, NULL,
-                                        reqnv, ARRLEN(reqnv), NULL));
+                                       HTTP2_STREAM_RESERVED, null);
+  assert(0 == http2_submit_headers(session, FrameFlags.NONE, 2, null,
+                                        reqnv, ARRLEN(reqnv), null));
 
   ud.frame_send_cb_called = 0;
   ud.sent_frame_type = 0;
@@ -3544,7 +3544,7 @@ void test_http2_submit_headers(void) {
 
   http2_hd_inflate_init(&inflater, mem);
   assert(0 == http2_submit_headers(session, FrameFlags.END_STREAM, 1,
-                                        NULL, reqnv, ARRLEN(reqnv), NULL));
+                                        null, reqnv, ARRLEN(reqnv), null));
   item = http2_session_get_next_ob_item(session);
   assert(ARRLEN(reqnv) == item.frame.headers.nvlen);
   assert_nv_equal(reqnv, item.frame.headers.nva, item.frame.headers.nvlen);
@@ -3560,10 +3560,10 @@ void test_http2_submit_headers(void) {
 
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
 
   assert(0 == http2_submit_headers(session, FrameFlags.END_STREAM, 1,
-                                        NULL, reqnv, ARRLEN(reqnv), NULL));
+                                        null, reqnv, ARRLEN(reqnv), null));
   assert(0 == http2_session_send(session));
   assert(1 == ud.frame_send_cb_called);
   assert(HTTP2_HEADERS == ud.sent_frame_type);
@@ -3610,7 +3610,7 @@ void test_http2_submit_headers_continuation(void) {
 
   assert(0 == http2_session_client_new(&session, &callbacks, &ud));
   assert(1 == http2_submit_headers(session, FrameFlags.END_STREAM, -1,
-                                        NULL, nv, ARRLEN(nv), NULL));
+                                        null, nv, ARRLEN(nv), null));
   item = http2_session_get_next_ob_item(session);
   assert(HTTP2_HEADERS == item.frame.hd.type);
   assert((FrameFlags.END_STREAM | FrameFlags.END_HEADERS) ==
@@ -3638,7 +3638,7 @@ void test_http2_submit_priority(void) {
   http2_session_client_new(&session, &callbacks, &ud);
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
 
   http2_priority_spec_init(&pri_spec, 0, 3, 0);
 
@@ -3728,7 +3728,7 @@ void test_http2_submit_settings(void) {
 
   assert(50 == session.pending_local_max_concurrent_stream);
 
-  http2_frame_settings_init(&ack_frame.settings, FrameFlags.ACK, NULL, 0);
+  http2_frame_settings_init(&ack_frame.settings, FrameFlags.ACK, null, 0);
   assert(0 == http2_session_on_settings_received(session, &ack_frame, 0));
   http2_frame_settings_free(&ack_frame.settings, mem);
 
@@ -3751,7 +3751,7 @@ void test_http2_submit_settings_update_local_window_size(void) {
   http2_mem *mem;
 
   mem = http2_mem_default();
-  http2_frame_settings_init(&ack_frame.settings, FrameFlags.ACK, NULL, 0);
+  http2_frame_settings_init(&ack_frame.settings, FrameFlags.ACK, null, 0);
 
   iv[0].settings_id = HTTP2_SETTINGS_INITIAL_WINDOW_SIZE;
   iv[0].value = 16 * 1024;
@@ -3759,17 +3759,17 @@ void test_http2_submit_settings_update_local_window_size(void) {
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
   callbacks.send_callback = null_send_callback;
 
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default, HTTP2_STREAM_OPENED,
-                                       NULL);
+                                       null);
   stream.local_window_size = HTTP2_INITIAL_WINDOW_SIZE + 100;
   stream.recv_window_size = 32768;
 
   stream = http2_session_open_stream(session, 3, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default, HTTP2_STREAM_OPENED,
-                                       NULL);
+                                       null);
 
   assert(0 == http2_submit_settings(session, FrameFlags.NONE, iv, 1));
   assert(0 == http2_session_send(session));
@@ -3790,10 +3790,10 @@ void test_http2_submit_settings_update_local_window_size(void) {
 
   /* Check overflow case */
   iv[0].value = 128 * 1024;
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default, HTTP2_STREAM_OPENED,
-                                       NULL);
+                                       null);
   stream.local_window_size = HTTP2_MAX_WINDOW_SIZE;
 
   assert(0 == http2_submit_settings(session, FrameFlags.NONE, iv, 1));
@@ -3821,7 +3821,7 @@ void test_http2_submit_push_promise(void) {
 
   assert(0 == http2_session_server_new(&session, &callbacks, &ud));
   http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
   assert(2 == http2_submit_push_promise(session, FrameFlags.NONE, 1,
                                              reqnv, ARRLEN(reqnv), &ud));
 
@@ -3846,7 +3846,7 @@ void test_http2_submit_push_promise(void) {
 
   stream = http2_session_get_stream(session, 4);
 
-  assert(NULL == stream);
+  assert(null == stream);
 
   http2_session_del(session);
 }
@@ -3864,7 +3864,7 @@ void test_http2_submit_window_update(void) {
   http2_session_client_new(&session, &callbacks, &ud);
   stream = http2_session_open_stream(session, 2, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default, HTTP2_STREAM_OPENED,
-                                       NULL);
+                                       null);
   stream.recv_window_size = 4096;
 
   assert(0 ==
@@ -3910,10 +3910,10 @@ void test_http2_submit_window_update_local_window_size(void) {
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
   callbacks.send_callback = null_send_callback;
 
-  http2_session_client_new(&session, &callbacks, NULL);
+  http2_session_client_new(&session, &callbacks, null);
   stream = http2_session_open_stream(session, 2, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default, HTTP2_STREAM_OPENED,
-                                       NULL);
+                                       null);
   stream.recv_window_size = 4096;
 
   assert(0 == http2_submit_window_update(session, FrameFlags.NONE, 2,
@@ -3935,7 +3935,7 @@ void test_http2_submit_window_update_local_window_size(void) {
   assert(32768 == stream.recv_reduction);
 
   item = http2_session_get_next_ob_item(session);
-  assert(item == NULL);
+  assert(item == null);
 
   /* Increase local window size */
   assert(0 ==
@@ -3943,7 +3943,7 @@ void test_http2_submit_window_update_local_window_size(void) {
   assert(49152 == stream.local_window_size);
   assert(-12288 == stream.recv_window_size);
   assert(16384 == stream.recv_reduction);
-  assert(NULL == http2_session_get_next_ob_item(session));
+  assert(null == http2_session_get_next_ob_item(session));
 
   assert(HTTP2_ERR_FLOW_CONTROL ==
             http2_submit_window_update(session, FrameFlags.NONE, 2,
@@ -3972,7 +3972,7 @@ void test_http2_submit_window_update_local_window_size(void) {
   assert(-28672 == session.recv_window_size);
   assert(32768 == session.recv_reduction);
   item = http2_session_get_next_ob_item(session);
-  assert(item == NULL);
+  assert(item == null);
 
   /* Increase local window size */
   assert(0 ==
@@ -3980,7 +3980,7 @@ void test_http2_submit_window_update_local_window_size(void) {
   assert(49152 == session.local_window_size);
   assert(-12288 == session.recv_window_size);
   assert(16384 == session.recv_reduction);
-  assert(NULL == http2_session_get_next_ob_item(session));
+  assert(null == http2_session_get_next_ob_item(session));
 
   assert(HTTP2_ERR_FLOW_CONTROL ==
             http2_submit_window_update(session, FrameFlags.NONE, 0,
@@ -4037,7 +4037,7 @@ void test_http2_submit_shutdown_notice(void) {
 
   /* Using http2_submit_shutdown_notice() with client side session
      is error */
-  http2_session_client_new(&session, &callbacks, NULL);
+  http2_session_client_new(&session, &callbacks, null);
 
   assert(HTTP2_ERR_INVALID_STATE ==
             http2_submit_shutdown_notice(session));
@@ -4056,27 +4056,27 @@ void test_http2_submit_invalid_nv(void) {
 
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
 
-  assert(0 == http2_session_server_new(&session, &callbacks, NULL));
+  assert(0 == http2_session_server_new(&session, &callbacks, null));
 
   /* http2_submit_request */
-  assert(0 < http2_submit_request(session, NULL, empty_name_nv,
-                                       ARRLEN(empty_name_nv), NULL, NULL));
+  assert(0 < http2_submit_request(session, null, empty_name_nv,
+                                       ARRLEN(empty_name_nv), null, null));
 
   /* http2_submit_response */
   assert(0 == http2_submit_response(session, 2, empty_name_nv,
-                                         ARRLEN(empty_name_nv), NULL));
+                                         ARRLEN(empty_name_nv), null));
 
   /* http2_submit_headers */
-  assert(0 < http2_submit_headers(session, FrameFlags.NONE, -1, NULL,
+  assert(0 < http2_submit_headers(session, FrameFlags.NONE, -1, null,
                                        empty_name_nv, ARRLEN(empty_name_nv),
-                                       NULL));
+                                       null));
 
   /* http2_submit_push_promise */
   open_stream(session, 1);
 
   assert(0 < http2_submit_push_promise(session, FrameFlags.NONE, 1,
                                             empty_name_nv,
-                                            ARRLEN(empty_name_nv), NULL));
+                                            ARRLEN(empty_name_nv), null));
 
   http2_session_del(session);
 }
@@ -4088,41 +4088,41 @@ void test_http2_session_open_stream(void) {
   http2_priority_spec pri_spec;
 
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   http2_priority_spec_init(&pri_spec, 0, 245, 0);
 
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                                       &pri_spec, HTTP2_STREAM_OPENED, NULL);
+                                       &pri_spec, HTTP2_STREAM_OPENED, null);
   assert(1 == session.num_incoming_streams);
   assert(0 == session.num_outgoing_streams);
   assert(HTTP2_STREAM_OPENED == stream.state);
   assert(245 == stream.weight);
-  assert(NULL == stream.dep_prev);
+  assert(null == stream.dep_prev);
   assert(HTTP2_SHUT_NONE == stream.shut_flags);
 
   stream = http2_session_open_stream(session, 2, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
   assert(1 == session.num_incoming_streams);
   assert(1 == session.num_outgoing_streams);
-  assert(NULL == stream.dep_prev);
+  assert(null == stream.dep_prev);
   assert(DEFAULT_WEIGHT == stream.weight);
   assert(HTTP2_SHUT_NONE == stream.shut_flags);
 
   stream = http2_session_open_stream(session, 4, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_RESERVED, NULL);
+                                       HTTP2_STREAM_RESERVED, null);
   assert(1 == session.num_incoming_streams);
   assert(1 == session.num_outgoing_streams);
-  assert(NULL == stream.dep_prev);
+  assert(null == stream.dep_prev);
   assert(DEFAULT_WEIGHT == stream.weight);
   assert(HTTP2_SHUT_RD == stream.shut_flags);
 
   http2_priority_spec_init(&pri_spec, 1, 17, 1);
 
   stream = http2_session_open_stream(session, 3, HTTP2_STREAM_FLAG_NONE,
-                                       &pri_spec, HTTP2_STREAM_OPENED, NULL);
+                                       &pri_spec, HTTP2_STREAM_OPENED, null);
   assert(17 == stream.weight);
   assert(1 == stream.dep_prev.stream_id);
 
@@ -4130,14 +4130,14 @@ void test_http2_session_open_stream(void) {
   http2_priority_spec_init(&pri_spec, 1000000007, 240, 1);
 
   stream = http2_session_open_stream(session, 5, HTTP2_STREAM_FLAG_NONE,
-                                       &pri_spec, HTTP2_STREAM_OPENED, NULL);
+                                       &pri_spec, HTTP2_STREAM_OPENED, null);
   assert(240 == stream.weight);
   assert(1000000007 == stream.dep_prev.stream_id);
 
   stream = http2_session_get_stream_raw(session, 1000000007);
 
   assert(DEFAULT_WEIGHT == stream.weight);
-  assert(NULL != stream.root_next);
+  assert(null != stream.root_next);
 
   /* Dependency to closed stream which is not in dependency tree */
   session.last_recv_stream_id = 7;
@@ -4145,19 +4145,19 @@ void test_http2_session_open_stream(void) {
   http2_priority_spec_init(&pri_spec, 7, 10, 0);
 
   stream = http2_session_open_stream(session, 9, FrameFlags.NONE, &pri_spec,
-                                       HTTP2_STREAM_OPENED, NULL);
+                                       HTTP2_STREAM_OPENED, null);
 
   assert(DEFAULT_WEIGHT == stream.weight);
 
   http2_session_del(session);
 
-  http2_session_client_new(&session, &callbacks, NULL);
+  http2_session_client_new(&session, &callbacks, null);
   stream = http2_session_open_stream(session, 4, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_RESERVED, NULL);
+                                       HTTP2_STREAM_RESERVED, null);
   assert(0 == session.num_incoming_streams);
   assert(0 == session.num_outgoing_streams);
-  assert(NULL == stream.dep_prev);
+  assert(null == stream.dep_prev);
   assert(DEFAULT_WEIGHT == stream.weight);
   assert(HTTP2_SHUT_WR == stream.shut_flags);
 
@@ -4171,13 +4171,13 @@ void test_http2_session_open_stream_with_idle_stream_dep(void) {
   http2_priority_spec pri_spec;
 
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   /* Dependency to idle stream */
   http2_priority_spec_init(&pri_spec, 101, 245, 0);
 
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                                       &pri_spec, HTTP2_STREAM_OPENED, NULL);
+                                       &pri_spec, HTTP2_STREAM_OPENED, null);
 
   assert(245 == stream.weight);
   assert(101 == stream.dep_prev.stream_id);
@@ -4191,7 +4191,7 @@ void test_http2_session_open_stream_with_idle_stream_dep(void) {
 
   /* stream 101 was already created as idle. */
   stream = http2_session_open_stream(session, 101, HTTP2_STREAM_FLAG_NONE,
-                                       &pri_spec, HTTP2_STREAM_OPENED, NULL);
+                                       &pri_spec, HTTP2_STREAM_OPENED, null);
 
   assert(1 == stream.weight);
   assert(211 == stream.dep_prev.stream_id);
@@ -4212,35 +4212,35 @@ void test_http2_session_get_next_ob_item(void) {
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
   callbacks.send_callback = null_send_callback;
 
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
   session.remote_settings.max_concurrent_streams = 2;
 
-  assert(NULL == http2_session_get_next_ob_item(session));
-  http2_submit_ping(session, FrameFlags.NONE, NULL);
+  assert(null == http2_session_get_next_ob_item(session));
+  http2_submit_ping(session, FrameFlags.NONE, null);
   assert(HTTP2_PING ==
             http2_session_get_next_ob_item(session).frame.hd.type);
 
-  http2_submit_request(session, NULL, NULL, 0, NULL, NULL);
+  http2_submit_request(session, null, null, 0, null, null);
   assert(HTTP2_PING ==
             http2_session_get_next_ob_item(session).frame.hd.type);
 
   assert(0 == http2_session_send(session));
-  assert(NULL == http2_session_get_next_ob_item(session));
+  assert(null == http2_session_get_next_ob_item(session));
 
   /* Incoming stream does not affect the number of outgoing max
      concurrent streams. */
   http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
 
   http2_priority_spec_init(&pri_spec, 0, HTTP2_MAX_WEIGHT, 0);
 
-  http2_submit_request(session, &pri_spec, NULL, 0, NULL, NULL);
+  http2_submit_request(session, &pri_spec, null, 0, null, null);
   assert(HTTP2_HEADERS ==
             http2_session_get_next_ob_item(session).frame.hd.type);
   assert(0 == http2_session_send(session));
 
-  http2_submit_request(session, &pri_spec, NULL, 0, NULL, NULL);
-  assert(NULL == http2_session_get_next_ob_item(session));
+  http2_submit_request(session, &pri_spec, null, 0, null, null);
+  assert(null == http2_session_get_next_ob_item(session));
 
   session.remote_settings.max_concurrent_streams = 3;
 
@@ -4262,16 +4262,16 @@ void test_http2_session_pop_next_ob_item(void) {
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
   callbacks.send_callback = null_send_callback;
 
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
   session.remote_settings.max_concurrent_streams = 1;
 
-  assert(NULL == http2_session_pop_next_ob_item(session));
+  assert(null == http2_session_pop_next_ob_item(session));
 
-  http2_submit_ping(session, FrameFlags.NONE, NULL);
+  http2_submit_ping(session, FrameFlags.NONE, null);
 
   http2_priority_spec_init(&pri_spec, 0, 254, 0);
 
-  http2_submit_request(session, &pri_spec, NULL, 0, NULL, NULL);
+  http2_submit_request(session, &pri_spec, null, 0, null, null);
 
   item = http2_session_pop_next_ob_item(session);
   assert(HTTP2_PING == item.frame.hd.type);
@@ -4283,20 +4283,20 @@ void test_http2_session_pop_next_ob_item(void) {
   http2_outbound_item_free(item, mem);
   free(item);
 
-  assert(NULL == http2_session_pop_next_ob_item(session));
+  assert(null == http2_session_pop_next_ob_item(session));
 
   /* Incoming stream does not affect the number of outgoing max
      concurrent streams. */
   http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
   /* In-flight outgoing stream */
   http2_session_open_stream(session, 4, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
 
   http2_priority_spec_init(&pri_spec, 0, HTTP2_MAX_WEIGHT, 0);
 
-  http2_submit_request(session, &pri_spec, NULL, 0, NULL, NULL);
-  http2_submit_response(session, 1, NULL, 0, NULL);
+  http2_submit_request(session, &pri_spec, null, 0, null, null);
+  http2_submit_response(session, 1, null, 0, null);
 
   item = http2_session_pop_next_ob_item(session);
   assert(HTTP2_HEADERS == item.frame.hd.type);
@@ -4309,7 +4309,7 @@ void test_http2_session_pop_next_ob_item(void) {
   http2_outbound_item_free(item, mem);
   free(item);
 
-  assert(NULL == http2_session_pop_next_ob_item(session));
+  assert(null == http2_session_pop_next_ob_item(session));
 
   session.remote_settings.max_concurrent_streams = 2;
 
@@ -4321,13 +4321,13 @@ void test_http2_session_pop_next_ob_item(void) {
   http2_session_del(session);
 
   /* Check that push reply HEADERS are queued into ob_ss_pq */
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
   session.remote_settings.max_concurrent_streams = 0;
   http2_session_open_stream(session, 2, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_RESERVED, NULL);
+                              &pri_spec_default, HTTP2_STREAM_RESERVED, null);
   assert(0 == http2_submit_headers(session, FrameFlags.END_STREAM, 2,
-                                        NULL, NULL, 0, NULL));
-  assert(NULL == http2_session_pop_next_ob_item(session));
+                                        null, null, 0, null));
+  assert(null == http2_session_pop_next_ob_item(session));
   assert(1 == http2_pq_size(&session.ob_ss_pq));
   http2_session_del(session);
 }
@@ -4345,8 +4345,8 @@ void test_http2_session_reply_fail(void) {
   ud.data_source_length = 4 * 1024;
   assert(0 == http2_session_server_new(&session, &callbacks, &ud));
   http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
-  assert(0 == http2_submit_response(session, 1, NULL, 0, &data_prd));
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
+  assert(0 == http2_submit_response(session, 1, null, 0, &data_prd));
   assert(HTTP2_ERR_CALLBACK_FAILURE == http2_session_send(session));
   http2_session_del(session);
 }
@@ -4362,13 +4362,13 @@ void test_http2_session_max_concurrent_streams(void) {
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
   callbacks.send_callback = null_send_callback;
 
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
   http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENED, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENED, null);
 
   /* Check un-ACKed SETTINGS_MAX_CONCURRENT_STREAMS */
   http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 3,
-                             HTTP2_HCAT_HEADERS, NULL, NULL, 0);
+                             HTTP2_HCAT_HEADERS, null, null, 0);
   session.pending_local_max_concurrent_stream = 1;
 
   assert(HTTP2_ERR_IGN_HEADER_BLOCK ==
@@ -4402,7 +4402,7 @@ void test_http2_session_max_concurrent_streams(void) {
 void test_http2_session_stream_close_on_headers_push(void) {
   /* http2_session *session; */
   /* http2_session_callbacks callbacks; */
-  /* const char *nv[] = { NULL }; */
+  /* const char *nv[] = { null }; */
   /* my_user_data ud; */
   /* http2_frame frame; */
 
@@ -4414,7 +4414,7 @@ void test_http2_session_stream_close_on_headers_push(void) {
   /* http2_session_client_new(&session, HTTP2_PROTO_SPDY2, &callbacks, &ud);
    */
   /* http2_session_open_stream(session, 1, HTTP2_CTRL_FLAG_NONE, 3, */
-  /*                             HTTP2_STREAM_OPENING, NULL); */
+  /*                             HTTP2_STREAM_OPENING, null); */
   /* http2_frame_syn_stream_init(&frame.syn_stream, HTTP2_PROTO_SPDY2, */
   /*                               HTTP2_CTRL_FLAG_FIN | */
   /*                               HTTP2_CTRL_FLAG_UNIDIRECTIONAL, */
@@ -4444,8 +4444,8 @@ void test_http2_session_stop_data_with_rst_stream(void) {
 
   http2_session_server_new(&session, &callbacks, &ud);
   http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
-  http2_submit_response(session, 1, NULL, 0, &data_prd);
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
+  http2_submit_response(session, 1, null, 0, &data_prd);
 
   ud.block_count = 2;
   /* Sends response HEADERS + DATA[0] */
@@ -4466,7 +4466,7 @@ void test_http2_session_stop_data_with_rst_stream(void) {
      stream are not sent. */
   assert(ud.data_source_length == HTTP2_DATA_PAYLOADLEN * 2);
 
-  assert(NULL == http2_session_get_stream(session, 1));
+  assert(null == http2_session_get_stream(session, 1));
 
   http2_session_del(session);
 }
@@ -4490,12 +4490,12 @@ void test_http2_session_defer_data(void) {
   http2_session_server_new(&session, &callbacks, &ud);
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
 
   session.remote_window_size = 1 << 20;
   stream.remote_window_size = 1 << 20;
 
-  http2_submit_response(session, 1, NULL, 0, &data_prd);
+  http2_submit_response(session, 1, null, 0, &data_prd);
 
   ud.block_count = 1;
   /* Sends HEADERS reply */
@@ -4505,7 +4505,7 @@ void test_http2_session_defer_data(void) {
   assert(ud.data_source_length == HTTP2_DATA_PAYLOADLEN * 4);
 
   ud.block_count = 1;
-  http2_submit_ping(session, FrameFlags.NONE, NULL);
+  http2_submit_ping(session, FrameFlags.NONE, null);
   /* Sends PING */
   assert(0 == http2_session_send(session));
   assert(HTTP2_PING == ud.sent_frame_type);
@@ -4571,7 +4571,7 @@ void test_http2_session_flow_control(void) {
   session.remote_window_size = 64 * 1024;
   session.remote_settings.initial_window_size = 64 * 1024;
 
-  http2_submit_request(session, NULL, NULL, 0, &data_prd, NULL);
+  http2_submit_request(session, null, null, 0, &data_prd, null);
 
   /* Sends 64KiB - 1 data */
   assert(0 == http2_session_send(session));
@@ -4667,11 +4667,11 @@ void test_http2_session_flow_control_data_recv(void) {
   callbacks.send_callback = null_send_callback;
 
   /* Initial window size to 64KiB - 1*/
-  http2_session_client_new(&session, &callbacks, NULL);
+  http2_session_client_new(&session, &callbacks, null);
 
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default, HTTP2_STREAM_OPENED,
-                                       NULL);
+                                       null);
 
   session.next_stream_id = 3;
 
@@ -4735,13 +4735,13 @@ void test_http2_session_flow_control_data_with_padding_recv(void) {
   http2_option_set_no_auto_window_update(option, 1);
 
   /* Initial window size to 64KiB - 1*/
-  http2_session_client_new2(&session, &callbacks, NULL, option);
+  http2_session_client_new2(&session, &callbacks, null, option);
 
   http2_option_del(option);
 
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default, HTTP2_STREAM_OPENED,
-                                       NULL);
+                                       null);
 
   /* Create DATA frame */
   memset(data, 0, sizeof(data));
@@ -4782,7 +4782,7 @@ void test_http2_session_data_read_temporal_failure(void) {
 
   /* Initial window size is 64KiB - 1 */
   http2_session_client_new(&session, &callbacks, &ud);
-  http2_submit_request(session, NULL, NULL, 0, &data_prd, NULL);
+  http2_submit_request(session, null, null, 0, &data_prd, null);
 
   /* Sends HTTP2_INITIAL_WINDOW_SIZE data, assuming, it is equal to
      or smaller than HTTP2_INITIAL_CONNECTION_WINDOW_SIZE */
@@ -4814,7 +4814,7 @@ void test_http2_session_data_read_temporal_failure(void) {
   assert(HTTP2_RST_STREAM == ud.sent_frame_type);
 
   data_prd.read_callback = fail_data_source_read_callback;
-  http2_submit_request(session, NULL, NULL, 0, &data_prd, NULL);
+  http2_submit_request(session, null, null, 0, &data_prd, null);
   /* Sending data will fail (hard fail) and session tear down */
   assert(HTTP2_ERR_CALLBACK_FAILURE == http2_session_send(session));
 
@@ -4835,7 +4835,7 @@ void test_http2_session_on_stream_close(void) {
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default, HTTP2_STREAM_OPENED,
                                        &user_data);
-  assert(stream != NULL);
+  assert(stream != null);
   assert(http2_session_close_stream(session, 1, HTTP2_NO_ERROR) == 0);
   assert(user_data.stream_close_cb_called == 1);
   http2_session_del(session);
@@ -4862,7 +4862,7 @@ void test_http2_session_on_ctrl_not_send(void) {
   /* Check response HEADERS */
   /* Send bogus stream ID */
   assert(0 == http2_submit_headers(session, FrameFlags.END_STREAM, 3,
-                                        NULL, NULL, 0, NULL));
+                                        null, null, 0, null));
   assert(0 == http2_session_send(session));
   assert(1 == user_data.frame_not_send_cb_called);
   assert(HTTP2_HEADERS == user_data.not_sent_frame_type);
@@ -4872,7 +4872,7 @@ void test_http2_session_on_ctrl_not_send(void) {
   /* Shutdown transmission */
   stream.shut_flags |= HTTP2_SHUT_WR;
   assert(0 == http2_submit_headers(session, FrameFlags.END_STREAM, 1,
-                                        NULL, NULL, 0, NULL));
+                                        null, null, 0, null));
   assert(0 == http2_session_send(session));
   assert(1 == user_data.frame_not_send_cb_called);
   assert(HTTP2_HEADERS == user_data.not_sent_frame_type);
@@ -4882,7 +4882,7 @@ void test_http2_session_on_ctrl_not_send(void) {
   user_data.frame_not_send_cb_called = 0;
   /* Queue RST_STREAM */
   assert(0 == http2_submit_headers(session, FrameFlags.END_STREAM, 1,
-                                        NULL, NULL, 0, NULL));
+                                        null, null, 0, null));
   assert(0 == http2_submit_rst_stream(session, FrameFlags.NONE, 1,
                                            HTTP2_INTERNAL_ERROR));
   assert(0 == http2_session_send(session));
@@ -4898,8 +4898,8 @@ void test_http2_session_on_ctrl_not_send(void) {
   /* Maximum Stream ID is reached */
   session.next_stream_id = (1u << 31) + 1;
   assert(HTTP2_ERR_STREAM_ID_NOT_AVAILABLE ==
-            http2_submit_headers(session, FrameFlags.END_STREAM, -1, NULL,
-                                   NULL, 0, NULL));
+            http2_submit_headers(session, FrameFlags.END_STREAM, -1, null,
+                                   null, 0, null));
 
   user_data.frame_not_send_cb_called = 0;
   /* GOAWAY received */
@@ -4907,7 +4907,7 @@ void test_http2_session_on_ctrl_not_send(void) {
   session.next_stream_id = 9;
 
   assert(0 < http2_submit_headers(session, FrameFlags.END_STREAM, -1,
-                                       NULL, NULL, 0, NULL));
+                                       null, null, 0, null));
   assert(0 == http2_session_send(session));
   assert(1 == user_data.frame_not_send_cb_called);
   assert(HTTP2_HEADERS == user_data.not_sent_frame_type);
@@ -4921,14 +4921,14 @@ void test_http2_session_get_outbound_queue_size(void) {
   http2_session_callbacks callbacks;
 
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
-  assert(0 == http2_session_client_new(&session, &callbacks, NULL));
+  assert(0 == http2_session_client_new(&session, &callbacks, null));
   assert(0 == http2_session_get_outbound_queue_size(session));
 
-  assert(0 == http2_submit_ping(session, FrameFlags.NONE, NULL));
+  assert(0 == http2_submit_ping(session, FrameFlags.NONE, null));
   assert(1 == http2_session_get_outbound_queue_size(session));
 
   assert(0 == http2_submit_goaway(session, FrameFlags.NONE, 2,
-                                       HTTP2_NO_ERROR, NULL, 0));
+                                       HTTP2_NO_ERROR, null, 0));
   assert(2 == http2_session_get_outbound_queue_size(session));
 
   http2_session_del(session);
@@ -4940,11 +4940,11 @@ void test_http2_session_get_effective_local_window_size(void) {
   http2_stream *stream;
 
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
-  assert(0 == http2_session_client_new(&session, &callbacks, NULL));
+  assert(0 == http2_session_client_new(&session, &callbacks, null));
 
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default, HTTP2_STREAM_OPENED,
-                                       NULL);
+                                       null);
 
   assert(HTTP2_INITIAL_CONNECTION_WINDOW_SIZE ==
             http2_session_get_effective_local_window_size(session));
@@ -5013,7 +5013,7 @@ void test_http2_session_set_option(void) {
   http2_option_set_no_auto_window_update(option, 1);
 
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
-  http2_session_client_new2(&session, &callbacks, NULL, option);
+  http2_session_client_new2(&session, &callbacks, null, option);
 
   assert(session.opt_flags & HTTP2_OPTMASK_NO_AUTO_WINDOW_UPDATE);
 
@@ -5021,7 +5021,7 @@ void test_http2_session_set_option(void) {
 
   http2_option_set_peer_max_concurrent_streams(option, 100);
 
-  http2_session_client_new2(&session, &callbacks, NULL, option);
+  http2_session_client_new2(&session, &callbacks, null, option);
 
   assert(100 == session.remote_settings.max_concurrent_streams);
   http2_session_del(session);
@@ -5045,7 +5045,7 @@ void test_http2_session_data_backoff_by_high_pri_frame(void) {
   ud.data_source_length = HTTP2_DATA_PAYLOADLEN * 4;
 
   http2_session_client_new(&session, &callbacks, &ud);
-  http2_submit_request(session, NULL, NULL, 0, &data_prd, NULL);
+  http2_submit_request(session, null, null, 0, &data_prd, null);
 
   session.remote_window_size = 1 << 20;
 
@@ -5060,7 +5060,7 @@ void test_http2_session_data_backoff_by_high_pri_frame(void) {
   /* data for DATA[1] is read from data_prd but it is not sent */
   assert(ud.data_source_length == HTTP2_DATA_PAYLOADLEN * 2);
 
-  http2_submit_ping(session, FrameFlags.NONE, NULL);
+  http2_submit_ping(session, FrameFlags.NONE, null);
   ud.block_count = 2;
   /* Sends DATA[1] + PING, PING is interleaved in DATA sequence */
   assert(0 == http2_session_send(session));
@@ -5091,7 +5091,7 @@ static void check_session_recv_data_with_padding(http2_bufs *bufs,
   http2_session_server_new(&session, &callbacks, &ud);
 
   http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
 
   inlen = http2_bufs_remove(bufs, &in);
 
@@ -5126,7 +5126,7 @@ void test_http2_session_pack_data_with_padding(void) {
 
   ud.padlen = 63;
 
-  http2_submit_request(session, NULL, NULL, 0, &data_prd, NULL);
+  http2_submit_request(session, null, null, 0, &data_prd, null);
   ud.block_count = 1;
   ud.data_source_length = datalen;
   /* Sends HEADERS */
@@ -5164,8 +5164,8 @@ void test_http2_session_pack_headers_with_padding(void) {
 
   ud.padlen = 163;
 
-  assert(1 == http2_submit_request(session, NULL, reqnv, ARRLEN(reqnv),
-                                        NULL, NULL));
+  assert(1 == http2_submit_request(session, null, reqnv, ARRLEN(reqnv),
+                                        null, null));
   assert(0 == http2_session_send(session));
 
   assert(acc.length < HTTP2_MAX_PAYLOADLEN);
@@ -5173,7 +5173,7 @@ void test_http2_session_pack_headers_with_padding(void) {
   assert((size_t)acc.length ==
             http2_session_mem_recv(sv_session, acc.buf, acc.length));
   assert(1 == ud.frame_recv_cb_called);
-  assert(NULL == http2_session_get_next_ob_item(sv_session));
+  assert(null == http2_session_get_next_ob_item(sv_session));
 
   http2_session_del(sv_session);
   http2_session_del(session);
@@ -5228,7 +5228,7 @@ void test_http2_session_stream_dep_add(void) {
 
   memset(&callbacks, 0, sizeof(callbacks));
 
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   a = open_stream(session, 1);
 
@@ -5253,14 +5253,14 @@ void test_http2_session_stream_dep_add(void) {
   assert(DEFAULT_WEIGHT == c.sum_dep_weight);
   assert(0 == d.sum_dep_weight);
 
-  check_stream_dep_sib(a, NULL, b, NULL, NULL);
-  check_stream_dep_sib(b, a, NULL, NULL, c);
-  check_stream_dep_sib(c, NULL, d, b, NULL);
-  check_stream_dep_sib(d, c, NULL, NULL, NULL);
+  check_stream_dep_sib(a, null, b, null, null);
+  check_stream_dep_sib(b, a, null, null, c);
+  check_stream_dep_sib(c, null, d, b, null);
+  check_stream_dep_sib(d, c, null, null, null);
 
   assert(4 == session.roots.num_streams);
   assert(a == session.roots.head);
-  assert(NULL == a.root_next);
+  assert(null == a.root_next);
 
   e = open_stream_with_dep_excl(session, 9, a);
 
@@ -5285,15 +5285,15 @@ void test_http2_session_stream_dep_add(void) {
   assert(DEFAULT_WEIGHT == c.sum_dep_weight);
   assert(0 == d.sum_dep_weight);
 
-  check_stream_dep_sib(a, NULL, e, NULL, NULL);
-  check_stream_dep_sib(e, a, b, NULL, NULL);
-  check_stream_dep_sib(b, e, NULL, NULL, c);
-  check_stream_dep_sib(c, NULL, d, b, NULL);
-  check_stream_dep_sib(d, c, NULL, NULL, NULL);
+  check_stream_dep_sib(a, null, e, null, null);
+  check_stream_dep_sib(e, a, b, null, null);
+  check_stream_dep_sib(b, e, null, null, c);
+  check_stream_dep_sib(c, null, d, b, null);
+  check_stream_dep_sib(d, c, null, null, null);
 
   assert(5 == session.roots.num_streams);
   assert(a == session.roots.head);
-  assert(NULL == a.root_next);
+  assert(null == a.root_next);
 
   http2_session_del(session);
 }
@@ -5306,7 +5306,7 @@ void test_http2_session_stream_dep_remove(void) {
   memset(&callbacks, 0, sizeof(callbacks));
 
   /* Remove root */
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   a = open_stream(session, 1);
   b = open_stream_with_dep(session, 3, a);
@@ -5338,20 +5338,20 @@ void test_http2_session_stream_dep_remove(void) {
   assert(DEFAULT_WEIGHT == c.sum_dep_weight);
   assert(0 == d.sum_dep_weight);
 
-  check_stream_dep_sib(a, NULL, NULL, NULL, NULL);
-  check_stream_dep_sib(b, NULL, NULL, NULL, NULL);
-  check_stream_dep_sib(c, NULL, d, NULL, NULL);
-  check_stream_dep_sib(d, c, NULL, NULL, NULL);
+  check_stream_dep_sib(a, null, null, null, null);
+  check_stream_dep_sib(b, null, null, null, null);
+  check_stream_dep_sib(c, null, d, null, null);
+  check_stream_dep_sib(d, c, null, null, null);
 
   assert(3 == session.roots.num_streams);
   assert(b == session.roots.head);
   assert(c == b.root_next);
-  assert(NULL == c.root_next);
+  assert(null == c.root_next);
 
   http2_session_del(session);
 
   /* Remove left most stream */
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   a = open_stream(session, 1);
   b = open_stream_with_dep(session, 3, a);
@@ -5385,19 +5385,19 @@ void test_http2_session_stream_dep_remove(void) {
   assert(0 == d.sum_dep_weight);
   assert(0 == b.sum_dep_weight);
 
-  check_stream_dep_sib(a, NULL, c, NULL, NULL);
-  check_stream_dep_sib(b, NULL, NULL, NULL, NULL);
-  check_stream_dep_sib(c, a, d, NULL, NULL);
-  check_stream_dep_sib(d, c, NULL, NULL, NULL);
+  check_stream_dep_sib(a, null, c, null, null);
+  check_stream_dep_sib(b, null, null, null, null);
+  check_stream_dep_sib(c, a, d, null, null);
+  check_stream_dep_sib(d, c, null, null, null);
 
   assert(3 == session.roots.num_streams);
   assert(a == session.roots.head);
-  assert(NULL == a.root_next);
+  assert(null == a.root_next);
 
   http2_session_del(session);
 
   /* Remove right most stream */
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   a = open_stream(session, 1);
   b = open_stream_with_dep(session, 3, a);
@@ -5429,15 +5429,15 @@ void test_http2_session_stream_dep_remove(void) {
   assert(0 == d.sum_dep_weight);
   assert(0 == c.sum_dep_weight);
 
-  check_stream_dep_sib(a, NULL, d, NULL, NULL);
-  check_stream_dep_sib(b, NULL, NULL, d, NULL);
-  check_stream_dep_sib(c, NULL, NULL, NULL, NULL);
-  check_stream_dep_sib(d, a, NULL, NULL, b);
+  check_stream_dep_sib(a, null, d, null, null);
+  check_stream_dep_sib(b, null, null, d, null);
+  check_stream_dep_sib(c, null, null, null, null);
+  check_stream_dep_sib(d, a, null, null, b);
 
   http2_session_del(session);
 
   /* Remove middle stream */
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   a = open_stream(session, 1);
   b = open_stream_with_dep(session, 3, a);
@@ -5491,12 +5491,12 @@ void test_http2_session_stream_dep_remove(void) {
   assert(0 == e.sum_dep_weight);
   assert(0 == f.sum_dep_weight);
 
-  check_stream_dep_sib(a, NULL, d, NULL, NULL);
-  check_stream_dep_sib(b, NULL, NULL, e, NULL);
-  check_stream_dep_sib(c, NULL, NULL, NULL, NULL);
-  check_stream_dep_sib(e, NULL, NULL, f, b);
-  check_stream_dep_sib(f, NULL, NULL, d, e);
-  check_stream_dep_sib(d, a, NULL, NULL, f);
+  check_stream_dep_sib(a, null, d, null, null);
+  check_stream_dep_sib(b, null, null, e, null);
+  check_stream_dep_sib(c, null, null, null, null);
+  check_stream_dep_sib(e, null, null, f, b);
+  check_stream_dep_sib(f, null, null, d, e);
+  check_stream_dep_sib(d, a, null, null, f);
 
   http2_session_del(session);
 }
@@ -5509,7 +5509,7 @@ void test_http2_session_stream_dep_add_subtree(void) {
   memset(&callbacks, 0, sizeof(callbacks));
 
   /* dep_stream has dep_next */
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   a = open_stream(session, 1);
   b = open_stream_with_dep(session, 3, a);
@@ -5550,17 +5550,17 @@ void test_http2_session_stream_dep_add_subtree(void) {
   assert(DEFAULT_WEIGHT == e.sum_dep_weight);
   assert(0 == f.sum_dep_weight);
 
-  check_stream_dep_sib(a, NULL, e, NULL, NULL);
-  check_stream_dep_sib(b, NULL, NULL, c, NULL);
-  check_stream_dep_sib(c, NULL, d, e, b);
-  check_stream_dep_sib(d, c, NULL, NULL, NULL);
-  check_stream_dep_sib(e, a, f, NULL, c);
-  check_stream_dep_sib(f, e, NULL, NULL, NULL);
+  check_stream_dep_sib(a, null, e, null, null);
+  check_stream_dep_sib(b, null, null, c, null);
+  check_stream_dep_sib(c, null, d, e, b);
+  check_stream_dep_sib(d, c, null, null, null);
+  check_stream_dep_sib(e, a, f, null, c);
+  check_stream_dep_sib(f, e, null, null, null);
 
   http2_session_del(session);
 
   /* dep_stream has dep_next and now we insert subtree */
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   a = open_stream(session, 1);
   b = open_stream_with_dep(session, 3, a);
@@ -5603,12 +5603,12 @@ void test_http2_session_stream_dep_add_subtree(void) {
   assert(DEFAULT_WEIGHT * 3 == e.sum_dep_weight);
   assert(0 == f.sum_dep_weight);
 
-  check_stream_dep_sib(a, NULL, e, NULL, NULL);
-  check_stream_dep_sib(e, a, f, NULL, NULL);
-  check_stream_dep_sib(f, e, NULL, NULL, c);
-  check_stream_dep_sib(b, NULL, NULL, c, NULL);
-  check_stream_dep_sib(c, NULL, d, f, b);
-  check_stream_dep_sib(d, c, NULL, NULL, NULL);
+  check_stream_dep_sib(a, null, e, null, null);
+  check_stream_dep_sib(e, a, f, null, null);
+  check_stream_dep_sib(f, e, null, null, c);
+  check_stream_dep_sib(b, null, null, c, null);
+  check_stream_dep_sib(c, null, d, f, b);
+  check_stream_dep_sib(d, c, null, null, null);
 
   http2_session_del(session);
 }
@@ -5621,7 +5621,7 @@ void test_http2_session_stream_dep_remove_subtree(void) {
   memset(&callbacks, 0, sizeof(callbacks));
 
   /* Remove left most stream */
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   a = open_stream(session, 1);
   b = open_stream_with_dep(session, 3, a);
@@ -5653,15 +5653,15 @@ void test_http2_session_stream_dep_remove_subtree(void) {
   assert(DEFAULT_WEIGHT == c.sum_dep_weight);
   assert(0 == d.sum_dep_weight);
 
-  check_stream_dep_sib(a, NULL, b, NULL, NULL);
-  check_stream_dep_sib(b, a, NULL, NULL, NULL);
-  check_stream_dep_sib(c, NULL, d, NULL, NULL);
-  check_stream_dep_sib(d, c, NULL, NULL, NULL);
+  check_stream_dep_sib(a, null, b, null, null);
+  check_stream_dep_sib(b, a, null, null, null);
+  check_stream_dep_sib(c, null, d, null, null);
+  check_stream_dep_sib(d, c, null, null, null);
 
   http2_session_del(session);
 
   /* Remove right most stream */
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   a = open_stream(session, 1);
   b = open_stream_with_dep(session, 3, a);
@@ -5695,15 +5695,15 @@ void test_http2_session_stream_dep_remove_subtree(void) {
   assert(DEFAULT_WEIGHT == c.sum_dep_weight);
   assert(0 == d.sum_dep_weight);
 
-  check_stream_dep_sib(a, NULL, c, NULL, NULL);
-  check_stream_dep_sib(c, a, d, NULL, NULL);
-  check_stream_dep_sib(d, c, NULL, NULL, NULL);
-  check_stream_dep_sib(b, NULL, NULL, NULL, NULL);
+  check_stream_dep_sib(a, null, c, null, null);
+  check_stream_dep_sib(c, a, d, null, null);
+  check_stream_dep_sib(d, c, null, null, null);
+  check_stream_dep_sib(b, null, null, null, null);
 
   http2_session_del(session);
 
   /* Remove middle stream */
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   a = open_stream(session, 1);
   e = open_stream_with_dep(session, 9, a);
@@ -5738,11 +5738,11 @@ void test_http2_session_stream_dep_remove_subtree(void) {
   assert(0 == d.sum_dep_weight);
   assert(0 == e.sum_dep_weight);
 
-  check_stream_dep_sib(a, NULL, b, NULL, NULL);
-  check_stream_dep_sib(b, a, NULL, NULL, e);
-  check_stream_dep_sib(e, NULL, NULL, b, NULL);
-  check_stream_dep_sib(c, NULL, d, NULL, NULL);
-  check_stream_dep_sib(d, c, NULL, NULL, NULL);
+  check_stream_dep_sib(a, null, b, null, null);
+  check_stream_dep_sib(b, a, null, null, e);
+  check_stream_dep_sib(e, null, null, b, null);
+  check_stream_dep_sib(c, null, d, null, null);
+  check_stream_dep_sib(d, c, null, null, null);
 
   http2_session_del(session);
 }
@@ -5754,7 +5754,7 @@ void test_http2_session_stream_dep_all_your_stream_are_belong_to_us(void) {
 
   memset(&callbacks, 0, sizeof(callbacks));
 
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   a = open_stream(session, 1);
   b = open_stream_with_dep(session, 3, a);
@@ -5786,13 +5786,13 @@ void test_http2_session_stream_dep_all_your_stream_are_belong_to_us(void) {
   assert(DEFAULT_WEIGHT == a.sum_dep_weight);
   assert(0 == b.sum_dep_weight);
 
-  check_stream_dep_sib(c, NULL, a, NULL, NULL);
-  check_stream_dep_sib(a, c, b, NULL, NULL);
-  check_stream_dep_sib(b, a, NULL, NULL, NULL);
+  check_stream_dep_sib(c, null, a, null, null);
+  check_stream_dep_sib(a, c, b, null, null);
+  check_stream_dep_sib(b, a, null, null, null);
 
   http2_session_del(session);
 
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   a = open_stream(session, 1);
 
@@ -5822,13 +5822,13 @@ void test_http2_session_stream_dep_all_your_stream_are_belong_to_us(void) {
   assert(0 == b.sum_dep_weight);
   assert(0 == a.sum_dep_weight);
 
-  check_stream_dep_sib(c, NULL, b, NULL, NULL);
-  check_stream_dep_sib(b, c, NULL, NULL, a);
-  check_stream_dep_sib(a, NULL, NULL, b, NULL);
+  check_stream_dep_sib(c, null, b, null, null);
+  check_stream_dep_sib(b, c, null, null, a);
+  check_stream_dep_sib(a, null, null, b, null);
 
   http2_session_del(session);
 
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   a = open_stream(session, 1);
   b = open_stream_with_dep(session, 3, a);
@@ -5863,10 +5863,10 @@ void test_http2_session_stream_dep_all_your_stream_are_belong_to_us(void) {
   assert(DEFAULT_WEIGHT == a.sum_dep_weight);
   assert(0 == b.sum_dep_weight);
 
-  check_stream_dep_sib(c, NULL, a, NULL, NULL);
-  check_stream_dep_sib(d, NULL, NULL, a, NULL);
-  check_stream_dep_sib(a, c, b, NULL, d);
-  check_stream_dep_sib(b, a, NULL, NULL, NULL);
+  check_stream_dep_sib(c, null, a, null, null);
+  check_stream_dep_sib(d, null, null, a, null);
+  check_stream_dep_sib(a, c, b, null, d);
+  check_stream_dep_sib(b, a, null, null, null);
 
   http2_session_del(session);
 }
@@ -5879,7 +5879,7 @@ void test_http2_session_stream_attach_item(void) {
 
   memset(&callbacks, 0, sizeof(callbacks));
 
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   a = open_stream(session, 1);
   b = open_stream_with_dep(session, 3, a);
@@ -5994,7 +5994,7 @@ void test_http2_session_stream_attach_item_subtree(void) {
 
   memset(&callbacks, 0, sizeof(callbacks));
 
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   a = open_stream(session, 1);
   b = open_stream_with_dep(session, 3, a);
@@ -6207,7 +6207,7 @@ void test_http2_session_keep_closed_stream(void) {
   memset(&callbacks, 0, sizeof(callbacks));
   callbacks.send_callback = null_send_callback;
 
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   http2_submit_settings(session, FrameFlags.NONE, &iv, 1);
 
@@ -6230,24 +6230,24 @@ void test_http2_session_keep_closed_stream(void) {
   assert(1 == session.closed_stream_head.stream_id);
   assert(session.closed_stream_head ==
             session.closed_stream_tail.closed_prev);
-  assert(NULL == session.closed_stream_tail.closed_next);
+  assert(null == session.closed_stream_tail.closed_next);
   assert(session.closed_stream_tail ==
             session.closed_stream_head.closed_next);
-  assert(NULL == session.closed_stream_head.closed_prev);
+  assert(null == session.closed_stream_head.closed_prev);
 
   open_stream(session, 11);
 
   assert(1 == session.num_closed_streams);
   assert(5 == session.closed_stream_tail.stream_id);
   assert(session.closed_stream_tail == session.closed_stream_head);
-  assert(NULL == session.closed_stream_head.closed_prev);
-  assert(NULL == session.closed_stream_head.closed_next);
+  assert(null == session.closed_stream_head.closed_prev);
+  assert(null == session.closed_stream_head.closed_next);
 
   open_stream(session, 13);
 
   assert(0 == session.num_closed_streams);
-  assert(NULL == session.closed_stream_tail);
-  assert(NULL == session.closed_stream_head);
+  assert(null == session.closed_stream_tail);
+  assert(null == session.closed_stream_head);
 
   http2_session_del(session);
 }
@@ -6263,7 +6263,7 @@ void test_http2_session_keep_idle_stream(void) {
   memset(&callbacks, 0, sizeof(callbacks));
   callbacks.send_callback = null_send_callback;
 
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   http2_submit_settings(session, FrameFlags.NONE, &iv, 1);
 
@@ -6271,7 +6271,7 @@ void test_http2_session_keep_idle_stream(void) {
      is very low. */
   for (i = 0; i < 2; ++i) {
     http2_session_open_stream(session, i * 2 + 1, HTTP2_STREAM_FLAG_NONE,
-                                &pri_spec_default, HTTP2_STREAM_IDLE, NULL);
+                                &pri_spec_default, HTTP2_STREAM_IDLE, null);
   }
 
   assert(2 == session.num_idle_streams);
@@ -6280,7 +6280,7 @@ void test_http2_session_keep_idle_stream(void) {
   assert(3 == session.idle_stream_tail.stream_id);
 
   http2_session_open_stream(session, 5, FrameFlags.NONE, &pri_spec_default,
-                              HTTP2_STREAM_IDLE, NULL);
+                              HTTP2_STREAM_IDLE, null);
 
   assert(2 == session.num_idle_streams);
 
@@ -6299,11 +6299,11 @@ void test_http2_session_detach_idle_stream(void) {
   memset(&callbacks, 0, sizeof(callbacks));
   callbacks.send_callback = null_send_callback;
 
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   for (i = 1; i <= 3; ++i) {
     http2_session_open_stream(session, i, HTTP2_STREAM_FLAG_NONE,
-                                &pri_spec_default, HTTP2_STREAM_IDLE, NULL);
+                                &pri_spec_default, HTTP2_STREAM_IDLE, null);
   }
 
   assert(3 == session.num_idle_streams);
@@ -6320,8 +6320,8 @@ void test_http2_session_detach_idle_stream(void) {
 
   assert(2 == session.num_idle_streams);
 
-  assert(NULL == stream.closed_prev);
-  assert(NULL == stream.closed_next);
+  assert(null == stream.closed_prev);
+  assert(null == stream.closed_next);
 
   assert(session.idle_stream_head ==
             session.idle_stream_tail.closed_prev);
@@ -6336,8 +6336,8 @@ void test_http2_session_detach_idle_stream(void) {
   assert(1 == session.num_idle_streams);
 
   assert(session.idle_stream_head == session.idle_stream_tail);
-  assert(NULL == session.idle_stream_head.closed_prev);
-  assert(NULL == session.idle_stream_head.closed_next);
+  assert(null == session.idle_stream_head.closed_prev);
+  assert(null == session.idle_stream_head.closed_next);
 
   /* Detach last stream */
 
@@ -6347,12 +6347,12 @@ void test_http2_session_detach_idle_stream(void) {
 
   assert(0 == session.num_idle_streams);
 
-  assert(NULL == session.idle_stream_head);
-  assert(NULL == session.idle_stream_tail);
+  assert(null == session.idle_stream_head);
+  assert(null == session.idle_stream_tail);
 
   for (i = 4; i <= 5; ++i) {
     http2_session_open_stream(session, i, HTTP2_STREAM_FLAG_NONE,
-                                &pri_spec_default, HTTP2_STREAM_IDLE, NULL);
+                                &pri_spec_default, HTTP2_STREAM_IDLE, null);
   }
 
   assert(2 == session.num_idle_streams);
@@ -6366,8 +6366,8 @@ void test_http2_session_detach_idle_stream(void) {
   assert(1 == session.num_idle_streams);
 
   assert(session.idle_stream_head == session.idle_stream_tail);
-  assert(NULL == session.idle_stream_head.closed_prev);
-  assert(NULL == session.idle_stream_head.closed_next);
+  assert(null == session.idle_stream_head.closed_prev);
+  assert(null == session.idle_stream_head.closed_next);
 
   http2_session_del(session);
 }
@@ -6376,14 +6376,14 @@ void test_http2_session_large_dep_tree(void) {
   http2_session *session;
   http2_session_callbacks callbacks;
   size_t i;
-  http2_stream *dep_stream = NULL;
+  http2_stream *dep_stream = null;
   http2_stream *root_stream;
   int stream_id;
 
   memset(&callbacks, 0, sizeof(callbacks));
   callbacks.send_callback = null_send_callback;
 
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   stream_id = 1;
   for (i = 0; i < HTTP2_MAX_DEP_TREE_LENGTH; ++i) {
@@ -6434,7 +6434,7 @@ void test_http2_session_graceful_shutdown(void) {
   assert((1u << 31) - 1 == session.local_last_stream_id);
 
   assert(0 == http2_submit_goaway(session, FrameFlags.NONE, 311,
-                                       HTTP2_NO_ERROR, NULL, 0));
+                                       HTTP2_NO_ERROR, null, 0));
 
   ud.frame_send_cb_called = 0;
   ud.stream_close_cb_called = 0;
@@ -6457,11 +6457,11 @@ void test_http2_session_graceful_shutdown(void) {
   assert(301 == session.local_last_stream_id);
   assert(2 == ud.stream_close_cb_called);
 
-  assert(NULL != http2_session_get_stream(session, 301));
-  assert(NULL != http2_session_get_stream(session, 302));
-  assert(NULL == http2_session_get_stream(session, 309));
-  assert(NULL == http2_session_get_stream(session, 311));
-  assert(NULL == http2_session_get_stream(session, 319));
+  assert(null != http2_session_get_stream(session, 301));
+  assert(null != http2_session_get_stream(session, 302));
+  assert(null == http2_session_get_stream(session, 309));
+  assert(null == http2_session_get_stream(session, 311));
+  assert(null == http2_session_get_stream(session, 319));
 
   http2_session_del(session);
 }
@@ -6495,7 +6495,7 @@ void test_http2_session_on_header_temporal_failure(void) {
   http2_nv_array_copy(&nva, reqnv, ARRLEN(reqnv), mem);
 
   http2_frame_headers_init(&frame.headers, FrameFlags.END_STREAM, 1,
-                             HTTP2_HCAT_REQUEST, NULL, nva, ARRLEN(reqnv));
+                             HTTP2_HCAT_REQUEST, null, nva, ARRLEN(reqnv));
   http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
   http2_frame_headers_free(&frame.headers, mem);
 
@@ -6545,7 +6545,7 @@ void test_http2_session_recv_client_preface(void) {
   http2_option_set_recv_client_preface(option, 1);
 
   /* Check success case */
-  http2_session_server_new2(&session, &callbacks, NULL, option);
+  http2_session_server_new2(&session, &callbacks, null, option);
 
   assert(session.opt_flags & HTTP2_OPTMASK_RECV_CLIENT_PREFACE);
 
@@ -6557,7 +6557,7 @@ void test_http2_session_recv_client_preface(void) {
   assert(HTTP2_IB_READ_FIRST_SETTINGS == session.iframe.state);
 
   /* Receiving PING is error because we want SETTINGS. */
-  http2_frame_ping_init(&ping_frame.ping, FrameFlags.NONE, NULL);
+  http2_frame_ping_init(&ping_frame.ping, FrameFlags.NONE, null);
 
   http2_frame_pack_frame_hd(buf, &ping_frame.ping.hd);
 
@@ -6571,7 +6571,7 @@ void test_http2_session_recv_client_preface(void) {
   http2_session_del(session);
 
   /* Check bad case */
-  http2_session_server_new2(&session, &callbacks, NULL, option);
+  http2_session_server_new2(&session, &callbacks, null, option);
 
   /* Feed preface with one byte less */
   rv = http2_session_mem_recv(
@@ -6599,13 +6599,13 @@ void test_http2_session_delete_data_item(void) {
 
   memset(&callbacks, 0, sizeof(callbacks));
 
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   a = open_stream(session, 1);
   open_stream_with_dep(session, 3, a);
 
   /* We don't care about these members, since we won't send data */
-  prd.source.ptr = NULL;
+  prd.source.ptr = null;
   prd.read_callback = fail_data_source_read_callback;
 
   /* This data item will be marked as TOP */
@@ -6626,7 +6626,7 @@ void test_http2_session_open_idle_stream(void) {
 
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
 
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   http2_priority_spec_init(&pri_spec, 0, 3, 0);
 
@@ -6637,21 +6637,21 @@ void test_http2_session_open_idle_stream(void) {
   stream = http2_session_get_stream_raw(session, 1);
 
   assert(HTTP2_STREAM_IDLE == stream.state);
-  assert(NULL == stream.closed_prev);
-  assert(NULL == stream.closed_next);
+  assert(null == stream.closed_prev);
+  assert(null == stream.closed_next);
   assert(1 == session.num_idle_streams);
   assert(session.idle_stream_head == stream);
   assert(session.idle_stream_tail == stream);
 
   opened_stream = http2_session_open_stream(
       session, 1, HTTP2_STREAM_FLAG_NONE, &pri_spec_default,
-      HTTP2_STREAM_OPENING, NULL);
+      HTTP2_STREAM_OPENING, null);
 
   assert(stream == opened_stream);
   assert(HTTP2_STREAM_OPENING == stream.state);
   assert(0 == session.num_idle_streams);
-  assert(NULL == session.idle_stream_head);
-  assert(NULL == session.idle_stream_tail);
+  assert(null == session.idle_stream_head);
+  assert(null == session.idle_stream_tail);
 
   http2_frame_priority_free(&frame.priority);
 
@@ -6676,13 +6676,13 @@ void test_http2_session_cancel_reserved_remote(void) {
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
   callbacks.send_callback = null_send_callback;
 
-  http2_session_client_new(&session, &callbacks, NULL);
+  http2_session_client_new(&session, &callbacks, null);
 
   http2_hd_deflate_init(&deflater, mem);
 
   stream = http2_session_open_stream(session, 2, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_RESERVED, NULL);
+                                       HTTP2_STREAM_RESERVED, null);
 
   session.last_recv_stream_id = 2;
 
@@ -6696,7 +6696,7 @@ void test_http2_session_cancel_reserved_remote(void) {
   http2_nv_array_copy(&nva, resnv, nvlen, mem);
 
   http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 2,
-                             HTTP2_HCAT_PUSH_RESPONSE, NULL, nva, nvlen);
+                             HTTP2_HCAT_PUSH_RESPONSE, null, nva, nvlen);
   rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 
   assert(0 == rv);
@@ -6706,8 +6706,8 @@ void test_http2_session_cancel_reserved_remote(void) {
 
   assert(http2_buf_len(&bufs.head.buf) == rv);
 
-  /* stream is not dangling, so assign NULL */
-  stream = NULL;
+  /* stream is not dangling, so assign null */
+  stream = null;
 
   /* No RST_STREAM or GOAWAY is generated since stream should be in
      HTTP2_STREAM_CLOSING and push response should be ignored. */
@@ -6716,7 +6716,7 @@ void test_http2_session_cancel_reserved_remote(void) {
   /* Check that we can receive push response HEADERS while RST_STREAM
      is just queued. */
   http2_session_open_stream(session, 4, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_RESERVED, NULL);
+                              &pri_spec_default, HTTP2_STREAM_RESERVED, null);
 
   session.last_recv_stream_id = 4;
 
@@ -6760,7 +6760,7 @@ void test_http2_session_reset_pending_headers(void) {
 
   http2_session_client_new(&session, &callbacks, &ud);
 
-  stream_id = http2_submit_request(session, NULL, NULL, 0, NULL, NULL);
+  stream_id = http2_submit_request(session, null, null, 0, null, null);
   assert(stream_id >= 1);
 
   http2_submit_rst_stream(session, FrameFlags.NONE, stream_id,
@@ -6776,7 +6776,7 @@ void test_http2_session_reset_pending_headers(void) {
 
   stream = http2_session_get_stream(session, stream_id);
 
-  assert(NULL == stream);
+  assert(null == stream);
 
   /* See HEADERS is not sent.  on_stream_close is called just like
      transmission failure. */
@@ -6792,7 +6792,7 @@ void test_http2_session_reset_pending_headers(void) {
 
   stream = http2_session_get_stream(session, stream_id);
 
-  assert(NULL == stream);
+  assert(null == stream);
 
   http2_session_del(session);
 }
@@ -6810,7 +6810,7 @@ static void check_http2_http_recv_headers_fail(
 
   if (stream_state != -1) {
     http2_session_open_stream(session, stream_id, HTTP2_STREAM_FLAG_NONE,
-                                &pri_spec_default, stream_state, NULL);
+                                &pri_spec_default, stream_state, null);
   }
 
   rv = pack_headers(&bufs, deflater, stream_id, FrameFlags.END_HEADERS, nva,
@@ -6885,7 +6885,7 @@ void test_http2_http_mandatory_headers(void) {
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
   callbacks.send_callback = null_send_callback;
 
-  http2_session_client_new(&session, &callbacks, NULL);
+  http2_session_client_new(&session, &callbacks, null);
 
   http2_hd_deflate_init(&deflater, mem);
 
@@ -6934,7 +6934,7 @@ void test_http2_http_mandatory_headers(void) {
   http2_session_del(session);
 
   /* check server side */
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   http2_hd_deflate_init(&deflater, mem);
 
@@ -6994,13 +6994,13 @@ void test_http2_http_content_length(void) {
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
   callbacks.send_callback = null_send_callback;
 
-  http2_session_client_new(&session, &callbacks, NULL);
+  http2_session_client_new(&session, &callbacks, null);
 
   http2_hd_deflate_init(&deflater, mem);
 
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
 
   rv = pack_headers(&bufs, &deflater, 1, FrameFlags.END_HEADERS, cl_resnv,
                     ARRLEN(cl_resnv), mem);
@@ -7010,7 +7010,7 @@ void test_http2_http_content_length(void) {
                                 http2_buf_len(&bufs.head.buf));
 
   assert(http2_buf_len(&bufs.head.buf) == rv);
-  assert(NULL == http2_session_get_next_ob_item(session));
+  assert(null == http2_session_get_next_ob_item(session));
   assert(9000000000LL == stream.content_length);
   assert(200 == stream.status_code);
 
@@ -7021,7 +7021,7 @@ void test_http2_http_content_length(void) {
   http2_bufs_reset(&bufs);
 
   /* check server side */
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   http2_hd_deflate_init(&deflater, mem);
 
@@ -7036,7 +7036,7 @@ void test_http2_http_content_length(void) {
 
   stream = http2_session_get_stream(session, 1);
 
-  assert(NULL == http2_session_get_next_ob_item(session));
+  assert(null == http2_session_get_next_ob_item(session));
   assert(9000000000LL == stream.content_length);
 
   http2_hd_deflate_free(&deflater);
@@ -7066,7 +7066,7 @@ void test_http2_http_content_length_mismatch(void) {
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
   callbacks.send_callback = null_send_callback;
 
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   http2_hd_deflate_init(&deflater, mem);
 
@@ -7157,14 +7157,14 @@ void test_http2_http_non_final_response(void) {
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
   callbacks.send_callback = null_send_callback;
 
-  http2_session_client_new(&session, &callbacks, NULL);
+  http2_session_client_new(&session, &callbacks, null);
 
   http2_hd_deflate_init(&deflater, mem);
 
   /* non-final HEADERS with END_STREAM is illegal */
   stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
 
   rv = pack_headers(&bufs, &deflater, 1,
                     FrameFlags.END_HEADERS | FrameFlags.END_STREAM,
@@ -7186,7 +7186,7 @@ void test_http2_http_non_final_response(void) {
   /* non-final HEADERS followed by non-empty DATA is illegal */
   stream = http2_session_open_stream(session, 3, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
 
   rv = pack_headers(&bufs, &deflater, 3, FrameFlags.END_HEADERS,
                     nonfinal_resnv, ARRLEN(nonfinal_resnv), mem);
@@ -7212,7 +7212,7 @@ void test_http2_http_non_final_response(void) {
      ok */
   stream = http2_session_open_stream(session, 5, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
 
   rv = pack_headers(&bufs, &deflater, 5, FrameFlags.END_HEADERS,
                     nonfinal_resnv, ARRLEN(nonfinal_resnv), mem);
@@ -7227,7 +7227,7 @@ void test_http2_http_non_final_response(void) {
 
   assert(http2_buf_len(&bufs.head.buf) == rv);
 
-  assert(NULL == http2_session_get_next_ob_item(session));
+  assert(null == http2_session_get_next_ob_item(session));
 
   http2_bufs_reset(&bufs);
 
@@ -7235,7 +7235,7 @@ void test_http2_http_non_final_response(void) {
      illegal */
   stream = http2_session_open_stream(session, 7, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
 
   rv = pack_headers(&bufs, &deflater, 7, FrameFlags.END_HEADERS,
                     nonfinal_resnv, ARRLEN(nonfinal_resnv), mem);
@@ -7261,7 +7261,7 @@ void test_http2_http_non_final_response(void) {
   /* non-final HEADERS followed by final HEADERS is OK */
   stream = http2_session_open_stream(session, 9, HTTP2_STREAM_FLAG_NONE,
                                        &pri_spec_default,
-                                       HTTP2_STREAM_OPENING, NULL);
+                                       HTTP2_STREAM_OPENING, null);
 
   rv = pack_headers(&bufs, &deflater, 9, FrameFlags.END_HEADERS,
                     nonfinal_resnv, ARRLEN(nonfinal_resnv), mem);
@@ -7283,7 +7283,7 @@ void test_http2_http_non_final_response(void) {
 
   assert(http2_buf_len(&bufs.head.buf) == rv);
 
-  assert(NULL == http2_session_get_next_ob_item(session));
+  assert(null == http2_session_get_next_ob_item(session));
 
   http2_bufs_reset(&bufs);
 
@@ -7312,7 +7312,7 @@ void test_http2_http_trailer_headers(void) {
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
   callbacks.send_callback = null_send_callback;
 
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   http2_hd_deflate_init(&deflater, mem);
 
@@ -7338,7 +7338,7 @@ void test_http2_http_trailer_headers(void) {
 
   assert(http2_buf_len(&bufs.head.buf) == rv);
 
-  assert(NULL == http2_session_get_next_ob_item(session));
+  assert(null == http2_session_get_next_ob_item(session));
 
   http2_bufs_reset(&bufs);
 
@@ -7427,13 +7427,13 @@ void test_http2_http_ignore_content_length(void) {
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
   callbacks.send_callback = null_send_callback;
 
-  http2_session_client_new(&session, &callbacks, NULL);
+  http2_session_client_new(&session, &callbacks, null);
 
   http2_hd_deflate_init(&deflater, mem);
 
   /* If status 304, content-length must be ignored */
   http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
 
   rv = pack_headers(&bufs, &deflater, 1,
                     FrameFlags.END_HEADERS | FrameFlags.END_STREAM,
@@ -7445,7 +7445,7 @@ void test_http2_http_ignore_content_length(void) {
 
   assert(http2_buf_len(&bufs.head.buf) == rv);
 
-  assert(NULL == http2_session_get_next_ob_item(session));
+  assert(null == http2_session_get_next_ob_item(session));
 
   http2_bufs_reset(&bufs);
 
@@ -7453,7 +7453,7 @@ void test_http2_http_ignore_content_length(void) {
   http2_session_del(session);
 
   /* If request method is CONNECT, content-length must be ignored */
-  http2_session_server_new(&session, &callbacks, NULL);
+  http2_session_server_new(&session, &callbacks, null);
 
   http2_hd_deflate_init(&deflater, mem);
 
@@ -7467,7 +7467,7 @@ void test_http2_http_ignore_content_length(void) {
 
   assert(http2_buf_len(&bufs.head.buf) == rv);
 
-  assert(NULL == http2_session_get_next_ob_item(session));
+  assert(null == http2_session_get_next_ob_item(session));
 
   stream = http2_session_get_stream(session, 1);
 
@@ -7498,12 +7498,12 @@ void test_http2_http_record_request_method(void) {
   memset(&callbacks, 0, sizeof(http2_session_callbacks));
   callbacks.send_callback = null_send_callback;
 
-  http2_session_client_new(&session, &callbacks, NULL);
+  http2_session_client_new(&session, &callbacks, null);
 
   http2_hd_deflate_init(&deflater, mem);
 
-  assert(1 == http2_submit_request(session, NULL, conn_reqnv,
-                                        ARRLEN(conn_reqnv), NULL, NULL));
+  assert(1 == http2_submit_request(session, null, conn_reqnv,
+                                        ARRLEN(conn_reqnv), null, null));
 
   assert(0 == http2_session_send(session));
 
@@ -7546,12 +7546,12 @@ void test_http2_http_push_promise(void) {
   callbacks.send_callback = null_send_callback;
 
   /* good PUSH_PROMISE case */
-  http2_session_client_new(&session, &callbacks, NULL);
+  http2_session_client_new(&session, &callbacks, null);
 
   http2_hd_deflate_init(&deflater, mem);
 
   http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
-                              &pri_spec_default, HTTP2_STREAM_OPENING, NULL);
+                              &pri_spec_default, HTTP2_STREAM_OPENING, null);
 
   rv = pack_push_promise(&bufs, &deflater, 1, FrameFlags.END_HEADERS, 2,
                          reqnv, ARRLEN(reqnv), mem);
@@ -7562,10 +7562,10 @@ void test_http2_http_push_promise(void) {
 
   assert(http2_buf_len(&bufs.head.buf) == rv);
 
-  assert(NULL == http2_session_get_next_ob_item(session));
+  assert(null == http2_session_get_next_ob_item(session));
 
   stream = http2_session_get_stream(session, 2);
-  assert(NULL != stream);
+  assert(null != stream);
 
   http2_bufs_reset(&bufs);
 
@@ -7579,7 +7579,7 @@ void test_http2_http_push_promise(void) {
 
   assert(http2_buf_len(&bufs.head.buf) == rv);
 
-  assert(NULL == http2_session_get_next_ob_item(session));
+  assert(null == http2_session_get_next_ob_item(session));
 
   assert(200 == stream.status_code);
 

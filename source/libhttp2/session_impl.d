@@ -3384,8 +3384,7 @@ int session_process_headers_frame(Session session)
     Frame frame = &iframe.frame;
     Stream stream;
     
-    rv = http2_frame_unpack_headers_payload(&frame.headers, iframe.sbuf.pos,
-        http2_buf_len(&iframe.sbuf));
+	rv = frame.headers.unpack(iframe.sbuf[], frame.headers.flags);
     
     if (rv != 0) {
         return http2_session_terminate_session_with_reason(
@@ -3463,8 +3462,7 @@ int session_process_priority_frame(Session session)
     InboundFrame *iframe = &session.iframe;
     Frame frame = &iframe.frame;
     
-    http2_frame_unpack_priority_payload(&frame.priority, iframe.sbuf.pos,
-        http2_buf_len(&iframe.sbuf));
+    http2_frame_unpack_priority_payload(&frame.priority, iframe.sbuf[]);
     
     return http2_session_on_priority_received(session, frame);
 }
@@ -3502,8 +3500,7 @@ int session_process_rst_stream_frame(Session session)
     InboundFrame *iframe = &session.iframe;
     Frame frame = &iframe.frame;
     
-    http2_frame_unpack_rst_stream_payload(&frame.rst_stream, iframe.sbuf.pos,
-        http2_buf_len(&iframe.sbuf));
+    http2_frame_unpack_rst_stream_payload(&frame.rst_stream, iframe.sbuf[]);
     
     return http2_session_on_rst_stream_received(session, frame);
 }
@@ -3945,7 +3942,7 @@ int session_process_push_promise_frame(Session session)
     Frame frame = &iframe.frame;
     
     rv = http2_frame_unpack_push_promise_payload(
-        &frame.push_promise, iframe.sbuf.pos, http2_buf_len(&iframe.sbuf));
+        &frame.push_promise, iframe.sbuf[]);
     
     if (rv != 0) {
         return http2_session_terminate_session_with_reason(
@@ -3978,8 +3975,7 @@ int session_process_ping_frame(Session session)
     InboundFrame *iframe = &session.iframe;
     Frame frame = &iframe.frame;
     
-    http2_frame_unpack_ping_payload(&frame.ping, iframe.sbuf.pos,
-        http2_buf_len(&iframe.sbuf));
+    http2_frame_unpack_ping_payload(&frame.ping, iframe.sbuf[]);
     
     return http2_session_on_ping_received(session, frame);
 }
@@ -4022,9 +4018,7 @@ int session_process_goaway_frame(Session session)
     InboundFrame *iframe = &session.iframe;
     Frame frame = &iframe.frame;
     
-    http2_frame_unpack_goaway_payload(
-        &frame.goaway, iframe.sbuf.pos, http2_buf_len(&iframe.sbuf),
-        iframe.lbuf.pos, http2_buf_len(&iframe.lbuf));
+    http2_frame_unpack_goaway_payload(&frame.goaway, iframe.sbuf[], iframe.lbuf[]);
     
     http2_buf_wrap_init(&iframe.lbuf, null, 0);
     
@@ -4105,8 +4099,7 @@ int session_process_window_update_frame(Session session)
     InboundFrame *iframe = &session.iframe;
     Frame frame = &iframe.frame;
     
-    http2_frame_unpack_window_update_payload(
-        &frame.window_update, iframe.sbuf.pos, http2_buf_len(&iframe.sbuf));
+    http2_frame_unpack_window_update_payload(&frame.window_update, iframe.sbuf[]);
     
     return http2_session_on_window_update_received(session, frame);
 }
@@ -4433,7 +4426,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
             case READ_FIRST_SETTINGS:
                 DEBUGF(fprintf(stderr, "recv: [READ_FIRST_SETTINGS]\n"));
                 
-				readlen = inbound_frame_buf_read(iframe, pos, last);
+				readlen = iframe.read(pos, last);
 				pos += readlen;
                 
                 if (http2_buf_mark_avail(&iframe.sbuf)) {
@@ -4461,7 +4454,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                 
                 DEBUGF(fprintf(stderr, "recv: [READ_HEAD]\n"));
                 
-				readlen = inbound_frame_buf_read(iframe, pos, last);
+				readlen = iframe.read(pos, last);
 				pos += readlen;
                 
                 if (http2_buf_mark_avail(&iframe.sbuf)) {
@@ -4516,7 +4509,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                             return rv;
                         }
                         
-                        rv = inbound_frame_handle_pad(iframe, &iframe.frame.hd);
+                        rv = iframe.handlePad();
                         if (rv < 0) {
                             iframe.state = IGN_DATA;
                             rv = http2_session_terminate_session_with_reason(session, FrameError.PROTOCOL_ERROR,
@@ -4542,7 +4535,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                         
                         iframe.frame.hd.flags &= (FrameFlags.END_STREAM | FrameFlags.END_HEADERS | FrameFlags.PADDED | FrameFlags.PRIORITY);
                         
-                        rv = inbound_frame_handle_pad(iframe, &iframe.frame.hd);
+                        rv = iframe.handlePad();
                         if (rv < 0) {
                             busy = 1;
                             
@@ -4572,7 +4565,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                             
                             iframe.state = READ_NBYTE;
                             
-                            inbound_frame_set_mark(iframe, pri_fieldlen);
+                            iframe.setMark(pri_fieldlen);
                             
                             break;
                         }
@@ -4618,7 +4611,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                         
                         iframe.state = READ_NBYTE;
                         
-                        inbound_frame_set_mark(iframe, PRIORITY_SPECLEN);
+                        iframe.setMark(PRIORITY_SPECLEN);
                         
                         break;
 					case FrameType.RST_STREAM:
@@ -4644,7 +4637,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                         
                         iframe.state = READ_NBYTE;
                         
-                        inbound_frame_set_mark(iframe, 4);
+                        iframe.setMark(4);
                         
                         break;
 					case FrameType.SETTINGS:
@@ -4662,13 +4655,13 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                         iframe.state = READ_SETTINGS;
                         
                         if (iframe.payloadleft) {
-                            inbound_frame_set_mark(iframe, FRAME_SETTINGS_ENTRY_LENGTH);
+                            iframe.setMark(FRAME_SETTINGS_ENTRY_LENGTH);
                             break;
                         }
                         
                         busy = 1;
                         
-                        inbound_frame_set_mark(iframe, 0);
+                        iframe.setMark(0);
                         
                         break;
 					case FrameType.PUSH_PROMISE:
@@ -4677,7 +4670,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                         iframe.frame.hd.flags &=
                             (FrameFlags.END_HEADERS | FrameFlags.PADDED);
                         
-                        rv = inbound_frame_handle_pad(iframe, &iframe.frame.hd);
+                        rv = iframe.handlePad();
                         if (rv < 0) {
                             busy = 1;
                             iframe.state = IGN_PAYLOAD;
@@ -4703,7 +4696,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                         
                         iframe.state = READ_NBYTE;
                         
-                        inbound_frame_set_mark(iframe, 4);
+                        iframe.setMark(4);
                         
                         break;
 					case FrameType.PING:
@@ -4718,7 +4711,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                         }
                         
                         iframe.state = READ_NBYTE;
-                        inbound_frame_set_mark(iframe, 8);
+                        iframe.setMark(8);
                         
                         break;
 					case FrameType.GOAWAY:
@@ -4733,7 +4726,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                         }
                         
                         iframe.state = READ_NBYTE;
-                        inbound_frame_set_mark(iframe, 8);
+                        iframe.setMark(8);
                         
                         break;
 					case FrameType.CONTINUATION:
@@ -4784,13 +4777,11 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
             case READ_NBYTE:
                 DEBUGF(fprintf(stderr, "recv: [READ_NBYTE]\n"));
                 
-				readlen = inbound_frame_buf_read(iframe, pos, last);
+				readlen = iframe.read(pos, last);
 				pos += readlen;
                 iframe.payloadleft -= readlen;
                 
-                DEBUGF(fprintf(stderr, "recv: readlen=%zu, payloadleft=%zu, left=%zd\n",
-                        readlen, iframe.payloadleft,
-                        http2_buf_mark_avail(&iframe.sbuf)));
+                DEBUGF(fprintf(stderr, "recv: readlen=%zu, payloadleft=%zu, left=%zd\n", readlen, iframe.payloadleft, iframe.sbuf.markAvailable));
                 
                 if (http2_buf_mark_avail(&iframe.sbuf)) {
                     return pos - first;
@@ -4800,7 +4791,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                     case FrameType.HEADERS:
                         if (iframe.padlen == 0 &&
                             (iframe.frame.hd.flags & FrameFlags.PADDED)) {
-                            padlen = inbound_frame_compute_pad(iframe);
+							padlen = iframe.computePad();
                             if (padlen < 0) {
                                 busy = 1;
                                 rv = http2_session_terminate_session_with_reason(
@@ -4822,11 +4813,11 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                                     break;
                                 }
                                 iframe.state = READ_NBYTE;
-                                inbound_frame_set_mark(iframe, pri_fieldlen);
+                                iframe.setMark(pri_fieldlen);
                                 break;
                             } else {
                                 /* Truncate buffers used for padding spec */
-                                inbound_frame_set_mark(iframe, 0);
+                                iframe.setMark(0);
                             }
                         }
                         
@@ -4864,9 +4855,8 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                         
                         break;
 					case FrameType.PUSH_PROMISE:
-                        if (iframe.padlen == 0 &&
-                            (iframe.frame.hd.flags & FrameFlags.PADDED)) {
-                            padlen = inbound_frame_compute_pad(iframe);
+                        if (iframe.padlen == 0 && (iframe.frame.hd.flags & FrameFlags.PADDED)) {
+							padlen = iframe.computePad();
                             if (padlen < 0) {
                                 busy = 1;
                                 rv = http2_session_terminate_session_with_reason(session, FrameError.PROTOCOL_ERROR,
@@ -4888,7 +4878,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                             
                             iframe.state = READ_NBYTE;
                             
-                            inbound_frame_set_mark(iframe, 4);
+                            iframe.setMark(4);
                             
                             break;
                         }
@@ -4966,16 +4956,17 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
 	                }
 				}
                 
-				readlen = inbound_frame_payload_readlen(iframe, pos, last);
+				readlen = iframe.readLength(pos, last);
                 
                 DEBUGF(fprintf(stderr, "recv: readlen=%zu, payloadleft=%zu\n", readlen,
                         iframe.payloadleft - readlen));
                 
-                data_readlen = inbound_frame_effective_readlen(iframe, iframe.payloadleft - readlen, readlen);
+                data_readlen = iframe.effectiveReadLength(iframe.payloadleft - readlen, readlen);
+
                 if (data_readlen >= 0) {
                     size_t trail_padlen;
                     size_t hd_proclen = 0;
-                    trail_padlen = http2_frame_trail_padlen(&iframe.frame, iframe.padlen);
+                    trail_padlen = iframe.frame.trailPadlen(iframe.padlen);
                     DEBUGF(fprintf(stderr, "recv: block final=%d\n",
                             (iframe.frame.hd.flags & FrameFlags.END_HEADERS) &&
                             iframe.payloadleft - data_readlen == trail_padlen));
@@ -5034,7 +5025,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                 
                 if ((iframe.frame.hd.flags & FrameFlags.END_HEADERS) == 0) {
                     
-                    inbound_frame_set_mark(iframe, FRAME_HDLEN);
+                    iframe.setMark(FRAME_HDLEN);
                     
                     iframe.padlen = 0;
                     
@@ -5057,7 +5048,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
             case IGN_PAYLOAD:
                 DEBUGF(fprintf(stderr, "recv: [IGN_PAYLOAD]\n"));
                 
-				readlen = inbound_frame_payload_readlen(iframe, pos, last);
+				readlen = iframe.readLength(pos, last);
                 iframe.payloadleft -= readlen;
 				pos += readlen;
                 
@@ -5098,7 +5089,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
             case READ_SETTINGS:
                 DEBUGF(fprintf(stderr, "recv: [READ_SETTINGS]\n"));
                 
-				readlen = inbound_frame_buf_read(iframe, pos, last);
+				readlen = iframe.read(pos, last);
                 iframe.payloadleft -= readlen;
 				pos += readlen;
                 
@@ -5113,7 +5104,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                     inbound_frame_set_settings_entry(iframe);
                 }
                 if (iframe.payloadleft) {
-                    inbound_frame_set_mark(iframe, FRAME_SETTINGS_ENTRY_LENGTH);
+                    iframe.setMark(FRAME_SETTINGS_ENTRY_LENGTH);
                     break;
                 }
                 
@@ -5129,7 +5120,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
             case READ_GOAWAY_DEBUG:
                 DEBUGF(fprintf(stderr, "recv: [READ_GOAWAY_DEBUG]\n"));
                 
-				readlen = inbound_frame_payload_readlen(iframe, pos, last);
+				readlen = iframe.readLength(pos, last);
                 
 				iframe.lbuf.last = http2_cpymem(iframe.lbuf.last, pos, readlen);
                 
@@ -5164,7 +5155,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
 	                }
 				}
                 
-				readlen = inbound_frame_buf_read(iframe, pos, last);
+				readlen = iframe.read(pos, last);
 				pos += readlen;
                 
                 if (http2_buf_mark_avail(&iframe.sbuf)) {
@@ -5198,8 +5189,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                     break;
                 }
                 
-				/* CONTINUATION won't bear FrameFlags.PADDED flag */
-                
+				/* CONTINUATION won't bear FrameFlags.PADDED flag */                
                 iframe.frame.hd.flags |= cont_hd.flags & FrameFlags.END_HEADERS;
                 iframe.frame.hd.length += cont_hd.length;
                 
@@ -5221,7 +5211,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
             case READ_PAD_DATA:
                 DEBUGF(fprintf(stderr, "recv: [READ_PAD_DATA]\n"));
                 
-				readlen = inbound_frame_buf_read(iframe, pos, last);
+				readlen = iframe.read(pos, last);
 				pos += readlen;
                 iframe.payloadleft -= readlen;
                 
@@ -5259,7 +5249,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                 
                 busy = 1;
                 
-                padlen = inbound_frame_compute_pad(iframe);
+                padlen = iframe.computePad();
                 if (padlen < 0) {
                     rv = http2_session_terminate_session_with_reason(
                         session, FrameError.PROTOCOL_ERROR, "DATA: invalid padding");
@@ -5278,7 +5268,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
             case READ_DATA:
                 DEBUGF(fprintf(stderr, "recv: [READ_DATA]\n"));
                 
-				readlen = inbound_frame_payload_readlen(iframe, pos, last);
+				readlen = iframe.readLength(pos, last);
                 iframe.payloadleft -= readlen;
 				pos += readlen;
                 
@@ -5293,8 +5283,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                         return rv;
                     }
                     
-                    stream =
-                        http2_session_get_stream(session, iframe.frame.hd.stream_id);
+                    stream = http2_session_get_stream(session, iframe.frame.hd.stream_id);
                     if (stream) {
                         rv = session_update_recv_stream_window_size(
                             session, stream, readlen,
@@ -5305,7 +5294,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                         }
                     }
                     
-                    data_readlen = inbound_frame_effective_readlen(iframe, iframe.payloadleft, readlen);
+                    data_readlen = iframe.effectiveReadLength(iframe.payloadleft, readlen);
                     
                     padlen = readlen - data_readlen;
                     
@@ -5364,7 +5353,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
             case IGN_DATA:
                 DEBUGF(fprintf(stderr, "recv: [IGN_DATA]\n"));
                 
-				readlen = inbound_frame_payload_readlen(iframe, pos, last);
+				readlen = iframe.readLength(pos, last);
                 iframe.payloadleft -= readlen;
 				pos += readlen;
                 

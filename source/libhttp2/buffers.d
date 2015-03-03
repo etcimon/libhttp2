@@ -18,6 +18,8 @@ struct Buffer
 	/// Mark arbitrary position in buffer [begin, end)
 	ubyte* mark;
 
+	T[] opSlice() { return pos[0 .. length]; }
+
 	@property int length() {
 		return cast(int)(last - pos);
 	}

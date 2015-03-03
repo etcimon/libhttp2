@@ -21,6 +21,8 @@ import memutils.circularbuffer;
 import memutils.vector;
 import memutils.hashmap;
 
+import std.algorithm : min, max;
+
 //http2_optmask
 enum OptionsMask {
     NO_AUTO_WINDOW_UPDATE = 1 << 0,
@@ -81,18 +83,20 @@ struct InboundFrame {
     Setting[INBOUND_NUM_IV] iv;
 
     /// buffer pointers to small buffer, raw_sbuf 
-    CircularBuffer sbuf;
+    Buffer sbuf;
 
     /// buffer pointers to large buffer, raw_lbuf
-    CircularBuffer lbuf;
+    Buffer lbuf;
 
     /// Large buffer, malloced on demand
     ubyte *raw_lbuf;
 
     /* The number of entry filled in |iv| */
     size_t niv;
+
     /* How many bytes we still need to receive for current frame */
     size_t payloadleft;
+
     /* padding length for the current frame */
     size_t padlen;
 
@@ -102,6 +106,137 @@ struct InboundFrame {
      is frame header.  We buffer part of payload, but they are smaller
      than frame header. */
     ubyte[FRAME_HDLEN] raw_sbuf;
+
+	/// Returns the amount of bytes that are required by this frame
+	size_t readLength(const ubyte* input, const ubyte* last)
+	{
+		return min(cast(size_t)(last - input), payloadleft);
+	}
+	
+	/*
+	 * Resets iframe.sbuf and advance its mark pointer by |left| bytes.
+	 */
+	void setMark(size_t left)
+	{
+		sbuf.reset;
+		sbuf.mark += left;
+	}
+	
+	size_t read(in ubyte* input, in ubyte* last) 
+	{
+		import std.c.string : memcpy;
+
+		size_t readlen;
+		
+		readlen = min(last - input, sbuf.markAvailable);
+
+		sbuf.last = memcpy(sbuf.last, input, readlen);
+		
+		return readlen;
+	}
+	
+	/*
+	 * Unpacks SETTINGS entry in iframe.sbuf.
+	 */
+	void inbound_frame_set_settings_entry(InboundFrame *iframe) 
+	{
+		Setting iv;
+		size_t i;
+		
+		http2_frame_unpack_settings_entry(&iv, iframe.sbuf.pos);
+		
+		with(Setting) switch (iv.settings_id) {
+			case HEADER_TABLE_SIZE:
+			case ENABLE_PUSH:
+			case MAX_CONCURRENT_STREAMS:
+			case INITIAL_WINDOW_SIZE:
+			case MAX_FRAME_SIZE:
+			case MAX_HEADER_LIST_SIZE:
+				break;
+			default:
+				DEBUGF(fprintf(stderr, "recv: ignore unknown settings id=0x%02x\n",
+						iv.settings_id));
+				return;
+		}
+		
+		for (i = 0; i < iframe.niv; ++i) {
+			if (iframe.iv[i].settings_id == iv.settings_id) {
+				iframe.iv[i] = iv;
+				break;
+			}
+		}
+		
+		if (i == iframe.niv) {
+			iframe.iv[iframe.niv++] = iv;
+		}
+		
+		if (iv.settings_id == Setting.HEADER_TABLE_SIZE &&
+			iv.value < iframe.iv[http2_INBOUND_NUM_IV - 1].value) {
+			
+			iframe.iv[http2_INBOUND_NUM_IV - 1] = iv;
+		}
+	}
+	
+	/*
+	 * Checks PADDED flags and set iframe.sbuf to read them accordingly.
+	 * If padding is set, this function returns 1.  If no padding is set,
+	 * this function returns 0.  On error, returns -1.
+	 */
+	int handlePad()
+	{
+		if (frame.hd.flags & FrameFlags.PADDED) {
+			if (frame.hd.length < 1) {
+				return -1;
+			}
+			setMark(1);
+			return 1;
+		}
+		DEBUGF(fprintf(stderr, "recv: no padding in payload\n"));
+		return 0;
+	}
+	
+	/*
+	 * Computes number of padding based on flags. This function returns
+	 * padlen if it succeeds, or -1.
+	 */
+	int computePad() 
+	{
+		/* 1 for Pad Length field */
+		int _padlen = sbuf.pos[0] + 1;
+		
+		DEBUGF(fprintf(stderr, "recv: padlen=%zu\n", padlen));
+
+		/* We cannot use iframe.frame.hd.length because of CONTINUATION */
+		if (_padlen - 1 > iframe.payloadleft) {
+			return -1;
+		}
+
+		padlen = _padlen;
+
+		return _padlen;
+	}
+	
+	/*
+	 * This function returns the effective payload length in the data of
+	 * length |readlen| when the remaning payload is |payloadleft|. The
+	 * |payloadleft| does not include |readlen|. If padding was started
+	 * strictly before this data chunk, this function returns -1.
+	 */
+	int effectiveReadLength(size_t payloadleft, size_t readlen) 
+	{
+		size_t trail_padlen = iframe.frame.trailPadlen(iframe.padlen);
+		
+		if (trail_padlen > payloadleft) {
+			size_t padlen;
+			padlen = trail_padlen - payloadleft;
+			if (readlen < padlen) {
+				return -1;
+			} else {
+				return readlen - padlen;
+			}
+		}
+		return readlen;
+	}
 }
 
 

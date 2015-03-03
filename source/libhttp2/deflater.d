@@ -81,9 +81,7 @@ struct Deflater
 	 *
 	 * This function returns 0 if it succeeds, or one of the following
 	 * negative error codes:
-	 *
-	 * ErrorCode.NOMEM
-	 *     Out of memory.
+	 * 
 	 * ErrorCode.HEADER_COMP
 	 *     Deflation process has failed.
 	 * ErrorCode.BUFFER_ERROR
@@ -152,8 +150,6 @@ struct Deflater
 	 * This function returns 0 if it succeeds, or one of the following
 	 * negative error codes:
 	 *
-	 * $(D ErrorCode.NOMEM)
-	 *     Out of memory.
 	 * $(D ErrorCode.HEADER_COMP)
 	 *     Deflation process has failed.
 	 * $(D ErrorCode.INSUFF_BUFSIZE)
@@ -543,8 +539,6 @@ size_t encodeLength(ubyte* buf, size_t n, size_t prefix) {
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
  *
- * ErrorCode.NOMEM
- *     Out of memory.
  * ErrorCode.BUFFER_ERROR
  *     Out of buffer space.
  */
