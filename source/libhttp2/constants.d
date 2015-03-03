@@ -10,7 +10,8 @@ const PROTOCOL_VERSION_ID = "h2-14";
 /**
  * Use this to verify compatibility if dynamic linking is involved.
 */
-struct LibInfo {
+struct LibInfo
+{
 	int age = 1; // This is the version of this struct
 	string version_str = VERSION;
 	string proto_str = PROTOCOL_VERSION_ID;
@@ -48,10 +49,10 @@ const INITIAL_WINDOW_SIZE = ushort.max;
 const INITIAL_CONNECTION_WINDOW_SIZE = ushort.max;
 
 /// Default maximum concurrent streams.
-const INITIAL_MAX_CONCURRENT_STREAMS = ((1U << 31) - 1);
+const INITIAL_MAX_CONCURRENT_STREAMS = ((1 << 31) - 1);
 
 /// The default header table size.
-const DEFAULT_HEADER_TABLE_SIZE = (1U << 12);
+const DEFAULT_HEADER_TABLE_SIZE = (1 << 12);
 
 /// The client connection preface.
 const CLIENT_CONNECTION_PREFACE = "PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";

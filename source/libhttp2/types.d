@@ -19,6 +19,8 @@ alias Mem = ThreadMem;
 enum ErrorCode : int {
     OK = 0,
 
+	ERROR = -1,
+
 	/// Invalid argument passed.
     INVALID_ARGUMENT = -501,
 

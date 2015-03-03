@@ -102,7 +102,7 @@ interface Policy
      *
      * If the application uses `http2_session_mem_recv()`, it can return
      * $(D ErrorCode.PAUSE) to make `http2_session_mem_recv()`
-     * return without processing further input bytes.  The memory by
+     * return without processing further input bytes.  The memory
      * pointed by the |data| is retained until
      * `http2_session_mem_recv()` or `http2_session_recv()` is called.
      * The application must retain the input bytes which was used to
@@ -113,7 +113,7 @@ interface Policy
      * `http2_session_recv()` and `http2_session_mem_recv()` functions
      * immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-    bool onDataChunk(Session session, FrameFlags flags, in Stream stream, in ubyte[] data);
+    bool onDataChunkRecv(Session session, FrameFlags flags, in Stream stream, in ubyte[] data);
 
     /**
      * Callback function invoked just before the non-DATA frame |frame| is

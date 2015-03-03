@@ -110,8 +110,8 @@ Stream http2_session_get_stream_raw(Session session, int stream_id)
 
 int outbound_item_compar(const void *lhsx, const void *rhsx)
 {
-	const OutboundItem *lhs = cast(const OutboundItem *)lhsx;
-	const OutboundItem *rhs = cast(const OutboundItem *)rhsx;
+	const OutboundItem lhs = cast(const OutboundItem )lhsx;
+	const OutboundItem rhs = cast(const OutboundItem )rhsx;
     
     if (lhs.cycle == rhs.cycle) {
         if (lhs.weight == rhs.weight) {
@@ -405,7 +405,7 @@ int http2_session_server_new3(Session *session_ptr,
 int free_streams(http2_map_entry *entry, void *ptr) {
     Session session;
     Stream stream;
-    OutboundItem *item;
+    OutboundItem item;
     http2_mem *mem;
     
     session = cast(Session )ptr;
@@ -426,7 +426,7 @@ int free_streams(http2_map_entry *entry, void *ptr) {
 
 void ob_pq_free(http2_pq *pq, http2_mem *mem) {
     while (!http2_pq_empty(pq)) {
-        OutboundItem *item = (OutboundItem *)http2_pq_top(pq);
+        OutboundItem item = (OutboundItem )http2_pq_top(pq);
         http2_outbound_item_free(item, mem);
         http2_mem_free(mem, item);
         http2_pq_pop(pq);
@@ -555,7 +555,7 @@ int http2_session_reprioritize_stream(Session session, Stream stream, const Prio
     return 0;
 }
 
-void http2_session_outbound_item_init(Session session, ref OutboundItem item) 
+void http2_session_outbound_item_init(Session session, OutboundItem item) 
 {
     item.seq = session.next_seq++;
     /* We use cycle for DATA only */
@@ -566,7 +566,7 @@ void http2_session_outbound_item_init(Session session, ref OutboundItem item)
     memset(&item.aux_data, 0, sizeof(http2_aux_data));
 }
 
-int http2_session_add_item(Session session, ref OutboundItem item) 
+int http2_session_add_item(Session session, OutboundItem item) 
 {
     /* TODO Return error if stream is not found for the frame requiring
      stream presence. */
@@ -673,7 +673,7 @@ struct http2_rst_target {
 
 int cancel_pending_request(void *pq_item, void *arg) 
 {
-    OutboundItem *item;
+    OutboundItem item;
     http2_rst_target *t;
     HeadersAuxData *aux_data;
     
@@ -695,7 +695,7 @@ int cancel_pending_request(void *pq_item, void *arg)
 int http2_session_add_rst_stream(Session session, int stream_id, FrameError error_code) 
 {
     ErrorCode rv;
-    OutboundItem *item;
+    OutboundItem item;
     Frame frame;
     Stream stream;
     http2_mem *mem;
@@ -711,7 +711,7 @@ int http2_session_add_rst_stream(Session session, int stream_id, FrameError erro
      refers to that stream. */
     if (!session.server && http2_session_is_my_stream_id(session, stream_id) && http2_pq_top(&session.ob_ss_pq))
 	{
-        OutboundItem *top;
+        OutboundItem top;
         Frame headers_frame;
         
         top = http2_pq_top(&session.ob_ss_pq);
@@ -911,7 +911,7 @@ int http2_session_close_stream(Session session, int stream_id, FrameError error_
             stream.stream_id));
     
     if (stream.item) {
-        OutboundItem *item;
+        OutboundItem item;
         
         item = stream.item;
         
@@ -1192,7 +1192,7 @@ int session_predicate_for_stream_send(Session session, Stream stream)
  * ErrorCode.STREAM_CLOSING
  *     request HEADERS was canceled by RST_STREAM while it is in queue.
  */
-int session_predicate_request_headers_send(Session session, OutboundItem *item) 
+int session_predicate_request_headers_send(Session session, OutboundItem item) 
 {
     if (item.aux_data.headers.canceled) {
         return ErrorCode.STREAM_CLOSING;
@@ -1531,7 +1531,7 @@ int session_headers_add_pad(Session session, Frame frame)
 {
     ErrorCode rv;
     int padded_payloadlen;
-    ActiveOutboundItem *aob;
+    ActiveOutboundItem aob;
     http2_bufs *framebufs;
     size_t padlen;
     size_t max_payloadlen;
@@ -1575,7 +1575,7 @@ size_t session_estimate_headers_payload(Session session, const ref NVPair nva, s
  * This function returns 0 if it succeeds, or one of negative error
  * codes, including both fatal and non-fatal ones.
  */
-int session_prep_frame(Session session, OutboundItem *item)
+int session_prep_frame(Session session, OutboundItem item)
 {
     ErrorCode rv;
     Frame frame;
@@ -1869,13 +1869,13 @@ int session_prep_frame(Session session, OutboundItem *item)
 }
 
 /* Used only for tests */
-OutboundItem *http2_session_get_ob_pq_top(Session session) {
-    return cast(OutboundItem *)http2_pq_top(&session.ob_pq);
+OutboundItem http2_session_get_ob_pq_top(Session session) {
+    return cast(OutboundItem )http2_pq_top(&session.ob_pq);
 }
 
-OutboundItem *http2_session_get_next_ob_item(Session session) {
-	OutboundItem *item;
-	OutboundItem *headers_item;
+OutboundItem http2_session_get_next_ob_item(Session session) {
+	OutboundItem item;
+	OutboundItem headers_item;
     
     if (http2_pq_empty(&session.ob_pq)) {
         if (http2_pq_empty(&session.ob_ss_pq)) {
@@ -1917,9 +1917,9 @@ OutboundItem *http2_session_get_next_ob_item(Session session) {
     return headers_item;
 }
 
-OutboundItem *http2_session_pop_next_ob_item(Session session) {
-	OutboundItem *item;
-	OutboundItem *headers_item;
+OutboundItem http2_session_pop_next_ob_item(Session session) {
+	OutboundItem item;
+	OutboundItem headers_item;
     
     if (http2_pq_empty(&session.ob_pq)) {
         if (http2_pq_empty(&session.ob_ss_pq)) {
@@ -2087,7 +2087,7 @@ int session_close_stream_on_goaway(Session session, int last_stream_id, int inco
     return 0;
 }
 
-void session_outbound_item_cycle_weight(Session session, OutboundItem *item, int ini_weight) 
+void session_outbound_item_cycle_weight(Session session, OutboundItem item, int ini_weight) 
 {
     if (item.weight == http2_MIN_WEIGHT || item.weight > ini_weight) {
         
@@ -2120,8 +2120,8 @@ void session_outbound_item_cycle_weight(Session session, OutboundItem *item, int
 int session_after_frame_sent1(Session session) 
 {
     ErrorCode rv;
-    ActiveOutboundItem *aob = &session.aob;
-    OutboundItem *item = aob.item;
+    ActiveOutboundItem aob = &session.aob;
+    OutboundItem item = aob.item;
     http2_bufs *framebufs = &aob.framebufs;
     Frame frame;
     
@@ -2352,8 +2352,8 @@ int session_after_frame_sent1(Session session)
 int session_after_frame_sent2(Session session) 
 {
     ErrorCode rv;
-    ActiveOutboundItem *aob = &session.aob;
-    OutboundItem *item = aob.item;
+    ActiveOutboundItem aob = &session.aob;
+    OutboundItem item = aob.item;
     http2_bufs *framebufs = &aob.framebufs;
     Frame frame;
     http2_mem *mem;
@@ -2380,7 +2380,7 @@ int session_after_frame_sent2(Session session)
         
         return 0;
     } else {
-        OutboundItem *next_item;
+        OutboundItem next_item;
         Stream stream;
         http2_data_aux_data *aux_data;
         
@@ -2529,7 +2529,7 @@ int session_after_frame_sent2(Session session)
 int http2_session_mem_send_internal(Session session, const ubyte **data_ptr, int fast_cb)
 {
     ErrorCode rv;
-    ActiveOutboundItem *aob;
+    ActiveOutboundItem aob;
     http2_bufs *framebufs;
     http2_mem *mem;
     
@@ -2541,7 +2541,7 @@ int http2_session_mem_send_internal(Session session, const ubyte **data_ptr, int
     for (;;) {
         switch (aob.state) {
             case OutboundState.POP_ITEM: {
-                OutboundItem *item;
+                OutboundItem item;
                 
                 item = http2_session_pop_next_ob_item(session);
                 if (item == null) {
@@ -2923,12 +2923,12 @@ int session_inflate_handle_invalid_connection(Session session, Frame frame, Fram
  * ErrorCode.HEADER_COMP
  *     Header decompression failed
  */
-int inflate_header_block(Session session, Frame frame, size_t *readlen_ptr, ubyte *input, size_t inlen, int final_, int call_header_cb) 
+int inflate_header_block(Session session, Frame frame, size_t *readlen_ptr, ubyte *input, size_t inlen, int final_, bool call_header_cb) 
 {
     int proclen;
     ErrorCode rv;
     int inflate_flags;
-    http2_nv nv;
+    NVPair nv;
     Stream stream;
     Stream subject_stream;
     int trailer = 0;
@@ -5503,7 +5503,7 @@ int http2_session_want_write(Session session) {
 
 int http2_session_add_ping(Session session, FrameFlags flags, const ubyte *opaque_data) {
     ErrorCode rv;
-    OutboundItem *item;
+    OutboundItem item;
     Frame frame;
     http2_mem *mem;
     
@@ -5533,7 +5533,7 @@ int http2_session_add_goaway(Session session, int last_stream_id,
     FrameError error_code, const ubyte *opaque_data,
     size_t opaque_data_len, ubyte aux_flags) {
     ErrorCode rv;
-    OutboundItem *item;
+    OutboundItem item;
     Frame frame;
     ubyte *opaque_data_copy = null;
     http2_goaway_aux_data *aux_data;
@@ -5586,7 +5586,7 @@ int http2_session_add_goaway(Session session, int last_stream_id,
 
 int http2_session_add_window_update(Session session, FrameFlags flags, int stream_id, int window_size_increment) {
     ErrorCode rv;
-    OutboundItem *item;
+    OutboundItem item;
     Frame frame;
     http2_mem *mem;
     
@@ -5614,7 +5614,7 @@ int http2_session_add_window_update(Session session, FrameFlags flags, int strea
 
 int http2_session_add_settings(Session session, FrameFlags flags, const http2_settings_entry *iv, size_t niv) 
 {
-    OutboundItem *item;
+    OutboundItem item;
     Frame frame;
     http2_settings_entry *iv_copy;
     size_t i;

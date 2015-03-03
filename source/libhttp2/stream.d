@@ -31,79 +31,73 @@ import std.algorithm : max;
 
 const MAX_DEP_TREE_LENGTH = 100;
 
-alias StreamRoots = RefCounted!StreamRootsImpl;
-class StreamRootsImpl {
-    void http2_stream_roots_init(http2_stream_roots *roots) {
-        roots.head = null;
-        roots.num_streams = 0;
-    }
-    
-    void http2_stream_roots_free(http2_stream_roots *roots) {}
-    
-    void http2_stream_roots_add(http2_stream_roots *roots) {
-        if (roots.head) {
-            m_root_next = roots.head;
-            roots.head.root_prev = this;
+struct StreamRoots {
+
+    void add(Stream stream) {
+        if (head) {
+            stream.m_root_next = head;
+            head.m_root_prev = stream;
         }
         
-        roots.head = this;
+        head = stream;
     }
     
-    void http2_stream_roots_remove(http2_stream_roots *roots) 
+	void remove(Stream stream) 
     {
         Stream root_prev, root_next;
         
-        root_prev = m_root_prev;
-        root_next = m_root_next;
+        root_prev = stream.m_root_prev;
+        root_next = stream.m_root_next;
         
         if (root_prev) {
-            root_prev.root_next = root_next;
+            root_prev.m_root_next = m_root_next;
             
             if (root_next) {
-                root_next.root_prev = root_prev;
+                root_next.m_root_prev = root_prev;
             }
         } else {
             if (root_next) {
-                root_next.root_prev = null;
+                root_next.m_root_prev = null;
             }
             
-            roots.head = root_next;
+            head = root_next;
         }
         
-        m_root_prev = null;
-        m_root_next = null;
+        stream.m_root_prev = null;
+        stream.m_root_next = null;
     }
     
-    void http2_stream_roots_remove_all() {
+    void removeAll() {
         Stream si, next;
         
-        for (si = m_head; si;) {
+        for (si = head; si;) {
             next = si.root_next;
             
-            destroy(si.root_prev);
-            destroy(si.root_next);
+            si.root_prev = null;
+            si.root_next = null;
             
             si = next;
         }
         
-        destroy(m_head);
+        head = null;
     }
 
-private:
-    Stream m_head;    
-    int m_num_streams;
+    Stream head;
+    int num_streams;
 };
 
-alias Stream = RefCounted!StreamImpl;
-
-class StreamImpl {
+class Stream {
 
     this(int stream_id,
-        ubyte flags, http2_stream_state initial_state,
-        int weight, http2_stream_roots *roots,
-        int remote_initial_window_size,
-        int local_initial_window_size,
-        void *stream_user_data) {
+		 StreamFlags flags,
+		 StreamState http2_stream_state;
+		 StreamState initial_state;
+		 int weight,
+		 StreamRoots roots,
+		 int remote_initial_window_size,
+         int local_initial_window_size,
+         void *stream_user_data) 
+	{
         http2_map_entry_init(&m_map_entry, stream_id);
         m_stream_id = stream_id;
         m_flags = flags;
@@ -550,18 +544,18 @@ class StreamImpl {
     }
     
     /*
- * Defer |m_item|.  We won't call this function in the situation
- * where |m_item| == null.  The |flags| is bitwise OR of zero or
- * more of StreamFlags.DEFERRED_USER and
- * StreamFlags.DEFERRED_FLOW_CONTROL.  The |flags| indicates
- * the reason of this action.
- *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * HTTP2_ERR_NOMEM
- *     Out of memory
- */
+	 * Defer |m_item|.  We won't call this function in the situation
+	 * where |m_item| == null.  The |flags| is bitwise OR of zero or
+	 * more of StreamFlags.DEFERRED_USER and
+	 * StreamFlags.DEFERRED_FLOW_CONTROL.  The |flags| indicates
+	 * the reason of this action.
+	 *
+	 * This function returns 0 if it succeeds, or one of the following
+	 * negative error codes:
+	 *
+	 * HTTP2_ERR_NOMEM
+	 *     Out of memory
+	 */
     int http2_stream_defer_item( ubyte flags,
         http2_session *session) {
         assert(m_item);

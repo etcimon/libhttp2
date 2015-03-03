@@ -26,6 +26,8 @@ module libhttp2.frame;
 import libhttp2.constants;
 import libhttp2.types;
 import libhttp2.stream;
+import libhttp2.buffers;
+import libhttp2.huffman_decoder;
 
 const STREAM_ID_MASK = ((1 << 31) - 1);
 const PRI_GROUP_ID_MASK = ((1 << 31) - 1);
@@ -143,17 +145,18 @@ union AuxData {
 }
 
 //http2_outbound_item
-struct OutboundItem {
+class OutboundItem {
 	Frame frame;
 	AuxData aux_data;
 	long seq;
-	/// Reset count of weight. See comment for last_cycle in http2_session.h
+
+	/// Reset count of weight. See comment for last_cycle
 	ulong cycle;
 	
 	/// The priority used in priority comparion.  Larger is served ealier.
 	int weight;
 	
-	/// nonzero if this object is queued.
+	/// true if this object is queued.
 	bool queued;
 }
 
@@ -246,11 +249,11 @@ struct Headers
 	 * ErrorCode.NOMEM
 	 *     Out of memory.
 	 */
-	int http2_frame_pack_headers(http2_bufs *bufs, ref Headers frame, ref HuffmanDeflater deflater) 
+	int pack(Buffers bufs, ref Headers frame, ref HuffmanDeflater deflater) 
 	{
 		size_t nv_offset;
 		int rv;
-		http2_buf *buf;
+		Buffer* buf;
 		
 		assert(bufs.head == bufs.cur);
 		
@@ -428,16 +431,16 @@ size_t http2_frame_headers_payload_nv_offset(ref Headers frame) {
  *
  * We don't process any padding here.
  */
-int frame_pack_headers_shared(http2_bufs *bufs,	ref FrameHeader frame_hd) {
-	http2_buf *buf;
-	http2_buf_chain *ci;
-	http2_buf_chain *ce;
+int frame_pack_headers_shared(Buffers bufs,	ref FrameHeader frame_hd) {
+	Buffer* buf;
+	Chain ci;
+	Chain ce;
 	FrameHeader hd;
 	
 	buf = &bufs.head.buf;
 
-	hd = *frame_hd;
-	hd.length = http2_buf_len(buf);
+	hd = frame_hd;
+	hd.length = buf.length;
 	
 	DEBUGF(fprintf(stderr, "send: HEADERS/PUSH_PROMISE, payloadlen=%zu\n", hd.length));
 	
@@ -545,8 +548,8 @@ int http2_frame_unpack_headers_payload(ref Headers frame, in ubyte[] payload) {
  *
  * This function always succeeds and returns 0.
  */
-int http2_frame_pack_priority(http2_bufs *bufs, http2_priority *frame) {
-	http2_buf *buf;
+int http2_frame_pack_priority(Buffers bufs, http2_priority *frame) {
+	Buffer* buf;
 	
 	assert(bufs.head == bufs.cur);
 	
@@ -583,9 +586,9 @@ void http2_frame_unpack_priority_payload(ref Priority frame,
  *
  * This function always succeeds and returns 0.
  */
-int http2_frame_pack_rst_stream(http2_bufs *bufs,
+int http2_frame_pack_rst_stream(Buffers bufs,
 	ref Reset frame) {
-	http2_buf *buf;
+	Buffer* buf;
 	
 	assert(bufs.head == bufs.cur);
 	
@@ -625,8 +628,8 @@ void http2_frame_unpack_rst_stream_payload(ref Reset frame,
  * ErrorCode.FRAME_SIZE_ERROR
  *     The length of the frame is too large.
  */
-int http2_frame_pack_settings(http2_bufs *bufs, http2_settings *frame) {
-	http2_buf *buf;
+int http2_frame_pack_settings(Buffers bufs, http2_settings *frame) {
+	Buffer* buf;
 	
 	assert(bufs.head == bufs.cur);
 	
@@ -755,11 +758,11 @@ int http2_frame_unpack_settings_payload2(ref Setting[] iv, in ubyte[] payload) {
  * ErrorCode.NOMEM
  *     Out of memory.
  */
-int http2_frame_pack_push_promise(http2_bufs *bufs, ref PushPromise frame, ref HuffmanDeflater deflater) 
+int http2_frame_pack_push_promise(Buffers bufs, ref PushPromise frame, ref HuffmanDeflater deflater) 
 {
 	size_t nv_offset = 4;
 	int rv;
-	http2_buf *buf;
+	Buffer* buf;
 	
 	assert(bufs.head == bufs.cur);
 	
@@ -815,8 +818,8 @@ int http2_frame_unpack_push_promise_payload(ref PushPromise frame, in ubyte[] pa
  *
  * This function always succeeds and returns 0.
  */
-int http2_frame_pack_ping(http2_bufs *bufs, http2_ping *frame) {
-	http2_buf *buf;
+int http2_frame_pack_ping(Buffers bufs, http2_ping *frame) {
+	Buffer* buf;
 	
 	assert(bufs.head == bufs.cur);
 	
@@ -858,9 +861,9 @@ void http2_frame_unpack_ping_payload(http2_ping *frame,
  * ErrorCode.FRAME_SIZE_ERROR
  *     The length of the frame is too large.
  */
-int http2_frame_pack_goaway(http2_bufs *bufs, http2_goaway *frame) {
+int http2_frame_pack_goaway(Buffers bufs, http2_goaway *frame) {
 	int rv;
-	http2_buf *buf;
+	Buffer* buf;
 	
 	assert(bufs.head == bufs.cur);
 	
@@ -961,9 +964,9 @@ int http2_frame_unpack_goaway_payload2(http2_goaway *frame,
  *
  * This function always succeeds and returns 0.
  */
-int http2_frame_pack_window_update(http2_bufs *bufs,
+int http2_frame_pack_window_update(Buffers bufs,
 	http2_window_update *frame) {
-	http2_buf *buf;
+	Buffer* buf;
 	
 	assert(bufs.head == bufs.cur);
 	
@@ -1154,7 +1157,7 @@ int http2_iv_check(const http2_settings_entry *iv, size_t niv)
 	return 1;
 }
 
-void frame_set_pad(http2_buf *buf, size_t padlen) 
+void frame_set_pad(Buffer* buf, size_t padlen) 
 {
 	size_t trail_padlen;
 	size_t newlen;
@@ -1182,9 +1185,9 @@ void frame_set_pad(http2_buf *buf, size_t padlen)
 	return;
 }
 
-int http2_frame_add_pad(http2_bufs *bufs, ref FrameHeader hd, size_t padlen) 
+int http2_frame_add_pad(Buffers bufs, ref FrameHeader hd, size_t padlen) 
 {
-	http2_buf *buf;
+	Buffer* buf;
 	
 	if (padlen == 0) {
 		DEBUGF(fprintf(stderr, "send: padlen = 0, nothing to do\n"));

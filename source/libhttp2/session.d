@@ -14,11 +14,12 @@ import libhttp2.frame;
 import libhttp2.stream;
 import libhttp2.policy;
 import libhttp2.huffman_decoder;
+import libhttp2.buffers;
+import libhttp2.priority_queue;
 
 import memutils.circularbuffer;
 import memutils.vector;
-
-alias Session = RefCounted!SessionImpl;
+import memutils.hashmap;
 
 //http2_optmask
 enum OptionsMask {
@@ -35,7 +36,7 @@ enum OutboundState {
 
 //http2_active_outbound_item
 struct ActiveOutboundItem {
-    OutboundItem *item;
+    OutboundItem item;
     Vector!(CircularBuffer!ubyte) framebufs;
     OutboundState state;
 }
@@ -149,19 +150,20 @@ struct CloseStreamOnGoAwayArgs {
     int incoming;
 }
 
-class SessionImpl {
+class Session {
 private:
-    http2_map /* <http2_stream*> */ streams;
-    http2_stream_roots roots;
+    HashMap!Stream streams;
 
-    /// Priority Queue for outbound frames other than stream-creating HEADERS and DATA
-    http2_pq /* <http2_outbound_item*> */ ob_pq;
+    StreamRoots roots;
 
-    /// Priority Queue for outbound stream-creating HEADERS frame
-    http2_pq /* <http2_outbound_item*> */ ob_ss_pq;
+    /// Priority Queue for outbound frames other than stream-starting HEADERS and DATA
+	PriorityQueue ob_pq;
+
+    /// Priority Queue for outbound stream-starting HEADERS frame
+	PriorityQueue ob_ss_pq;
 
     /// Priority Queue for DATA frame 
-    http2_pq /* <http2_outbound_item*> */ ob_da_pq;
+	PriorityQueue ob_da_pq;
 
     ActiveOutboundItem aob;
     InboundFrame iframe;
@@ -270,17 +272,18 @@ private:
     SettingsStorage local_settings;
 
     /// Option flags. This is bitwise-OR of 0 or more of http2_optmask.
-    uint opt_flags;
+    OptionsMask opt_flags;
 
     /// Unacked local SETTINGS_MAX_CONCURRENT_STREAMS value. We use this to refuse the incoming stream if it exceeds this value. 
     uint pending_local_max_concurrent_stream;
 
-    /// Nonzero if the session is server side. 
-    ubyte server;
+    /// true if the session is server side. 
+    bool is_server;
 
     /// Flags indicating GOAWAY is sent and/or recieved. 
     GoAwayFlags goaway_flags;
 
+public:
 
 	/**
 	 * @function
@@ -989,7 +992,7 @@ private:
 	 * Don't call http2_outbound_item_free() until frame member is
 	 * initialized.
 	 */
-	void http2_session_outbound_item_init(Session session, ref OutboundItem item);
+	void http2_session_outbound_item_init(Session session, OutboundItem item);
 
 	/*
 	 * Adds |item| to the outbound queue in |session|.  When this function
@@ -1004,7 +1007,7 @@ private:
 	 * ErrorCode.STREAM_CLOSED
 	 *     Stream already closed (DATA frame only)
 	 */
-	ErrorCode http2_session_add_item(Session session, ref OutboundItem item);
+	ErrorCode http2_session_add_item(Session session, OutboundItem item);
 
 	/*
 	 * Adds RST_STREAM frame for the stream |stream_id| with the error
@@ -1361,8 +1364,7 @@ private:
 	 * returns stream object even if it is marked as closed or in
 	 * HTTP2_STREAM_IDLE state.
 	 */
-	Stream http2_session_get_stream_raw(Session session,
-		int stream_id);
+	Stream http2_session_get_stream_raw(Session session, int stream_id);
 
 	/*
 	 * Packs DATA frame |frame| in wire frame format and stores it in
@@ -1387,7 +1389,7 @@ private:
 	 * Returns top of outbound frame queue. This function returns null if
 	 * queue is empty.
 	 */
-	ref OutboundItem http2_session_get_ob_pq_top(Session session);
+	OutboundItem http2_session_get_ob_pq_top(Session session);
 
 	/*
 	 * Pops and returns next item to send. If there is no such item,
@@ -1396,7 +1398,7 @@ private:
 	 * session.ob_ss_pq has item and max concurrent streams is reached,
 	 * then this function returns null.
 	 */
-	ref OutboundItem http2_session_pop_next_ob_item(Session session);
+	OutboundItem http2_session_pop_next_ob_item(Session session);
 
 	/*
 	 * Returns next item to send. If there is no such item, this function
@@ -1405,8 +1407,7 @@ private:
 	 * session.ob_ss_pq has item and max concurrent streams is reached,
 	 * then this function returns null.
 	 */
-	ref OutboundItem 
-		http2_session_get_next_ob_item(Session session);
+	OutboundItem http2_session_get_next_ob_item(Session session);
 
 	/*
 	 * Updates local settings with the |iv|. The number of elements in the
