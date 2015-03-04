@@ -27,11 +27,13 @@ module libhttp2.stream;
 import libhttp2.constants;
 import libhttp2.types;
 import libhttp2.frame;
+import libhttp2.session;
 import std.algorithm : max;
 
 const MAX_DEP_TREE_LENGTH = 100;
 
-struct StreamRoots {
+struct StreamRoots
+{
 
     void add(Stream stream) {
         if (head) {
@@ -71,10 +73,10 @@ struct StreamRoots {
         Stream si, next;
         
         for (si = head; si;) {
-            next = si.root_next;
+            next = si.m_root_next;
             
-            si.root_prev = null;
-            si.root_next = null;
+            si.m_root_prev = null;
+            si.m_root_next = null;
             
             si = next;
         }
@@ -84,480 +86,109 @@ struct StreamRoots {
 
     Stream head;
     int num_streams;
-};
+}
 
 class Stream {
 
     this(int stream_id,
 		 StreamFlags flags,
-		 StreamState http2_stream_state;
-		 StreamState initial_state;
+		 StreamState initial_state,
 		 int weight,
 		 StreamRoots roots,
 		 int remote_initial_window_size,
          int local_initial_window_size,
          void *stream_user_data) 
 	{
-        http2_map_entry_init(&m_map_entry, stream_id);
         m_stream_id = stream_id;
         m_flags = flags;
         m_state = initial_state;
-        m_shut_flags = HTTP2_SHUT_NONE;
-        m_stream_user_data = stream_user_data;
-        m_item = null;
-        m_remote_window_size = remote_initial_window_size;
-        m_local_window_size = local_initial_window_size;
-        m_recv_window_size = 0;
-        m_consumed_size = 0;
-        m_recv_reduction = 0;
-        
-        m_dep_prev = null;
-        m_dep_next = null;
-        m_sib_prev = null;
-        m_sib_next = null;
-        
-        m_closed_prev = null;
-        m_closed_next = null;
-        
-        m_dpri = StreamDPRI.NO_ITEM;
-        m_num_substreams = 1;
         m_weight = weight;
         m_effective_weight = m_weight;
-        m_sum_dep_weight = 0;
-        m_sum_norest_weight = 0;
-        m_sum_top_weight = 0;
-        
-        m_roots = roots;
-        m_root_prev = null;
-        m_root_next = null;
-        
-        m_http_flags = HTTP2_HTTP_FLAG_NONE;
-        m_content_length = -1;
-        m_recv_content_length = 0;
-        m_status_code = -1;
+		m_roots = roots;
+		m_remote_window_size = remote_initial_window_size;
+		m_local_window_size = local_initial_window_size;
+		m_stream_user_data = stream_user_data;
     }
     
     /*
      * Disallow either further receptions or transmissions, or both.
      * |flag| is bitwise OR of one or more of ShutdownFlag.
      */
-    void http2_stream_shutdown( ShutdownFlag flag) {
+    void shutdown(ShutdownFlag flag)
+	{
         m_shut_flags |= flag;
     }
-    
-    static int stream_push_item( http2_session *session) {
-        int rv;
-        http2_outbound_item *item;
-        
-        assert(m_item);
-        assert(m_item.queued == 0);
-        
-        item = m_item;
-        
-        /* If item is now sent, don't push it to the queue.  Otherwise, we
-     may push same item twice. */
-        if (session.aob.item == item) {
-            return 0;
-        }
-        
-        if (item.weight > m_effective_weight) {
-            item.weight = m_effective_weight;
-        }
-        
-        item.cycle = session.last_cycle;
-        
-        switch (item.frame.hd.type) {
-            case HTTP2_DATA:
-                rv = http2_pq_push(&session.ob_da_pq, item);
-                break;
-            case HTTP2_HEADERS:
-                if (m_state == HTTP2_STREAM_RESERVED) {
-                    rv = http2_pq_push(&session.ob_ss_pq, item);
-                } else {
-                    rv = http2_pq_push(&session.ob_pq, item);
-                }
-                break;
-            default:
-                /* should not reach here */
-                assert(0);
-        }
-        
-        if (rv != 0) {
-            return rv;
-        }
-        
-        item.queued = 1;
-        
-        return 0;
-    }
-    
-    Stream stream_first_sib(Stream stream) 
-    {
-        for (; m_sib_prev; stream = m_sib_prev)
-            ;
-        
-        return stream;
-    }
-    
-    Stream stream_last_sib(Stream stream) 
-    {
-        for (; m_sib_next; stream = m_sib_next)
-            ;
-        
-        return stream;
-    }
-    
-    Stream stream_update_dep_length(Stream stream, size_t delta) 
-    {
-        m_num_substreams += delta;
-        
-        stream = stream_first_sib(stream);
-        
-        if (m_dep_prev) {
-            return stream_update_dep_length(m_dep_prev, delta);
-        }
-        
-        return stream;
-    }
-    
+
     /*
      * Computes distributed weight of a stream of the |weight| under the
-     * |stream| if |stream| is removed from a dependency tree.  The result
-     * is computed using m_weight rather than
-     * m_effective_weight.
+     * $(D Stream) if $(D Stream) is removed from a dependency tree.  The result
+     * is computed using m_weight rather than m_effective_weight.
      */
-    int http2_stream_dep_distributed_weight(int weight) {
+    int distributedWeight(int weight) 
+	{
         weight = m_weight * weight / m_sum_dep_weight;
         
         return max(1, weight);
     }
     
     /*
- * Computes effective weight of a stream of the |weight| under the
- * |stream|.  The result is computed using m_effective_weight
- * rather than m_weight.  This function is used to determine
- * weight in dependency tree.
- */
-    int http2_stream_dep_distributed_effective_weight(
-        int weight) {
-        if (m_sum_norest_weight == 0) {
-            return m_effective_weight;
-        }
-        
+	 * Computes effective weight of a stream of the |weight| under the
+	 * $(D Stream).  The result is computed using m_effective_weight
+	 * rather than m_weight.  This function is used to determine
+	 * weight in dependency tree.
+	 */
+    int distributedEffectiveWeight(int weight) {
+        if (m_sum_norest_weight == 0)
+            return m_effective_weight;        
         weight = m_effective_weight * weight / m_sum_norest_weight;
         
         return max(1, weight);
     }
     
-    static int stream_dep_distributed_top_effective_weight(int weight) {
-        if (m_sum_top_weight == 0) {
-            return m_effective_weight;
-        }
-        
-        weight = m_effective_weight * weight / m_sum_top_weight;
-        
-        return http2_max(1, weight);
-    }
-    
-    static void stream_update_dep_set_rest(http2_stream *stream);
-    
-    /* Updates effective_weight of descendant streams in subtree of
-   |stream|.  We assume that m_effective_weight is already set
-   right. */
-    static void stream_update_dep_effective_weight(http2_stream *stream) {
-        http2_stream *si;
-        
-        DEBUGF(fprintf(stderr, "stream: update_dep_effective_weight "
-                "stream(%p)=%d, weight=%d, sum_norest_weight=%d, "
-                "sum_top_weight=%d\n",
-                stream, m_stream_id, m_weight,
-                m_sum_norest_weight, m_sum_top_weight));
-        
-        /* m_sum_norest_weight == 0 means there is no
-     StreamDPRI.TOP under stream */
-        if (m_dpri != StreamDPRI.NO_ITEM ||
-            m_sum_norest_weight == 0) {
-            return;
-        }
-        
-        /* If there is no direct descendant whose dpri is
-     StreamDPRI.TOP, indirect descendants have the chance to
-     send data, so recursively set weight for descendants. */
-        if (m_sum_top_weight == 0) {
-            for (si = m_dep_next; si; si = si.sib_next) {
-                if (si.dpri != StreamDPRI.REST) {
-                    si.effective_weight =
-                        http2_stream_dep_distributed_effective_weight(stream, si.weight);
-                }
-                
-                stream_update_dep_effective_weight(si);
-            }
-            return;
-        }
-        
-        /* If there is at least one direct descendant whose dpri is
-     StreamDPRI.TOP, we won't give a chance to indirect
-     descendants, since closed or blocked stream's weight is
-     distributed among its siblings */
-        for (si = m_dep_next; si; si = si.sib_next) {
-            if (si.dpri == StreamDPRI.TOP) {
-                si.effective_weight =
-                    stream_dep_distributed_top_effective_weight(stream, si.weight);
-                
-                DEBUGF(fprintf(stderr, "stream: stream=%d top eweight=%d\n",
-                        si.stream_id, si.effective_weight));
-                
-                continue;
-            }
-            
-            if (si.dpri == StreamDPRI.NO_ITEM) {
-                DEBUGF(fprintf(stderr, "stream: stream=%d no_item, ignored\n",
-                        si.stream_id));
-                
-                /* Since we marked StreamDPRI.TOP under si, we make
-         them StreamDPRI.REST again. */
-                stream_update_dep_set_rest(si.dep_next);
-            } else {
-                DEBUGF(
-                    fprintf(stderr, "stream: stream=%d rest, ignored\n", si.stream_id));
-            }
-        }
-    }
-    
-    static void stream_update_dep_set_rest(http2_stream *stream) {
-        if (stream == null) {
-            return;
-        }
-        
-        DEBUGF(fprintf(stderr, "stream: stream=%d is rest\n", m_stream_id));
-        
-        if (m_dpri == StreamDPRI.REST) {
-            return;
-        }
-        
-        if (m_dpri == StreamDPRI.TOP) {
-            m_dpri = StreamDPRI.REST;
-            
-            stream_update_dep_set_rest(m_sib_next);
-            
-            return;
-        }
-        
-        stream_update_dep_set_rest(m_sib_next);
-        stream_update_dep_set_rest(m_dep_next);
-    }
+
     
     /*
- * Performs dfs starting |stream|, search stream which can become
- * StreamDPRI.TOP and set its dpri.
- */
-    static void stream_update_dep_set_top(http2_stream *stream) {
-        http2_stream *si;
-        
-        if (m_dpri == StreamDPRI.TOP) {
-            return;
-        }
-        
-        if (m_dpri == StreamDPRI.REST) {
-            DEBUGF(
-                fprintf(stderr, "stream: stream=%d item is top\n", m_stream_id));
-            
-            m_dpri = StreamDPRI.TOP;
-            
-            return;
-        }
-        
-        for (si = m_dep_next; si; si = si.sib_next) {
-            stream_update_dep_set_top(si);
-        }
-    }
-    
-    /*
- * Performs dfs starting |stream|, and dueue stream whose dpri is
- * StreamDPRI.TOP and has not been queued yet.
- *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * HTTP2_ERR_NOMEM
- *     Out of memory.
- */
-    static int stream_update_dep_queue_top(
-        http2_session *session) {
-        int rv;
-        http2_stream *si;
-        
-        if (m_dpri == StreamDPRI.REST) {
-            return 0;
-        }
-        
-        if (m_dpri == StreamDPRI.TOP) {
-            if (!m_item.queued) {
-                DEBUGF(fprintf(stderr, "stream: stream=%d enqueue\n", m_stream_id));
-                rv = stream_push_item(stream, session);
-                
-                if (rv != 0) {
-                    return rv;
-                }
-            }
-            
-            return 0;
-        }
-        
-        for (si = m_dep_next; si; si = si.sib_next) {
-            rv = stream_update_dep_queue_top(si, session);
-            
-            if (rv != 0) {
-                return rv;
-            }
-        }
-        
-        return 0;
-    }
-    
-    /*
- * Updates m_sum_norest_weight and m_sum_top_weight
- * recursively.  We have to gather effective sum of weight of
- * descendants.  If m_dpri == StreamDPRI.NO_ITEM, we
- * have to go deeper and check that any of its descendants has dpri
- * value of StreamDPRI.TOP.  If so, we have to add weight of
- * its direct descendants to m_sum_norest_weight.  To make this
- * work, this function returns 1 if any of its descendants has dpri
- * value of StreamDPRI.TOP, otherwise 0.
- *
- * Calculating m_sum_top-weight is very simple compared to
- * m_sum_norest_weight.  It just adds up the weight of direct
- * descendants whose dpri is StreamDPRI.TOP.
- */
-    static int stream_update_dep_sum_norest_weight(http2_stream *stream) {
-        http2_stream *si;
-        int rv;
-        
-        m_sum_norest_weight = 0;
-        m_sum_top_weight = 0;
-        
-        if (m_dpri == StreamDPRI.TOP) {
-            return 1;
-        }
-        
-        if (m_dpri == StreamDPRI.REST) {
-            return 0;
-        }
-        
-        rv = 0;
-        
-        for (si = m_dep_next; si; si = si.sib_next) {
-            
-            if (stream_update_dep_sum_norest_weight(si)) {
-                rv = 1;
-                m_sum_norest_weight += si.weight;
-            }
-            
-            if (si.dpri == StreamDPRI.TOP) {
-                m_sum_top_weight += si.weight;
-            }
-        }
-        
-        return rv;
-    }
-    
-    static int stream_update_dep_on_attach_item(
-        http2_session *session) {
-        http2_stream *root_stream;
-        
-        m_dpri = StreamDPRI.REST;
-        
-        stream_update_dep_set_rest(m_dep_next);
-        
-        root_stream = http2_stream_get_dep_root(stream);
-        
-        DEBUGF(fprintf(stderr, "root=%p, stream=%p\n", root_stream, stream));
-        
-        stream_update_dep_set_top(root_stream);
-        
-        stream_update_dep_sum_norest_weight(root_stream);
-        stream_update_dep_effective_weight(root_stream);
-        
-        return stream_update_dep_queue_top(root_stream, session);
-    }
-    
-    static int stream_update_dep_on_detach_item(
-        http2_session *session) {
-        http2_stream *root_stream;
-        
-        m_dpri = StreamDPRI.NO_ITEM;
-        
-        root_stream = http2_stream_get_dep_root(stream);
-        
-        stream_update_dep_set_top(root_stream);
-        
-        stream_update_dep_sum_norest_weight(root_stream);
-        stream_update_dep_effective_weight(root_stream);
-        
-        return stream_update_dep_queue_top(root_stream, session);
-    }
-    
-    /*
- * Attaches |item| to |stream|.  Updates dpri members in this
- * dependency tree.
- *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * HTTP2_ERR_NOMEM
- *     Out of memory
- */
-    int http2_stream_attach_item(
-        http2_outbound_item *item,
-        http2_session *session) {
+	 * Attaches |item| to $(D Stream).  Updates dpri members in this
+	 * dependency tree.
+	 */
+    void attachItem(OutboundItem item, Session session) 
+	{
         assert((m_flags & StreamFlags.DEFERRED_ALL) == 0);
-        assert(m_item == null);
+        assert(!m_item);
         
         DEBUGF(fprintf(stderr, "stream: stream=%d attach item=%p\n",
                 m_stream_id, item));
         
         m_item = item;
         
-        return stream_update_dep_on_attach_item(stream, session);
+		stream.updateOnAttachItem(session);
     }
     
     /*
- * Detaches |m_item|.  Updates dpri members in this dependency
- * tree.  This function does not free |m_item|.  The caller must
- * free it.
- *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * HTTP2_ERR_NOMEM
- *     Out of memory
- */
-    int http2_stream_detach_item(
-        http2_session *session) {
+	 * Detaches |m_item|.  Updates dpri members in this dependency
+	 * tree.  This function does not free |m_item|.  The caller must
+	 * free it.
+	 */
+    void detachItem(Session session) 
+	{
         DEBUGF(fprintf(stderr, "stream: stream=%d detach item=%p\n",
                 m_stream_id, m_item));
         
         m_item = null;
         m_flags &= ~StreamFlags.DEFERRED_ALL;
         
-        return stream_update_dep_on_detach_item(stream, session);
+		stream.updateDepOnDetachItem(session);
     }
     
     /*
 	 * Defer |m_item|.  We won't call this function in the situation
-	 * where |m_item| == null.  The |flags| is bitwise OR of zero or
+	 * where |m_item| is null.  The |flags| is bitwise OR of zero or
 	 * more of StreamFlags.DEFERRED_USER and
 	 * StreamFlags.DEFERRED_FLOW_CONTROL.  The |flags| indicates
 	 * the reason of this action.
-	 *
-	 * This function returns 0 if it succeeds, or one of the following
-	 * negative error codes:
-	 *
-	 * HTTP2_ERR_NOMEM
-	 *     Out of memory
 	 */
-    int http2_stream_defer_item( ubyte flags,
-        http2_session *session) {
+    void deferItem(StreamFlags flags, Session session) 
+	{
         assert(m_item);
         
         DEBUGF(fprintf(stderr, "stream: stream=%d defer item=%p cause=%02x\n",
@@ -565,19 +196,19 @@ class Stream {
         
         m_flags |= flags;
         
-        return stream_update_dep_on_detach_item(stream, session);
+		updateDepOnDetachItem(session);
     }
     
     /*
- * Put back deferred data in this stream to active state.  The |flags|
- * are one or more of bitwise OR of the following values:
- * StreamFlags.DEFERRED_USER and
- * StreamFlags.DEFERRED_FLOW_CONTROL and given masks are
- * cleared if they are set.  So even if this function is called, if
- * one of flag is still set, data does not become active.
- */
-    int http2_stream_resume_deferred_item( ubyte flags,
-        http2_session *session) {
+	 * Put back deferred data in this stream to active state.  The |flags|
+	 * are one or more of bitwise OR of the following values:
+	 * StreamFlags.DEFERRED_USER and
+	 * StreamFlags.DEFERRED_FLOW_CONTROL and given masks are
+	 * cleared if they are set.  So even if this function is called, if
+	 * one of flag is still set, data does not become active.
+	 */
+    void resumeDeferredItem(StreamFlags flag, Session session)
+	{
         assert(m_item);
         
         DEBUGF(fprintf(stderr, "stream: stream=%d resume item=%p flags=%02x\n",
@@ -589,92 +220,76 @@ class Stream {
             return 0;
         }
         
-        return stream_update_dep_on_attach_item(stream, session);
+		stream.updateOnAttachItem(session);
     }
     
     /*
- * Returns nonzero if item is deferred by whatever reason.
- */
-    int http2_stream_check_deferred_item(http2_stream *stream) {
+	 * Returns nonzero if item is deferred by whatever reason.
+	 */
+    bool isItemDeferred() 
+	{
         return m_item && (m_flags & StreamFlags.DEFERRED_ALL);
     }
     
     /*
- * Returns nonzero if item is deferred by flow control.
- */
-    int http2_stream_check_deferred_by_flow_control(http2_stream *stream) {
-        return m_item &&
-            (m_flags & StreamFlags.DEFERRED_FLOW_CONTROL);
+	 * Returns nonzero if item is deferred by flow control.
+	 */
+    bool isDeferredByFlowControl() 
+	{
+        return m_item && (m_flags & StreamFlags.DEFERRED_FLOW_CONTROL);
     }
+
     
-    static int update_initial_window_size(int *window_size_ptr,
-        int new_initial_window_size,
-        int old_initial_window_size) {
-        long new_window_size = (long)(*window_size_ptr) +
-            new_initial_window_size - old_initial_window_size;
-        if (INT32_MIN > new_window_size ||
-            new_window_size > HTTP2_MAX_WINDOW_SIZE) {
-            return -1;
-        }
-        *window_size_ptr = (int)new_window_size;
-        return 0;
+    /*
+	 * Updates the remote window size with the new value
+	 * |new_initial_window_size|. The |old_initial_window_size| is used to
+	 * calculate the current window size.
+	 *
+	 * This function returns true if it succeeds or false. The failure is due to
+	 * overflow.
+	 */
+    bool updateRemoteInitialWindowSize(int new_initial_window_size, int old_initial_window_size)
+	{
+		return updateInitialWindowSize(m_remote_window_size, new_initial_window_size, old_initial_window_size);
     }
     
     /*
- * Updates the remote window size with the new value
- * |new_initial_window_size|. The |old_initial_window_size| is used to
- * calculate the current window size.
- *
- * This function returns 0 if it succeeds or -1. The failure is due to
- * overflow.
- */
-    int http2_stream_update_remote_initial_window_size(
-         int new_initial_window_size,
-        int old_initial_window_size) {
-        return update_initial_window_size(&m_remote_window_size,
-            new_initial_window_size,
-            old_initial_window_size);
+	 * Updates the local window size with the new value
+	 * |new_initial_window_size|. The |old_initial_window_size| is used to
+	 * calculate the current window size.
+	 *
+	 * This function returns true if it succeeds or false. The failure is due to
+	 * overflow.
+	 */
+    bool updateLocalInitialWindowSize(int new_initial_window_size, int old_initial_window_size) 
+	{
+		return updateInitialWindowSize(m_local_window_size, new_initial_window_size, old_initial_window_size);
     }
     
     /*
- * Updates the local window size with the new value
- * |new_initial_window_size|. The |old_initial_window_size| is used to
- * calculate the current window size.
- *
- * This function returns 0 if it succeeds or -1. The failure is due to
- * overflow.
- */
-    int http2_stream_update_local_initial_window_size(
-         int new_initial_window_size,
-        int old_initial_window_size) {
-        return update_initial_window_size(&m_local_window_size,
-            new_initial_window_size,
-            old_initial_window_size);
-    }
-    
-    /*
-     * Call this function if promised stream |stream| is replied with
-     * HEADERS.  This function makes the state of the |stream| to
+     * Call this function if promised stream $(D Stream) is replied with
+     * HEADERS.  This function changes the state of the $(D Stream) to
      * OPENED.
      */
-    void http2_stream_promise_fulfilled(http2_stream *stream) {
+    void promiseFulfilled() {
 		m_state = StreamState.OPENED;
         m_flags &= ~StreamFlags.PUSH;
     }
     
     /*
      * Returns the stream positioned in root of the dependency tree the
-     * |stream| belongs to.
+     * $(D Stream) belongs to.
      */
-    Stream http2_stream_get_dep_root(Stream stream) {
+    Stream getRoot() {
+		Stream stream = this;
         for (;;) {
-            if (m_sib_prev) {
-                stream = m_sib_prev;
+            if (stream.m_sib_prev) {
+                stream = stream.m_sib_prev;
                 
                 continue;
             }
             
-            if (m_dep_prev) {
+            if (stream.m_dep_prev) {
                 stream = m_dep_prev;
                 
                 continue;
@@ -687,250 +302,147 @@ class Stream {
     }
     
     /*
-     * Returns nonzero if |target| is found in subtree of |stream|.
+     * Returns true if |target| is found in subtree of $(D Stream).
      */
-    int http2_stream_dep_subtree_find(Stream target) {
-        if (stream == null) {
-            return 0;
-        }
+    bool subtreeContains(Stream target) {
+        if (!stream)
+            return false;
         
-        if (stream == target) {
-            return 1;
-        }
+        if (stream is target)
+            return true;
         
-        if (http2_stream_dep_subtree_find(m_sib_next, target)) {
-            return 1;
-        }
+		if (m_sib_next.subtreeContains(target))
+            return true;
         
-        return http2_stream_dep_subtree_find(m_dep_next, target);
+		return m_dep_next.subtreeContains(target);
     }
     
     /*
-     * Makes the |stream| depend on the |dep_stream|.  This dependency is
+     * Makes the $(D Stream) depend on the |dep_stream|.  This dependency is
      * exclusive.  All existing direct descendants of |dep_stream| become
-     * the descendants of the |stream|.  This function assumes
+     * the descendants of the $(D Stream).  This function assumes
      * |m_data| is null and no dpri members are changed in this
      * dependency tree.
      */
-    void http2_stream_dep_insert(Stream dep_stream) {
+    void insert(Stream stream) {
         Stream si;
         Stream root_stream;
         
-        assert(m_item == null);
+        assert(!m_item);
         
         DEBUGF(fprintf(stderr,
                 "stream: dep_insert dep_stream(%p)=%d, stream(%p)=%d\n",
-                dep_stream, dep_stream.stream_id, stream, m_stream_id));
+				this, m_stream_id, stream, stream.m_stream_id));
         
-        m_sum_dep_weight = dep_stream.sum_dep_weight;
-        dep_stream.sum_dep_weight = m_weight;
+		stream.m_sum_dep_weight = m_sum_dep_weight;
+		m_sum_dep_weight = stream.m_weight;
         
-        if (dep_stream.dep_next) {
-            for (si = dep_stream.dep_next; si; si = si.sib_next) {
-                m_num_substreams += si.num_substreams;
+		if (m_dep_next) {
+			for (si = m_dep_next; si; si = si.m_sib_next) {
+                stream.m_num_substreams += si.m_num_substreams;
             }
             
-            m_dep_next = dep_stream.dep_next;
-            m_dep_next.dep_prev = stream;
+			stream.m_dep_next = m_dep_next;
+            stream.m_dep_next.m_dep_prev = stream;
         }
         
-        dep_stream.dep_next = stream;
-        m_dep_prev = dep_stream;
+		m_dep_next = stream;
+        stream.m_dep_prev = this;
         
-        root_stream = stream_update_dep_length(dep_stream, 1);
+		root_stream = updateLength(1);
         
-        stream_update_dep_sum_norest_weight(root_stream);
-        stream_update_dep_effective_weight(root_stream);
+		root_stream.updateSumNorestWeight();
+		root_stream.updateEffectiveWeight();
         
-        ++m_roots.num_streams;
+        ++stream.m_roots.num_streams;
     }
-    
-    static void link_dep(Stream dep_stream, Stream stream) {
-        dep_stream.dep_next = stream;
-        m_dep_prev = dep_stream;
-    }
-    
-    static void link_sib(Stream prev_stream, Stream stream) {
-        prev_stream.sib_next = stream;
-        m_sib_prev = prev_stream;
-    }
-    
-    static void insert_link_dep(Stream dep_stream, Stream stream) {
-        http2_stream *sib_next;
-        
-        assert(m_sib_prev == null);
-        
-        sib_next = dep_stream.dep_next;
-        
-        link_sib(stream, sib_next);
-        
-        sib_next.dep_prev = null;
-        
-        link_dep(dep_stream, stream);
-    }
-    
-    void unlink_sib() {
-        Stream prev, *next, *dep_next;
-        
-        prev = m_sib_prev;
-        dep_next = m_dep_next;
-        
-        assert(prev);
-        
-        if (dep_next) {
-            /*
-             *  prev--stream(--sib_next--...)
-             *         |
-             *        dep_next
-             */
-            dep_next.dep_prev = null;
-            
-            link_sib(prev, dep_next);
-            
-            if (m_sib_next) {
-                link_sib(stream_last_sib(dep_next), m_sib_next);
-            }
-        } else {
-            /*
-             *  prev--stream(--sib_next--...)
-             */
-            next = m_sib_next;
-            
-            prev.sib_next = next;
-            
-            if (next) {
-                next.sib_prev = prev;
-            }
-        }
-    }
-    
-    static void unlink_dep() {
-        Stream prev, next, dep_next;
-        
-        prev = m_dep_prev;
-        dep_next = m_dep_next;
-        
-        assert(prev);
-        
-        if (dep_next) {
-            /*
-             * prev
-             *   |
-             * stream(--sib_next--...)
-             *   |
-             * dep_next
-             */
-            link_dep(prev, dep_next);
-            
-            if (m_sib_next) {
-                link_sib(stream_last_sib(dep_next), m_sib_next);
-            }
-        } else if (m_sib_next) {
-            /*
-             * prev
-             *   |
-             * stream--sib_next
-             */
-            next = m_sib_next;
-            
-            next.sib_prev = null;
-            
-            link_dep(prev, next);
-        } else {
-            prev.dep_next = null;
-        }
-    }
-    
+     
     /*
-     * Makes the |stream| depend on the |dep_stream|.  This dependency is
+     * Makes the $(D Stream) depend on the |dep_stream|.  This dependency is
      * not exclusive.  This function assumes |m_data| is null and no
      * dpri members are changed in this dependency tree.
      */
-    void http2_stream_dep_add(Stream dep_stream) {
+    void add(Stream stream) {
         Stream root_stream;
         
-        assert(m_item == null);
+        assert(!stream.m_item);
         
-        DEBUGF(fprintf(stderr, "stream: dep_add dep_stream(%p)=%d, stream(%p)=%d\n",
-                dep_stream, dep_stream.stream_id, stream, m_stream_id));
+        DEBUGF(fprintf(stderr, "stream: dep_add dep_stream(%p)=%d, stream(%p)=%d\n", this, m_stream_id, stream, stream.m_stream_id));
         
-        root_stream = stream_update_dep_length(dep_stream, 1);
+        root_stream = updateLength(1);
         
-        dep_stream.sum_dep_weight += m_weight;
+		m_sum_dep_weight += stream.m_weight;
         
-        if (dep_stream.dep_next == null) {
-            link_dep(dep_stream, stream);
+        if (!m_dep_next) {
+            linkDependency(stream);
         } else {
-            insert_link_dep(dep_stream, stream);
+            insertLinkDependency(stream);
         }
         
-        stream_update_dep_sum_norest_weight(root_stream);
-        stream_update_dep_effective_weight(root_stream);
+		root_stream.updateSumNorestWeight();
+		root_stream.updateEffectiveWeight();
         
-        ++m_roots.num_streams;
+        ++stream.m_roots.num_streams;
     }
     
     /*
-     * Removes the |stream| from the current dependency tree.  This
+     * Removes the $(D Stream) from the current dependency tree.  This
      * function assumes |m_data| is null.
      */
-    void http2_stream_dep_remove(Stream stream) {
+	void remove() {
         Stream prev, next, dep_prev, si, root_stream;
         int sum_dep_weight_delta;
         
-        root_stream = null;
+        DEBUGF(fprintf(stderr, "stream: dep_remove stream(%p)=%d\n", this, m_stream_id));
         
-        DEBUGF(fprintf(stderr, "stream: dep_remove stream(%p)=%d\n", stream,
-                m_stream_id));
-        
-        /* Distribute weight of |stream| to direct descendants */
+        /* Distribute weight of $(D Stream) to direct descendants */
         sum_dep_weight_delta = -m_weight;
         
-        for (si = m_dep_next; si; si = si.sib_next) {
-            si.weight = http2_stream_dep_distributed_weight(stream, si.weight);
+        for (si = m_dep_next; si; si = si.m_sib_next) {
+            si.m_weight = distributedWeight(si.m_weight);
             
-            sum_dep_weight_delta += si.weight;
+            sum_dep_weight_delta += si.m_weight;
         }
         
-        prev = stream_first_sib(stream);
+        prev = firstSibling();
         
         dep_prev = prev.dep_prev;
         
         if (dep_prev) {
-            root_stream = stream_update_dep_length(dep_prev, -1);
+            root_stream = updateLength(dep_prev, -1);
             
             dep_prev.sum_dep_weight += sum_dep_weight_delta;
         }
         
         if (m_sib_prev) {
-            unlink_sib(stream);
+            unlinkSibling();
         } else if (m_dep_prev) {
-            unlink_dep(stream);
+            unlinkDependency();
         } else {
-            http2_stream_roots_remove(m_roots, stream);
+            m_roots.remove(this);
             
             /* stream is a root of tree.  Removing stream makes its
                 descendants a root of its own subtree. */
             
             for (si = m_dep_next; si;) {
-                next = si.sib_next;
+                next = si.m_sib_next;
                 
-                si.dep_prev = null;
-                si.sib_prev = null;
-                si.sib_next = null;
+                si.m_dep_prev = null;
+                si.m_sib_prev = null;
+                si.m_sib_next = null;
                 
-                /* We already distributed weight of |stream| to this. */
-                si.effective_weight = si.weight;
+                /* We already distributed weight of $(D Stream) to this. */
+                si.m_effective_weight = si.m_weight;
                 
-                http2_stream_roots_add(si.roots, si);
+                si.m_roots.add(si);
                 
                 si = next;
             }
         }
         
         if (root_stream) {
-            stream_update_dep_sum_norest_weight(root_stream);
-            stream_update_dep_effective_weight(root_stream);
+			root_stream.updateSumNorestWeight();
+			root_stream.updateEffectiveWeight();
         }
         
         m_num_substreams = 1;
@@ -945,16 +457,10 @@ class Stream {
     }
     
     /*
-     * Makes the |stream| depend on the |dep_stream|.  This dependency is
+     * Makes the $(D Stream) depend on the |dep_stream|.  This dependency is
      * exclusive.  Updates dpri members in this dependency tree.
-     *
-     * This function returns 0 if it succeeds, or one of the following
-     * negative error codes:
-     *
-     * HTTP2_ERR_NOMEM
-     *     Out of memory
      */
-    int http2_stream_dep_insert_subtree(Stream dep_stream, Session session) {
+    void insertSubtree(Stream stream, Session session) {
         Stream last_sib;
         Stream dep_next;
         Stream root_stream;
@@ -962,135 +468,124 @@ class Stream {
         
         DEBUGF(fprintf(stderr, "stream: dep_insert_subtree dep_stream(%p)=%d "
                 "stream(%p)=%d\n",
-                dep_stream, dep_stream.stream_id, stream, m_stream_id));
+                this, m_stream_id, stream, stream.m_stream_id));
         
-        delta_substreams = m_num_substreams;
+		delta_substreams = stream.m_num_substreams;
         
-        stream_update_dep_set_rest(stream);
+		stream.updateSetRest();
         
-        if (dep_stream.dep_next) {
-            /* dep_stream.num_substreams includes dep_stream itself */
-            m_num_substreams += dep_stream.num_substreams - 1;
+        if (m_dep_next) {
+            /* m_num_substreams includes dep_stream itself */
+			stream.m_num_substreams += m_num_substreams - 1;
             
-            m_sum_dep_weight += dep_stream.sum_dep_weight;
-            dep_stream.sum_dep_weight = m_weight;
+			stream.m_sum_dep_weight += m_sum_dep_weight;
+			m_sum_dep_weight = stream.m_weight;
             
-            dep_next = dep_stream.dep_next;
+            dep_next = m_dep_next;
             
-            stream_update_dep_set_rest(dep_next);
+			dep_next.updateSetRest();
             
-            link_dep(dep_stream, stream);
+            linkDependency(stream);
             
-            if (m_dep_next) {
-                last_sib = stream_last_sib(m_dep_next);
+			if (stream.m_dep_next) {
+				last_sib = stream.m_dep_next.lastSibling();
                 
-                link_sib(last_sib, dep_next);
+				last_sib.linkSibling(dep_next);
                 
                 dep_next.dep_prev = null;
             } else {
-                link_dep(stream, dep_next);
+                stream.linkDependency(dep_next);
             }
         } else {
-            link_dep(dep_stream, stream);
+            linkDependency(stream);
             
-            assert(dep_stream.sum_dep_weight == 0);
-            dep_stream.sum_dep_weight = m_weight;
+            assert(m_sum_dep_weight == 0);
+			m_sum_dep_weight = stream.m_weight;
         }
         
-        root_stream = stream_update_dep_length(dep_stream, delta_substreams);
+        root_stream = updateLength(delta_substreams);
         
-        stream_update_dep_set_top(root_stream);
+		root_stream.updateSetTop();
         
-        stream_update_dep_sum_norest_weight(root_stream);
-        stream_update_dep_effective_weight(root_stream);
+		root_stream.updateSumNorestWeight();
+		root_stream.updateEffectiveWeight();
         
-        return stream_update_dep_queue_top(root_stream, session);
+		root_stream.updateQueueTop(session);
     }
     
     
     /*
-     * Makes the |stream| depend on the |dep_stream|.  This dependency is
+     * Makes the $(D Stream) depend on the |dep_stream|.  This dependency is
      * not exclusive.  Updates dpri members in this dependency tree.
-     *
-     * This function returns 0 if it succeeds, or one of the following
-     * negative error codes:
-     *
-     * HTTP2_ERR_NOMEM
-     *     Out of memory
      */
-    int http2_stream_dep_add_subtree(Stream dep_stream, Stream stream, Session session) {
+    void addSubtree(Stream stream, Session session) 
+	{
         Stream root_stream;
         
         DEBUGF(fprintf(stderr, "stream: dep_add_subtree dep_stream(%p)=%d "
                 "stream(%p)=%d\n",
-                dep_stream, dep_stream.stream_id, stream, m_stream_id));
+                this, m_stream_id, stream, stream.m_stream_id));
         
-        stream_update_dep_set_rest(stream);
+        stream.updateSetRest();
         
-        if (dep_stream.dep_next) {
-            dep_stream.sum_dep_weight += m_weight;
+        if (m_dep_next) {
+            m_sum_dep_weight += stream.m_weight;
             
-            insert_link_dep(dep_stream, stream);
+            insertLinkDependency(stream);
         } else {
-            link_dep(dep_stream, stream);
+            linkDependency(stream);
             
-            assert(dep_stream.sum_dep_weight == 0);
-            dep_stream.sum_dep_weight = m_weight;
+            assert(m_sum_dep_weight == 0);
+			m_sum_dep_weight = stream.m_weight;
         }
         
-        root_stream = stream_update_dep_length(dep_stream, m_num_substreams);
+        root_stream = updateLength(stream.m_num_substreams);
         
-        stream_update_dep_set_top(root_stream);
+		root_stream.updateSetTop();
         
-        stream_update_dep_sum_norest_weight(root_stream);
-        stream_update_dep_effective_weight(root_stream);
+		root_stream.updateSumNorestWeight();
+		root_stream.updateEffectiveWeight();
         
-        return stream_update_dep_queue_top(root_stream, session);
+		root_stream.updateQueueTop(session);
     }
     
     /*
-     * Removes subtree whose root stream is |stream|.  Removing subtree
+     * Removes subtree whose root stream is $(D Stream).  Removing subtree
      * does not change dpri values.  The effective_weight of streams in
      * removed subtree is not updated.
-     *
-     * This function returns 0 if it succeeds, or one of the following
-     * negative error codes:
-     *
-     * HTTP2_ERR_NOMEM
-     *     Out of memory
      */
-    void http2_stream_dep_remove_subtree(Stream stream) {
+    void removeSubtree() 
+	{
         Stream prev, next, dep_prev, root_stream;
         
-        DEBUGF(fprintf(stderr, "stream: dep_remove_subtree stream(%p)=%d\n", stream,
-                m_stream_id));
+        DEBUGF(fprintf(stderr, "stream: dep_remove_subtree stream(%p)=%d\n", this, m_stream_id));
         
         if (m_sib_prev) {
             prev = m_sib_prev;
             
-            prev.sib_next = m_sib_next;
-            if (prev.sib_next) {
-                prev.sib_next.sib_prev = prev;
+            prev.m_sib_next = m_sib_next;
+            if (prev.m_sib_next) {
+                prev.m_sib_next.m_sib_prev = prev;
             }
             
-            prev = stream_first_sib(prev);
+			prev = prev.firstSibling();
             
-            dep_prev = prev.dep_prev;
+            dep_prev = prev.m_dep_prev;
             
         } else if (m_dep_prev) {
             dep_prev = m_dep_prev;
             next = m_sib_next;
             
-            dep_prev.dep_next = next;
+            dep_prev.m_dep_next = next;
             
             if (next) {
-                next.dep_prev = dep_prev;
+                next.m_dep_prev = dep_prev;
                 
-                next.sib_prev = null;
+                next.m_sib_prev = null;
             }
             
         } else {
-            http2_stream_roots_remove(m_roots, stream);
+			m_roots.remove(this);
             
             dep_prev = null;
         }
@@ -1098,10 +593,10 @@ class Stream {
         if (dep_prev) {
             dep_prev.sum_dep_weight -= m_weight;
             
-            root_stream = stream_update_dep_length(dep_prev, -m_num_substreams);
+			root_stream = dep_prev.updateLength(-m_num_substreams);
             
-            stream_update_dep_sum_norest_weight(root_stream);
-            stream_update_dep_effective_weight(root_stream);
+			root_stream.updateSumNorestWeight();
+			root_stream.updateEffectiveWeight();
         }
         
         m_sib_prev = null;
@@ -1110,118 +605,489 @@ class Stream {
     }
     
     /*
-     * Makes the |stream| as root.  Updates dpri members in this
+     * Makes the $(D Stream) as root.  Updates dpri members in this
      * dependency tree.
-     *
-     * This function returns 0 if it succeeds, or one of the following
-     * negative error codes:
-     *
-     * HTTP2_ERR_NOMEM
-     *     Out of memory
      */
-    int http2_stream_dep_make_root(http2_stream *stream,
-        http2_session *session) {
-        DEBUGF(fprintf(stderr, "stream: dep_make_root stream(%p)=%d\n", stream,
-                m_stream_id));
+    void makeRoot(Session session)
+	{
+        DEBUGF(fprintf(stderr, "stream: dep_make_root stream(%p)=%d\n", this, m_stream_id));
         
-        http2_stream_roots_add(m_roots, stream);
+		m_roots.add(this);
         
-        stream_update_dep_set_rest(stream);
+        updateSetRest();
         
         m_effective_weight = m_weight;
         
-        stream_update_dep_set_top(stream);
+        updateSetTop();
         
-        stream_update_dep_sum_norest_weight(stream);
-        stream_update_dep_effective_weight(stream);
+        updateSumNorestWeight();
+        updateEffectiveWeight();
         
-        return stream_update_dep_queue_top(stream, session);
+		updateQueueTop(session);
     }
     
     /*
-     * Makes the |stream| as root and all existing root streams become
-     * direct children of |stream|.
-     *
-     * This function returns 0 if it succeeds, or one of the following
-     * negative error codes:
-     *
-     * HTTP2_ERR_NOMEM
-     *     Out of memory
+     * Makes the $(D Stream) as root and all existing root streams become
+     * direct children of $(D Stream).
      */
-    int http2_stream_dep_all_your_stream_are_belong_to_us(Session session)
+	void makeTopmostRoot(Session session)
     {
-        Stream first, *si;
+        Stream first, si;
         
-        DEBUGF(fprintf(stderr, "stream: ALL YOUR STREAM ARE BELONG TO US "
-                "stream(%p)=%d\n",
-                stream, m_stream_id));
+        DEBUGF(fprintf(stderr, "stream: ALL YOUR STREAM ARE BELONG TO US stream(%p)=%d\n", stream, m_stream_id));
         
         first = m_roots.head;
         
         /* stream must not be include in m_roots.head list */
-        assert(first != stream);
+        assert(first !is this);
         
         if (first) {
-            http2_stream *prev;
+            Stream prev;
             
             prev = first;
             
-            DEBUGF(fprintf(stderr, "stream: root stream(%p)=%d\n", first,
-                    first.stream_id));
+            DEBUGF(fprintf(stderr, "stream: root stream(%p)=%d\n", first, first.m_stream_id));
             
-            m_sum_dep_weight += first.weight;
-            m_num_substreams += first.num_substreams;
+            m_sum_dep_weight += first.m_weight;
+            m_num_substreams += first.m_num_substreams;
             
-            for (si = first.root_next; si; si = si.root_next) {
+            for (si = first.m_root_next; si; si = si.m_root_next) {
                 
-                assert(si != stream);
+                assert(si !is stream);
                 
-                DEBUGF(
-                    fprintf(stderr, "stream: root stream(%p)=%d\n", si, si.stream_id));
+                DEBUGF(fprintf(stderr, "stream: root stream(%p)=%d\n", si, si.m_stream_id));
                 
-                m_sum_dep_weight += si.weight;
-                m_num_substreams += si.num_substreams;
+                m_sum_dep_weight += si.m_weight;
+                m_num_substreams += si.m_num_substreams;
                 
-                link_sib(prev, si);
+				prev.linkSibling(si);
                 
                 prev = si;
             }
             
             if (m_dep_next) {
-                http2_stream *sib_next;
+                Stream sib_next;
                 
                 sib_next = m_dep_next;
                 
-                sib_next.dep_prev = null;
+                sib_next.m_dep_prev = null;
                 
-                link_sib(first, sib_next);
-                link_dep(stream, prev);
+				first.linkSibling(sib_next);
+				linkDependency(prev);
             } else {
-                link_dep(stream, first);
+				linkDependency(first);
             }
         }
         
-        http2_stream_roots_remove_all(m_roots);
+        m_roots.removeAll();
         
-        return http2_stream_dep_make_root(stream, session);
+		makeRoot(session);
     }
     
     /*
-     * Returns nonzero if |stream| is in any dependency tree.
+     * Returns nonzero if $(D Stream) is in any dependency tree.
      */
-    int http2_stream_in_dep_tree() {
+    int inDepTree() {
         return m_dep_prev || m_dep_next || m_sib_prev ||
                m_sib_next || m_root_next || m_root_prev ||
-                m_roots.head == this;
+               m_roots.head is this;
     }
 
+private:
+
+
+	bool updateInitialWindowSize(ref int window_size, int new_initial_window_size, int old_initial_window_size)
+	{
+		int new_window_size = window_size + new_initial_window_size - old_initial_window_size;
+		if (int.min > new_window_size || new_window_size > MAX_WINDOW_SIZE)
+			return false;
+		
+		window_size = new_window_size;
+
+		return true;
+	}
+
+	void pushItem(Session session) 
+	{
+		OutboundItem item;
+		
+		assert(m_item);
+		assert(m_item.queued == 0);
+		
+		item = m_item;
+		
+		/* If item is now sent, don't push it to the queue.  Otherwise, we may push same item twice. */
+		if (session.aob.item is item)
+			return;
+		
+		if (item.weight > m_effective_weight)
+			item.weight = m_effective_weight;
+		
+		item.cycle = session.last_cycle;
+		
+		switch (item.frame.hd.type) {
+			case FrameType.DATA:
+				session.ob_da_pq.push(item);
+				break;
+			case FrameType.HEADERS:
+				if (m_state == StreamState.RESERVED)
+					session.ob_ss_pq.push(item);
+				else
+					session.ob_pq.push(item);
+				break;
+			default:
+				/* should not reach here */
+				assert(0);
+		}
+		
+		item.queued = 1;
+	}
+
+	int distributedTopEffectiveWeight(int weight) {
+		if (m_sum_top_weight == 0)
+			return m_effective_weight;
+
+		weight = m_effective_weight * weight / m_sum_top_weight;
+
+		return max(1, weight);
+	}
+	
+	/* Updates effective_weight of descendant streams in subtree of $(D Stream).  We assume that m_effective_weight is already set right. */
+	void updateEffectiveWeight()
+	{
+		Stream si;
+		
+		DEBUGF(fprintf(stderr, "stream: update_dep_effective_weight "
+				"stream(%p)=%d, weight=%d, sum_norest_weight=%d, "
+				"sum_top_weight=%d\n",
+				this, m_stream_id, m_weight,
+				m_sum_norest_weight, m_sum_top_weight));
+		
+		/* m_sum_norest_weight == 0 means there is no StreamDPRI.TOP under stream */
+		if (m_dpri != StreamDPRI.NO_ITEM ||
+			m_sum_norest_weight == 0) {
+			return;
+		}
+		
+		/* If there is no direct descendant whose dpri is StreamDPRI.TOP, indirect descendants have
+		 * the chance to send data, so recursively set weight for descendants. */
+		if (m_sum_top_weight == 0) {
+			for (si = m_dep_next; si; si = si.m_sib_next) {
+				if (si.m_dpri != StreamDPRI.REST) {
+					si.m_effective_weight =
+						distributedEffectiveWeight(si.m_weight);
+				}
+				
+				updateEffectiveWeight(si);
+			}
+			return;
+		}
+		
+		/* If there is at least one direct descendant whose dpri is
+		   StreamDPRI.TOP, we won't give a chance to indirect
+		   descendants, since closed or blocked stream's weight is
+		   distributed among its siblings */
+		for (si = m_dep_next; si; si = si.m_sib_next) {
+			if (si.m_dpri == StreamDPRI.TOP) {
+				si.m_effective_weight = distributedTopEffectiveWeight(si.m_weight);				
+				DEBUGF(fprintf(stderr, "stream: stream=%d top eweight=%d\n", si.m_stream_id, si.m_effective_weight));
+				
+				continue;
+			}
+			
+			if (si.m_dpri == StreamDPRI.NO_ITEM) {
+				DEBUGF(fprintf(stderr, "stream: stream=%d no_item, ignored\n", si.m_stream_id));
+				
+				/* Since we marked StreamDPRI.TOP under si, we make them StreamDPRI.REST again. */
+				si.m_dep_next.updateSetRest();
+			} else {
+				DEBUGF(fprintf(stderr, "stream: stream=%d rest, ignored\n", si.m_stream_id));
+			}
+		}
+	}
+	
+	void updateSetRest() 
+	{
+		
+		DEBUGF(fprintf(stderr, "stream: stream=%d is rest\n", m_stream_id));
+		
+		if (m_dpri == StreamDPRI.REST)
+			return;
+		
+		if (m_dpri == StreamDPRI.TOP) 
+		{
+			m_dpri = StreamDPRI.REST;
+			
+			m_sib_next.updateSetRest();
+			
+			return;
+		}
+
+		m_sib_next.updateSetRest();
+		m_dep_next.updateSetRest();
+	}
+	
+	/*
+	 * Performs dfs starting $(D Stream), search stream which can become
+	 * StreamDPRI.TOP and set its dpri.
+	 */
+	void updateSetTop() 
+	{
+		Stream si;
+		
+		if (m_dpri == StreamDPRI.TOP)
+			return;
+		
+		if (m_dpri == StreamDPRI.REST) 
+		{
+			DEBUGF(fprintf(stderr, "stream: stream=%d item is top\n", m_stream_id));
+			
+			m_dpri = StreamDPRI.TOP;
+			
+			return;
+		}
+		
+		for (si = m_dep_next; si; si = si.m_sib_next)
+			si.updateSetTop();
+
+	}
+	
+	/*
+	 * Performs dfs starting $(D Stream), and queue stream whose dpri is
+	 * StreamDPRI.TOP and has not been queued yet.
+	 */
+	void updateQueueTop(Session session)
+	{
+		Stream si;
+		
+		if (m_dpri == StreamDPRI.REST) 
+			return;
+		
+		if (m_dpri == StreamDPRI.TOP) {
+			if (!m_item.queued) {
+				DEBUGF(fprintf(stderr, "stream: stream=%d enqueue\n", m_stream_id));
+				pushItem(session);
+			}
+			
+			return;
+		}
+		
+		for (si = m_dep_next; si; si = si.m_sib_next)
+			si.updateQueueTop(session);
+		
+
+	}
+	
+	/*
+	 * Updates m_sum_norest_weight and m_sum_top_weight
+	 * recursively.  We have to gather effective sum of weight of
+	 * descendants.  If m_dpri == StreamDPRI.NO_ITEM, we
+	 * have to go deeper and check that any of its descendants has dpri
+	 * value of StreamDPRI.TOP.  If so, we have to add weight of
+	 * its direct descendants to m_sum_norest_weight.  To make this
+	 * work, this function returns true if any of its descendants has dpri
+	 * value of StreamDPRI.TOP, otherwise false.
+	 *
+	 * Calculating m_sum_top-weight is very simple compared to
+	 * m_sum_norest_weight.  It just adds up the weight of direct
+	 * descendants whose dpri is StreamDPRI.TOP.
+	 */
+	bool updateSumNorestWeight() 
+	{
+		Stream si;
+		bool ret;
+		
+		m_sum_norest_weight = 0;
+		m_sum_top_weight = 0;
+		
+		if (m_dpri == StreamDPRI.TOP) 
+			return true;
+		
+		if (m_dpri == StreamDPRI.REST)
+			return false;
+		
+		ret = false;
+		
+		for (si = m_dep_next; si; si = si.m_sib_next) {
+			
+			if (si.updateSumNorestWeight()) {
+				ret = true;
+				m_sum_norest_weight += si.m_weight;
+			}
+			
+			if (si.m_dpri == StreamDPRI.TOP)
+				m_sum_top_weight += si.m_weight;
+		}
+		
+		return ret;
+	}
+	
+	void updateOnAttachItem(Session session) 
+	{
+		Stream root_stream;
+		
+		m_dpri = StreamDPRI.REST;
+		
+		m_dep_next.updateSetRest();
+		
+		root_stream = getRoot();
+		
+		DEBUGF(fprintf(stderr, "root=%p, stream=%p\n", root_stream, this));
+		
+		root_stream.updateSetTop();
+		
+		root_stream.updateSumNorestWeight();
+		root_stream.updateEffectiveWeight();
+		
+		root_stream.updateQueueTop(session);
+	}
+	
+	void updateDepOnDetachItem(Session session) {
+		Stream root_stream;
+		
+		m_dpri = StreamDPRI.NO_ITEM;
+
+		root_stream = getRoot();
+		
+		root_stream.updateSetTop();
+
+		root_stream.updateSumNorestWeight();
+		root_stream.updateEffectiveWeight();
+		
+		root_stream.updateQueueTop(session);
+	}
+
+	void linkDependency(Stream stream) {
+		m_dep_next = stream;
+		stream.m_dep_prev = this;
+	}
+	
+	void linkSibling(Stream stream) 
+	{
+		m_sib_next = stream;
+		stream.m_sib_prev = this;
+	}
+	
+	void insertLinkDependency(Stream stream)
+	{
+		Stream sib_next;
+		
+		assert(!stream.m_sib_prev);
+		
+		sib_next = m_dep_next;
+		
+		stream.linkSibling(sib_next);
+		
+		sib_next.dep_prev = null;
+		
+		linkDependency(stream);
+	}
+
+	Stream firstSibling() 
+	{
+		Stream stream = this;
+		for (; stream.sib_prev; stream = stream.sib_prev)
+			continue;
+		
+		return stream;
+	}
+	
+	Stream lastSibling()
+	{
+		Stream stream = this;
+		for (; stream.sib_next; stream = stream.sib_next)
+			continue;
+
+		return stream;
+	}
+	
+	Stream updateLength(size_t delta) 
+	{
+		m_num_substreams += delta;
+
+		Stream stream = firstSibling();
+		
+		if (stream.m_dep_prev)
+			return stream.m_dep_prev.updateLength(delta);
+
+		return stream;
+	}
+
+	void unlinkSibling() {
+		Stream prev, next, dep_next;
+		
+		prev = m_sib_prev;
+		dep_next = m_dep_next;
+		
+		assert(prev);
+		
+		if (dep_next) {
+			/*
+             *  prev--stream(--sib_next--...)
+             *         |
+             *        dep_next
+             */
+			dep_next.dep_prev = null;
+			
+			prev.linkSibling(dep_next);
+			
+			if (m_sib_next) {
+				dep_next.lastSibling().linkSibling(m_sib_next);
+			}
+		} else {
+			/*
+             *  prev--stream(--sib_next--...)
+             */
+			next = m_sib_next;
+			
+			prev.sib_next = next;
+			
+			if (next) {
+				next.sib_prev = prev;
+			}
+		}
+	}
+	
+	void unlinkDependency() {
+		Stream prev, next, dep_next;
+		
+		prev = m_dep_prev;
+		dep_next = m_dep_next;
+		
+		assert(prev);
+		
+		if (dep_next) {
+			/*
+             * prev
+             *   |
+             * stream(--sib_next--...)
+             *   |
+             * dep_next
+             */
+			prev.linkDependency(dep_next);
+			
+			if (m_sib_next) {
+				dep_next.lastSibling().linkSibling(m_sib_next);
+			}
+		} else if (m_sib_next) {
+			/*
+             * prev
+             *   |
+             * stream--sib_next
+             */
+			next = m_sib_next;
+			
+			next.sib_prev = null;
+			
+			prev.linkDependency(next);
+		} else {
+			prev.dep_next = null;
+		}
+	}
 
 private:
     /// Stream ID
     int m_id;
-
-    /// Intrusive Map
-    nghttp2_map_entry m_map_entry;
 
     /// Pointers to form dependency tree.  If multiple streams depend on a stream, only one stream (left most) has non-null dep_prev 
     /// which points to the stream it depends on. The remaining streams are linked using sib_prev and sib_next.  
@@ -1233,7 +1099,7 @@ private:
     /// pointers to track dependency tree root streams.  This is doubly-linked list and first element is pointed by roots.head.
     Stream m_root_prev, m_root_next;
     /* When stream is kept after closure, it may be kept in doubly
-     linked list pointed by nghttp2_session closed_stream_head.
+     linked list pointed by Session.closed_stream_head.
      closed_next points to the next stream object if it is the element
      of the list. */
     Stream m_closed_prev, m_closed_next;
@@ -1248,10 +1114,10 @@ private:
     OutboundItem m_item;
 
     /// categorized priority of this stream.  Only stream bearing $(D TOP) can send item.
-    StreamDPRI m_dpri;
+	StreamDPRI m_dpri = StreamDPRI.NO_ITEM;
 
     /// the number of streams in subtree 
-    size_t m_num_substreams;
+	size_t m_num_substreams = 1;
 
     /// Current remote window size. This value is computed against the current initial window size of remote endpoint. 
     int m_remote_window_size;
@@ -1268,7 +1134,7 @@ private:
     int m_recv_reduction;
 
     /// window size for local flow control. It is initially set to INITIAL_WINDOW_SIZE and could be increased/decreased by
-    /// submitting WINDOW_UPDATE. See nghttp2_submit_window_update().
+    /// submitting WINDOW_UPDATE. See submit_window_update().
     int m_local_window_size;
 
     /// weight of this stream 
@@ -1288,21 +1154,44 @@ private:
 
     StreamState m_state;
 
-    /// This is bitwise-OR of 0 or more of nghttp2_stream_flag.
+    /// This is bitwise-OR of 0 or more of StreamFlags.
     StreamFlags m_flags;
 
     /// Bitwise OR of zero or more ShutdownFlag values
-    ShutdownFlag m_shut_flags;
+	ShutdownFlag m_shut_flags = ShutdownFlag.NONE;
 
     /// Content-Length of request/response body. -1 if unknown.
-    long m_content_length;
+	int m_content_length = -1;
 
     /// Received body so far 
-    long m_recv_content_length;
+    int m_recv_content_length;
 
     /// status code from remote server
-    short m_status_code;
+	short m_status_code = -1;
 
-    /// Bitwise OR of zero or more nghttp2_http_flag values 
-    HTTPFlags m_http_flags;
+    /// Bitwise OR of zero or more HTTPFlags values 
+	HTTPFlags m_http_flags = HTTPFlags.NONE;
+
+package: // used by Session
+	@property int id() { return m_stream_id; }
+	@property StreamDPRI dpri() { return m_dpri; }
+	@property StreamState state() { return m_state; }
+	@property OutboundItem item() { return m_item; }
+	@property int effectiveWeight() { return m_effective_weight; }
+	@property int remoteWindowSize() { return m_remote_window_size; }
+	@property int localWindowSize() { return m_local_window_size; }
+	@property ref int recvWindowSize() { return m_recv_window_size; }
+	@property void recvWindowSize(int sz) { m_recv_window_size = sz; }
+	@property int consumedSize() { return m_consumed_size; }
+	@property void* userData() { return m_stream_user_data; }
+	@property void userData(void* ptr) { m_stream_user_data = ptr; }
+	@property ShutdownFlag shutFlags() { return m_shut_flags; }
+	@property HTTPFlags httpFlags() { return m_http_flags; }
+	@property StreamFlags flags() { return m_flags; }
+	@property int subStreams() { return m_num_substreams; }
+	@property void weight(int w) { m_weight = w; }
+	@property Stream closedPrev() { return m_closed_prev; }
+	@property Stream closedNext() { return m_closed_next; } 
+	@property void closedPrev(Stream s) { m_closed_prev = s; }
+	@property void closedNext(Stream s) { m_closed_next = s; } 
 }

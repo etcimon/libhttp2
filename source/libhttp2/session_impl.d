@@ -46,9 +46,7 @@ int session_terminate_session(Session session, int last_stream_id, uint error_co
         debug_datalen = strlen(reason);
     }
     
-    rv = http2_session_add_goaway(session, last_stream_id, error_code,
-        debug_data, debug_datalen,
-        GoAwayAuxFlags.TERM_ON_SEND);
+    rv = http2_session_add_goaway(session, last_stream_id, error_code, debug_data, debug_datalen, GoAwayAuxFlags.TERM_ON_SEND);
     
     if (rv != 0) {
         return rv;
@@ -61,8 +59,7 @@ int session_terminate_session(Session session, int last_stream_id, uint error_co
 
 int http2_session_terminate_session(Session session, FrameError error_code)
 {
-    return session_terminate_session(session, session.last_proc_stream_id,
-        error_code, null);
+    return session_terminate_session(session, session.last_proc_stream_id, error_code, null);
 }
 
 int http2_session_terminate_session2(Session session,
@@ -73,8 +70,7 @@ int http2_session_terminate_session2(Session session,
 
 int http2_session_terminate_session_with_reason(Session session, FrameError error_code, string reason)
 {
-    return session_terminate_session(session, session.last_proc_stream_id,
-        error_code, reason);
+    return session_terminate_session(session, session.last_proc_stream_id, error_code, reason);
 }
 
 int http2_session_is_my_stream_id(Session session, int stream_id) {
@@ -173,7 +169,7 @@ void session_inbound_frame_reset(Session session)
     iframe.niv = 0;
     iframe.payloadleft = 0;
     iframe.padlen = 0;
-    iframe.iv[INBOUND_NUM_IV - 1].settings_id = SETTINGS_HEADER_TABLE_SIZE;
+    iframe.iv[INBOUND_NUM_IV - 1].id = SETTINGS_HEADER_TABLE_SIZE;
     iframe.iv[INBOUND_NUM_IV - 1].value = uint.max;
 }
 
@@ -470,11 +466,11 @@ int http2_session_reprioritize_stream(Session session, Stream stream, const Prio
     Stream root_stream;
     PrioritySpec pri_spec_default;
     
-    if (!http2_stream_in_dep_tree(stream)) {
+    if (!inDepTree(stream)) {
         return 0;
     }
     
-    if (pri_spec.stream_id == stream.stream_id) {
+    if (pri_spec.stream_id == stream.id) {
         return http2_session_terminate_session_with_reason(session, FrameError.PROTOCOL_ERROR, "depend on itself");
     }
     
@@ -493,14 +489,14 @@ int http2_session_reprioritize_stream(Session session, Stream stream, const Prio
             if (dep_stream == null) {
                 return ErrorCode.NOMEM;
             }
-        } else if (!dep_stream || !http2_stream_in_dep_tree(dep_stream)) {
+        } else if (!dep_stream || !inDepTree(dep_stream)) {
             http2_priority_spec_default_init(&pri_spec_default);
             pri_spec = &pri_spec_default;
         }
     }
     
     if (pri_spec.stream_id == 0) {
-        http2_stream_dep_remove_subtree(stream);
+		stream.removeSubtree();
         
         /* We have to update weight after removing stream from tree */
         stream.weight = pri_spec.weight;
@@ -508,9 +504,9 @@ int http2_session_reprioritize_stream(Session session, Stream stream, const Prio
         if (pri_spec.exclusive &&
             session.roots.num_streams <= MAX_DEP_TREE_LENGTH) {
             
-            rv = http2_stream_dep_all_your_stream_are_belong_to_us(stream, session);
+			rv = stream.makeTopmostRoot(session);
         } else {
-            rv = http2_stream_dep_make_root(stream, session);
+            rv = stream.makeRoot(session);
         }
         
         return rv;
@@ -518,33 +514,33 @@ int http2_session_reprioritize_stream(Session session, Stream stream, const Prio
     
     assert(dep_stream);
     
-    if (http2_stream_dep_subtree_find(stream, dep_stream)) {
+    if (stream.subtreeContains(dep_stream)) {
         DEBUGF(fprintf(stderr, "stream: cycle detected, dep_stream(%p)=%d "
                 "stream(%p)=%d\n",
-                dep_stream, dep_stream.stream_id, stream,
-                stream.stream_id));
+                dep_stream, dep_stream.id, stream,
+                stream.id));
         
-        http2_stream_dep_remove_subtree(dep_stream);
-        http2_stream_dep_make_root(dep_stream, session);
+		dep_stream.removeSubtree();
+        dep_stream.makeRoot(session);
     }
     
-    http2_stream_dep_remove_subtree(stream);
+	stream.removeSubtree();
     
     /* We have to update weight after removing stream from tree */
     stream.weight = pri_spec.weight;
     
-    root_stream = http2_stream_get_dep_root(dep_stream);
+	root_stream = dep_stream.getDepRoot();
     
-    if (root_stream.num_substreams + stream.num_substreams > MAX_DEP_TREE_LENGTH) 
+    if (root_stream.subStreams + stream.subStreams > MAX_DEP_TREE_LENGTH) 
 	{
         stream.weight = DEFAULT_WEIGHT;
         
-        rv = http2_stream_dep_make_root(stream, session);
+        rv = stream.makeRoot(session);
     } else {
         if (pri_spec.exclusive) {
-            rv = http2_stream_dep_insert_subtree(dep_stream, stream, session);
+			rv = dep_stream.insertSubtree(stream, session);
         } else {
-            rv = http2_stream_dep_add_subtree(dep_stream, stream, session);
+			rv = dep_stream.addSubtree(stream, session);
         }
     }
     
@@ -616,10 +612,10 @@ int http2_session_add_item(Session session, OutboundItem item)
                 item.queued = 1;
             } else if (stream && (stream.state == StreamState.RESERVED ||
                     item.aux_data.headers.attach_stream)) {
-                item.weight = stream.effective_weight;
+                item.weight = stream.effectiveWeight;
                 item.cycle = session.last_cycle;
                 
-                rv = http2_stream_attach_item(stream, item, session);
+                rv = attachItem(stream, item, session);
                 
                 if (rv != 0) {
                     return rv;
@@ -654,10 +650,10 @@ int http2_session_add_item(Session session, OutboundItem item)
         return ErrorCode.DATA_EXIST;
     }
     
-    item.weight = stream.effective_weight;
+    item.weight = stream.effectiveWeight;
     item.cycle = session.last_cycle;
     
-    rv = http2_stream_attach_item(stream, item, session);
+    rv = attachItem(stream, item, session);
     
     if (rv != 0) {
         return rv;
@@ -764,9 +760,9 @@ Stream http2_session_open_stream(Session session, int stream_id, StreamFlags fla
     
     if (stream) {
         assert(stream.state == StreamState.IDLE);
-        assert(http2_stream_in_dep_tree(stream));
+        assert(inDepTree(stream));
         http2_session_detach_idle_stream(session, stream);
-        http2_stream_dep_remove(stream);
+		stream.remove();
     } else {
         if (session.server && initial_state != StreamState.IDLE &&
             !http2_session_is_my_stream_id(session, stream_id)) {
@@ -801,7 +797,7 @@ Stream http2_session_open_stream(Session session, int stream_id, StreamFlags fla
                 
                 return null;
             }
-        } else if (!dep_stream || !http2_stream_in_dep_tree(dep_stream)) {
+        } else if (!dep_stream || !inDepTree(dep_stream)) {
             /* If dep_stream is not part of dependency tree, stream will get default priority. */
             http2_priority_spec_default_init(&pri_spec_default);
             pri_spec = &pri_spec_default;
@@ -850,7 +846,7 @@ Stream http2_session_open_stream(Session session, int stream_id, StreamFlags fla
     }
     
     /* We don't have to track dependency of received reserved stream */
-    if (stream.shut_flags & ShutdownFlag.WR) {
+    if (stream.shutFlags & ShutdownFlag.WR) {
         return stream;
     }
     
@@ -858,9 +854,8 @@ Stream http2_session_open_stream(Session session, int stream_id, StreamFlags fla
         
         ++session.roots.num_streams;
         
-        if (pri_spec.exclusive &&
-            session.roots.num_streams <= MAX_DEP_TREE_LENGTH) {
-            rv = http2_stream_dep_all_your_stream_are_belong_to_us(stream, session);
+        if (pri_spec.exclusive && session.roots.num_streams <= MAX_DEP_TREE_LENGTH) {
+			rv = stream.makeTopmostRoot(session);
             
             /* Since no dpri is changed in dependency tree, the above function call never fail. */
             assert(rv == 0);
@@ -877,13 +872,13 @@ Stream http2_session_open_stream(Session session, int stream_id, StreamFlags fla
     
     assert(dep_stream);
     
-    root_stream = http2_stream_get_dep_root(dep_stream);
+	root_stream = dep_stream.getDepRoot();
     
-    if (root_stream.num_substreams < MAX_DEP_TREE_LENGTH) {
+    if (root_stream.subStreams < MAX_DEP_TREE_LENGTH) {
         if (pri_spec.exclusive) {
-            http2_stream_dep_insert(dep_stream, stream);
+			dep_stream.insert(stream);
         } else {
-            http2_stream_dep_add(dep_stream, stream);
+			dep_stream.add(stream);
         }
     } else {
         stream.weight = DEFAULT_WEIGHT;
@@ -907,15 +902,14 @@ int http2_session_close_stream(Session session, int stream_id, FrameError error_
         return ErrorCode.INVALID_ARGUMENT;
     }
     
-    DEBUGF(fprintf(stderr, "stream: stream(%p)=%d close\n", stream,
-            stream.stream_id));
+    DEBUGF(fprintf(stderr, "stream: stream(%p)=%d close\n", stream, stream.id));
     
     if (stream.item) {
         OutboundItem item;
         
         item = stream.item;
         
-        rv = http2_stream_detach_item(stream, session);
+        rv = detachItem(stream, session);
         
         if (rv != 0) {
             return rv;
@@ -959,7 +953,7 @@ int http2_session_close_stream(Session session, int stream_id, FrameError error_
     /* Closes both directions just in case they are not closed yet */
     stream.flags |= StreamFlags.CLOSED;
     
-    if (session.server && http2_stream_in_dep_tree(stream)) {
+    if (session.server && inDepTree(stream)) {
         /* On server side, retain stream at most MAX_CONCURRENT_STREAMS
 	       combined with the current active incoming streams to make
 	       dependency tree work better. */
@@ -976,13 +970,13 @@ void http2_session_destroy_stream(Session session, Stream stream)
     http2_mem *mem;
     
     DEBUGF(fprintf(stderr, "stream: destroy closed stream(%p)=%d\n", stream,
-            stream.stream_id));
+            stream.id));
     
     mem = &session.mem;
     
-    http2_stream_dep_remove(stream);
+	stream.remove();
     
-    http2_map_remove(&session.streams, stream.stream_id);
+    http2_map_remove(&session.streams, stream.id);
     http2_stream_free(stream);
     http2_mem_free(mem, stream);
 }
@@ -990,11 +984,11 @@ void http2_session_destroy_stream(Session session, Stream stream)
 void http2_session_keep_closed_stream(Session session, Stream stream)
 {
     DEBUGF(fprintf(stderr, "stream: keep closed stream(%p)=%d, state=%d\n",
-            stream, stream.stream_id, stream.state));
+            stream, stream.id, stream.state));
     
     if (session.closed_stream_tail) {
-        session.closed_stream_tail.closed_next = stream;
-        stream.closed_prev = session.closed_stream_tail;
+        session.closed_stream_tail.closedNext = stream;
+        stream.closedPrev = session.closed_stream_tail;
     } else {
         session.closed_stream_head = stream;
     }
@@ -1008,11 +1002,11 @@ void http2_session_keep_closed_stream(Session session, Stream stream)
 void http2_session_keep_idle_stream(Session session, Stream stream)
 {
     DEBUGF(fprintf(stderr, "stream: keep idle stream(%p)=%d, state=%d\n", stream,
-            stream.stream_id, stream.state));
+            stream.id, stream.state));
     
     if (session.idle_stream_tail) {
-        session.idle_stream_tail.closed_next = stream;
-        stream.closed_prev = session.idle_stream_tail;
+        session.idle_stream_tail.closedNext = stream;
+        stream.closedPrev = session.idle_stream_tail;
     } else {
         session.idle_stream_head = stream;
     }
@@ -1029,25 +1023,25 @@ void http2_session_detach_idle_stream(Session session, Stream stream)
 	Stream *next_stream;
     
     DEBUGF(fprintf(stderr, "stream: detach idle stream(%p)=%d, state=%d\n",
-            stream, stream.stream_id, stream.state));
+            stream, stream.id, stream.state));
     
-    prev_stream = stream.closed_prev;
-    next_stream = stream.closed_next;
+    prev_stream = stream.closedPrev;
+    next_stream = stream.closedNext;
     
     if (prev_stream) {
-        prev_stream.closed_next = next_stream;
+        prev_stream.closedNext = next_stream;
     } else {
         session.idle_stream_head = next_stream;
     }
     
     if (next_stream) {
-        next_stream.closed_prev = prev_stream;
+        next_stream.closedPrev = prev_stream;
     } else {
         session.idle_stream_tail = prev_stream;
     }
     
-    stream.closed_prev = null;
-    stream.closed_next = null;
+    stream.closedPrev = null;
+    stream.closedNext = null;
     
     --session.num_idle_streams;
 }
@@ -1056,7 +1050,7 @@ void http2_session_adjust_closed_stream(Session session, int offset)
 {
     size_t num_stream_max;
     
-    num_stream_max = http2_min(session.local_settings.max_concurrent_streams, session.pending_local_max_concurrent_stream);
+    num_stream_max = min(session.local_settings.max_concurrent_streams, session.pending_local_max_concurrent_stream);
     
     DEBUGF(fprintf(stderr, "stream: adjusting kept closed streams "
             "num_closed_streams=%zu, num_incoming_streams=%zu, "
@@ -1073,10 +1067,10 @@ void http2_session_adjust_closed_stream(Session session, int offset)
         
         assert(head_stream);
         
-        session.closed_stream_head = head_stream.closed_next;
+        session.closed_stream_head = head_stream.closedNext;
         
         if (session.closed_stream_head) {
-            session.closed_stream_head.closed_prev = null;
+            session.closed_stream_head.closedPrev = null;
         } else {
             session.closed_stream_tail = null;
         }
@@ -1095,13 +1089,9 @@ void http2_session_adjust_idle_stream(Session session)
      streams at once is easy.  This happens when PRIORITY frame to
      idle stream, which depends on idle stream which does not
      exist. */
-    max =
-        http2_max(2, http2_min(session.local_settings.max_concurrent_streams,
-                session.pending_local_max_concurrent_stream));
+    max = max(2, min(session.local_settings.max_concurrent_streams, session.pending_local_max_concurrent_stream));
     
-    DEBUGF(fprintf(stderr, "stream: adjusting kept idle streams "
-            "num_idle_streams=%zu, max=%zu\n",
-            session.num_idle_streams, max));
+    DEBUGF(fprintf(stderr, "stream: adjusting kept idle streams num_idle_streams=%zu, max=%zu\n", session.num_idle_streams, max));
     
     while (session.num_idle_streams > max) {
         Stream head;
@@ -1109,10 +1099,10 @@ void http2_session_adjust_idle_stream(Session session)
         head = session.idle_stream_head;
         assert(head);
         
-        session.idle_stream_head = head.closed_next;
+        session.idle_stream_head = head.closedNext;
         
         if (session.idle_stream_head) {
-            session.idle_stream_head.closed_prev = null;
+            session.idle_stream_head.closedPrev = null;
         } else {
             session.idle_stream_tail = null;
         }
@@ -1138,8 +1128,8 @@ void http2_session_adjust_idle_stream(Session session)
  */
 int http2_session_close_stream_if_shut_rdwr(Session session, Stream stream)
 {
-    if ((stream.shut_flags & ShutdownFlag.RDWR) == ShutdownFlag.RDWR) {
-        return http2_session_close_stream(session, stream.stream_id, FrameError.NO_ERROR);
+    if ((stream.shutFlags & ShutdownFlag.RDWR) == ShutdownFlag.RDWR) {
+        return http2_session_close_stream(session, stream.id, FrameError.NO_ERROR);
     }
     return 0;
 }
@@ -1172,7 +1162,7 @@ int session_predicate_for_stream_send(Session session, Stream stream)
     if (session_is_closing(session)) {
         return ErrorCode.SESSION_CLOSING;
     }
-    if (stream.shut_flags & ShutdownFlag.WR) {
+    if (stream.shutFlags & ShutdownFlag.WR) {
         return ErrorCode.STREAM_SHUT_WR;
     }
     return 0;
@@ -1237,7 +1227,7 @@ int session_predicate_response_headers_send(Session session, Stream stream)
         return rv;
     }
     assert(stream);
-    if (http2_session_is_my_stream_id(session, stream.stream_id)) {
+    if (http2_session_is_my_stream_id(session, stream.id)) {
         return ErrorCode.INVALID_STREAM_ID;
     }
     if (stream.state == StreamState.OPENING) {
@@ -1314,7 +1304,7 @@ int session_predicate_headers_send(Session session, Stream stream)
         return rv;
     }
     assert(stream);
-    if (http2_session_is_my_stream_id(session, stream.stream_id)) 
+    if (http2_session_is_my_stream_id(session, stream.id)) 
 	{
         if (stream.state == StreamState.CLOSING) {
             return ErrorCode.STREAM_CLOSING;
@@ -1426,13 +1416,12 @@ int session_predicate_window_update_send(Session session, int stream_id)
    flow control here */
 int http2_session_enforce_flow_control_limits(Session session, Stream stream, int requested_window_size)
 {
-    DEBUGF(fprintf(stderr, "send: remote windowsize connection=%d, "
-            "remote maxframsize=%u, stream(id %d)=%d\n",
+    DEBUGF(fprintf(stderr, "send: remote windowsize connection=%d, remote maxframsize=%u, stream(id %d)=%d\n",
             session.remote_window_size,
-            session.remote_settings.max_frame_size, stream.stream_id,
-            stream.remote_window_size));
+            session.remote_settings.max_frame_size, stream.id,
+            stream.remoteWindowSize));
     
-    return http2_min(http2_min(http2_min(requested_window_size, stream.remote_window_size),	session.remote_window_size), cast(int)session.remote_settings.max_frame_size);
+    return min(min(min(requested_window_size, stream.remoteWindowSize), session.remote_window_size), cast(int)session.remote_settings.max_frame_size);
 }
 
 /*
@@ -1479,7 +1468,7 @@ int http2_session_predicate_data_send(Session session, Stream stream)
         return rv;
     }
     assert(stream);
-    if (http2_session_is_my_stream_id(session, stream.stream_id)) {
+    if (http2_session_is_my_stream_id(session, stream.id)) {
         /* Request body data */
         /* If stream.state is StreamState.CLOSING, RST_STREAM was
 	       queued but not yet sent. In this case, we won't send DATA
@@ -1513,7 +1502,7 @@ int session_call_select_padding(Session session, const Frame frame, size_t max_p
     if (session.policy.select_padding_callback) {
         size_t max_paddedlen;
         
-        max_paddedlen = http2_min(frame.hd.length + MAX_PADLEN, max_payloadlen);
+        max_paddedlen = min(frame.hd.length + MAX_PADLEN, max_payloadlen);
         
         rv = session.policy.select_padding_callback(session, frame, max_paddedlen, session.user_data);
         if (rv < cast(int)frame.hd.length || rv > cast(int)max_paddedlen) {
@@ -1539,7 +1528,7 @@ int session_headers_add_pad(Session session, Frame frame)
     aob = &session.aob;
     framebufs = &aob.framebufs;
     
-    max_payloadlen = http2_min(MAX_PAYLOADLEN, frame.hd.length + MAX_PADLEN);
+    max_payloadlen = min(MAX_PAYLOADLEN, frame.hd.length + MAX_PADLEN);
     
     padded_payloadlen =
         session_call_select_padding(session, frame, max_payloadlen);
@@ -1629,7 +1618,7 @@ int session_prep_frame(Session session, OutboundItem item)
                         frame.headers.cat = HeadersCategory.PUSH_RESPONSE;
                         
                         if (aux_data.stream_user_data) {
-                            stream.stream_user_data = aux_data.stream_user_data;
+                            stream.userData = aux_data.stream_user_data;
                         }
                     } else if (session_predicate_response_headers_send(session, stream) == 0) {
                         frame.headers.cat = HeadersCategory.RESPONSE;
@@ -1642,7 +1631,7 @@ int session_prep_frame(Session session, OutboundItem item)
                             if (stream && stream.item == item) {
                                 int rv2;
                                 
-                                rv2 = http2_stream_detach_item(stream, session);
+                                rv2 = detachItem(stream, session);
                                 
                                 if (http2_is_fatal(rv2)) {
                                     return rv2;
@@ -1713,8 +1702,7 @@ int session_prep_frame(Session session, OutboundItem item)
                 
                 /* stream could be null if associated stream was already closed. */
                 if (stream) {
-                    http2_priority_spec_init(&pri_spec, stream.stream_id,
-                        DEFAULT_WEIGHT, 0);
+                    http2_priority_spec_init(&pri_spec, stream.id, DEFAULT_WEIGHT, 0);
                 } else {
                     http2_priority_spec_default_init(&pri_spec);
                 }
@@ -1794,7 +1782,7 @@ int session_prep_frame(Session session, OutboundItem item)
             if (stream) {
                 int rv2;
                 
-                rv2 = http2_stream_detach_item(stream, session);
+                rv2 = detachItem(stream, session);
                 
                 if (http2_is_fatal(rv2)) {
                     return rv2;
@@ -1813,8 +1801,7 @@ int session_prep_frame(Session session, OutboundItem item)
          queue when session.remote_window_size > 0 */
             assert(session.remote_window_size > 0);
             
-            rv = http2_stream_defer_item(
-                stream, StreamFlags.DEFERRED_FLOW_CONTROL, session);
+            rv = deferItem(stream, StreamFlags.DEFERRED_FLOW_CONTROL, session);
             
             if (http2_is_fatal(rv)) {
                 return rv;
@@ -1828,7 +1815,7 @@ int session_prep_frame(Session session, OutboundItem item)
         rv = http2_session_pack_data(session, &session.aob.framebufs,
             next_readmax, frame, &item.aux_data.data);
         if (rv == ErrorCode.DEFERRED) {
-            rv = http2_stream_defer_item(stream, StreamFlags.DEFERRED_USER,
+            rv = deferItem(stream, StreamFlags.DEFERRED_USER,
                 session);
             
             if (http2_is_fatal(rv)) {
@@ -1840,7 +1827,7 @@ int session_prep_frame(Session session, OutboundItem item)
             return ErrorCode.DEFERRED;
         }
         if (rv == ErrorCode.TEMPORAL_CALLBACK_FAILURE) {
-            rv = http2_stream_detach_item(stream, session);
+            rv = detachItem(stream, session);
             
             if (http2_is_fatal(rv)) {
                 return rv;
@@ -1856,7 +1843,7 @@ int session_prep_frame(Session session, OutboundItem item)
         if (rv != 0) {
             int rv2;
             
-            rv2 = http2_stream_detach_item(stream, session);
+            rv2 = detachItem(stream, session);
             
             if (http2_is_fatal(rv2)) {
                 return rv2;
@@ -2021,7 +2008,7 @@ int find_stream_on_goaway_func(http2_map_entry *entry, void *ptr) {
     arg = cast(http2_close_stream_on_goaway_arg *)ptr;
     stream = cast(Stream)entry;
     
-    if (http2_session_is_my_stream_id(arg.session, stream.stream_id)) {
+    if (http2_session_is_my_stream_id(arg.session, stream.id)) {
         if (arg.incoming) {
             return 0;
         }
@@ -2031,15 +2018,15 @@ int find_stream_on_goaway_func(http2_map_entry *entry, void *ptr) {
     
     if (stream.state != StreamState.IDLE &&
         (stream.flags & StreamFlags.CLOSED) == 0 &&
-        stream.stream_id > arg.last_stream_id) {
+        stream.id > arg.last_stream_id) {
         /* We are collecting streams to close because we cannot call
        http2_session_close_stream() inside http2_map_each().
-       Reuse closed_next member.. bad choice? */
-        assert(stream.closed_next == null);
-        assert(stream.closed_prev == null);
+       Reuse closedNext member.. bad choice? */
+        assert(stream.closedNext == null);
+        assert(stream.closedPrev == null);
         
         if (arg.head) {
-            stream.closed_next = arg.head;
+            stream.closedNext = arg.head;
             arg.head = stream;
         } else {
             arg.head = stream;
@@ -2065,19 +2052,19 @@ int session_close_stream_on_goaway(Session session, int last_stream_id, int inco
     
     stream = arg.head;
     while (stream) {
-        next_stream = stream.closed_next;
-        stream.closed_next = null;
-        rv = http2_session_close_stream(session, stream.stream_id, FrameError.REFUSED_STREAM);
+        next_stream = stream.closedNext;
+        stream.closedNext = null;
+        rv = http2_session_close_stream(session, stream.id, FrameError.REFUSED_STREAM);
         
         /* stream may be deleted here */
         
         stream = next_stream;
         
         if (http2_is_fatal(rv)) {
-            /* Clean up closed_next member just in case */
+            /* Clean up closedNext member just in case */
             while (stream) {
-                next_stream = stream.closed_next;
-                stream.closed_next = null;
+                next_stream = stream.closedNext;
+                stream.closedNext = null;
                 stream = next_stream;
             }
             return rv;
@@ -2089,7 +2076,7 @@ int session_close_stream_on_goaway(Session session, int last_stream_id, int inco
 
 void session_outbound_item_cycle_weight(Session session, OutboundItem item, int ini_weight) 
 {
-    if (item.weight == http2_MIN_WEIGHT || item.weight > ini_weight) {
+    if (item.weight == MIN_WEIGHT || item.weight > ini_weight) {
         
         item.weight = ini_weight;
         
@@ -2152,7 +2139,7 @@ int session_after_frame_sent1(Session session)
                 }
                 
                 if (stream.item == item) {
-                    rv = http2_stream_detach_item(stream, session);
+                    rv = detachItem(stream, session);
                     
                     if (http2_is_fatal(rv)) {
                         return rv;
@@ -2281,18 +2268,18 @@ int session_after_frame_sent1(Session session)
        exceed the window */
         session.remote_window_size -= frame.hd.length;
         if (stream) {
-            stream.remote_window_size -= frame.hd.length;
+            stream.remoteWindowSize -= frame.hd.length;
         }
         
         if (stream && aux_data.eof) {
-            rv = http2_stream_detach_item(stream, session);
+            rv = detachItem(stream, session);
             
             if (http2_is_fatal(rv)) {
                 return rv;
             }
             
             /* Call on_frame_send_callback after
-		         http2_stream_detach_item(), so that application can issue
+		         detachItem(), so that application can issue
 		         http2_submit_data() in the callback. */
             if (session.policy.on_frame_send_callback) {
                 rv = session_call_on_frame_send(session, frame);
@@ -2306,7 +2293,7 @@ int session_after_frame_sent1(Session session)
                 int stream_closed;
                 
                 stream_closed =
-                    (stream.shut_flags & ShutdownFlag.RDWR) == ShutdownFlag.RDWR;
+                    (stream.shutFlags & ShutdownFlag.RDWR) == ShutdownFlag.RDWR;
                 
                 http2_stream_shutdown(stream, ShutdownFlag.WR);
                 
@@ -2344,12 +2331,10 @@ int session_after_frame_sent1(Session session)
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
  *
- * ErrorCode.NOMEM
- *     Out of memory.
  * ErrorCode.CALLBACK_FAILURE
  *     The callback function failed.
  */
-int session_after_frame_sent2(Session session) 
+ErrorCode session_after_frame_sent2(Session session) 
 {
     ErrorCode rv;
     ActiveOutboundItem aob = &session.aob;
@@ -2401,7 +2386,7 @@ int session_after_frame_sent2(Session session)
         /* If session is closed or RST_STREAM was queued, we won't send further data. */
         if (http2_session_predicate_data_send(session, stream) != 0) {
             if (stream) {
-                rv = http2_stream_detach_item(stream, session);
+                rv = detachItem(stream, session);
                 
                 if (http2_is_fatal(rv)) {
                     return rv;
@@ -2421,9 +2406,8 @@ int session_after_frame_sent2(Session session)
 	       frame.  If we decrement weight here, its stream might get
 	       inferior share because the other streams' weight is not
 	       decremented because of flow control. */
-        if (session.remote_window_size > 0 || stream.remote_window_size <= 0) {
-            session_outbound_item_cycle_weight(session, aob.item,
-                stream.effective_weight);
+        if (session.remote_window_size > 0 || stream.remoteWindowSize <= 0) {
+            session_outbound_item_cycle_weight(session, aob.item, stream.effectiveWeight);
         }
         
         /* If priority of this stream is higher or equal to other stream
@@ -2437,8 +2421,7 @@ int session_after_frame_sent2(Session session)
             
             if (next_readmax == 0) {
                 
-                if (session.remote_window_size == 0 &&
-                    stream.remote_window_size > 0) {
+                if (session.remote_window_size == 0 && stream.remoteWindowSize > 0) {
                     
                     /* If DATA cannot be sent solely due to connection level
 			             window size, just push item to queue again.  We never pop
@@ -2451,8 +2434,7 @@ int session_after_frame_sent2(Session session)
                     
                     aob.item.queued = 1;
                 } else {
-                    rv = http2_stream_defer_item(
-                        stream, StreamFlags.DEFERRED_FLOW_CONTROL, session);
+                    rv = deferItem(stream, StreamFlags.DEFERRED_FLOW_CONTROL, session);
                     
                     if (http2_is_fatal(rv)) {
                         return rv;
@@ -2472,8 +2454,7 @@ int session_after_frame_sent2(Session session)
                 return rv;
             }
             if (rv == ErrorCode.DEFERRED) {
-                rv = http2_stream_defer_item(
-                    stream, StreamFlags.DEFERRED_USER, session);
+                rv = deferItem(stream, StreamFlags.DEFERRED_USER, session);
                 
                 if (http2_is_fatal(rv)) {
                     return rv;
@@ -2493,7 +2474,7 @@ int session_after_frame_sent2(Session session)
                     return rv;
                 }
                 
-                rv = http2_stream_detach_item(stream, session);
+                rv = detachItem(stream, session);
                 
                 if (http2_is_fatal(rv)) {
                     return rv;
@@ -2556,8 +2537,7 @@ int http2_session_mem_send_internal(Session session, const ubyte **data_ptr, int
                     frame = &item.frame;
                     stream = http2_session_get_stream(session, frame.hd.stream_id);
                     
-                    if (stream && item == stream.item &&
-                        stream.dpri != StreamDPRI.TOP) {
+                    if (stream && item == stream.item && stream.dpri != StreamDPRI.TOP) {
                         /* We have DATA with higher priority in queue within the same dependency tree. */
                         break;
                     }
@@ -2835,14 +2815,8 @@ int session_call_on_header(Session session, const Frame frame, const http2_nv *n
 
 /*
  * Handles frame size error.
- *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * ErrorCode.NOMEM
- *   Out of memory.
  */
-int session_handle_frame_size_error(Session session, Frame frame)
+void session_handle_frame_size_error(Session session, Frame frame)
 {
     /* TODO Currently no callback is called for this error, because we
      	call this callback before reading any payload */
@@ -2856,8 +2830,7 @@ int session_handle_invalid_stream(Session session, Frame frame, FrameError error
         return rv;
     }
     if (session.policy.on_invalid_frame_recv_callback) {
-        if (session.policy.on_invalid_frame_recv_callback(
-                session, frame, error_code, session.user_data) != 0) {
+        if (session.policy.on_invalid_frame_recv_callback(session, frame, error_code, session.user_data) != 0) {
             return ErrorCode.CALLBACK_FAILURE;
         }
     }
@@ -2879,8 +2852,7 @@ int session_inflate_handle_invalid_stream(Session session, Frame frame, FrameErr
 int session_handle_invalid_connection(Session session, Frame frame, FrameError error_code, string reason)
 {
     if (session.policy.on_invalid_frame_recv_callback) {
-        if (session.policy.on_invalid_frame_recv_callback(
-                session, frame, error_code, session.user_data) != 0) {
+        if (session.policy.on_invalid_frame_recv_callback(session, frame, error_code, session.user_data) != 0) {
             return ErrorCode.CALLBACK_FAILURE;
         }
     }
@@ -2915,15 +2887,13 @@ int session_inflate_handle_invalid_connection(Session session, Frame frame, Fram
  *     The callback function failed.
  * ErrorCode.TEMPORAL_CALLBACK_FAILURE
  *     The callback returns this error code, indicating that this
- *     stream should be RST_STREAMed.
- * ErrorCode.NOMEM
- *     Out of memory.
+ *     stream should be RST_STREAMed..
  * ErrorCode.PAUSE
  *     The callback function returned ErrorCode.PAUSE
  * ErrorCode.HEADER_COMP
  *     Header decompression failed
  */
-int inflate_header_block(Session session, Frame frame, size_t *readlen_ptr, ubyte *input, size_t inlen, int final_, bool call_header_cb) 
+ErrorCode inflate_header_block(Session session, Frame frame, size_t *readlen_ptr, ubyte *input, size_t inlen, int final_, bool call_header_cb) 
 {
     int proclen;
     ErrorCode rv;
@@ -2937,8 +2907,7 @@ int inflate_header_block(Session session, Frame frame, size_t *readlen_ptr, ubyt
     stream = http2_session_get_stream(session, frame.hd.stream_id);
     
 	if (frame.hd.type == FrameType.PUSH_PROMISE) {
-        subject_stream = http2_session_get_stream(
-            session, frame.push_promise.promised_stream_id);
+        subject_stream = http2_session_get_stream(session, frame.push_promise.promised_stream_id);
     } else {
         subject_stream = stream;
         trailer = session_trailer_headers(session, stream, frame);
@@ -2953,7 +2922,8 @@ int inflate_header_block(Session session, Frame frame, size_t *readlen_ptr, ubyt
             return cast(int)proclen;
         }
         if (proclen < 0) {
-			if (session.iframe.state == InboundState.READ_HEADER_BLOCK) {
+			if (session.iframe.state == InboundState.READ_HEADER_BLOCK) 
+			{
                 if (stream && stream.state != StreamState.CLOSING) {
                     /* Adding RST_STREAM here is very important. It prevents
                          from invoking subsequent callbacks for the same stream
@@ -2985,10 +2955,9 @@ int inflate_header_block(Session session, Frame frame, size_t *readlen_ptr, ubyt
                 if (rv != 0) {
                     DEBUGF(fprintf(
                             stderr, "recv: HTTP error: type=%d, id=%d, header %.*s: %.*s\n",
-                            frame.hd.type, subject_stream.stream_id, cast(int)nv.namelen,
+                            frame.hd.type, subject_stream.id, cast(int)nv.namelen,
                             nv.name, cast(int)nv.valuelen, nv.value));
-                    rv = http2_session_add_rst_stream(
-                        session, subject_stream.stream_id, FrameError.PROTOCOL_ERROR);
+                    rv = http2_session_add_rst_stream(session, subject_stream.id, FrameError.PROTOCOL_ERROR);
                     if (http2_is_fatal(rv)) {
                         return rv;
                     }
@@ -3024,10 +2993,8 @@ int inflate_header_block(Session session, Frame frame, size_t *readlen_ptr, ubyt
  *
  * ErrorCode.CALLBACK_FAILURE
  *     The callback function failed.
- * ErrorCode.NOMEM
- *     Out of memory.
  */
-int http2_session_end_request_headers_received(Session session, Frame frame, Stream stream)
+ErrorCode http2_session_end_request_headers_received(Session session, Frame frame, Stream stream)
 {
     if (frame.hd.flags & FrameFlags.END_STREAM) {
         http2_stream_shutdown(stream, ShutdownFlag.RD);
@@ -3046,10 +3013,8 @@ int http2_session_end_request_headers_received(Session session, Frame frame, Str
  *
  * ErrorCode.CALLBACK_FAILURE
  *     The callback function failed.
- * ErrorCode.NOMEM
- *     Out of memory.
  */
-int http2_session_end_response_headers_received(Session session, Frame frame, Stream stream) 
+ErrorCode http2_session_end_response_headers_received(Session session, Frame frame, Stream stream) 
 {
     ErrorCode rv;
     if (frame.hd.flags & FrameFlags.END_STREAM) {
@@ -3074,8 +3039,6 @@ int http2_session_end_response_headers_received(Session session, Frame frame, St
  *
  * ErrorCode.CALLBACK_FAILURE
  *     The callback function failed.
- * ErrorCode.NOMEM
- *     Out of memory.
  */
 int http2_session_end_headers_received(Session session, Frame frame, Stream stream)
 {
@@ -3102,7 +3065,8 @@ int session_after_header_block_received(Session session)
     /* We don't call on_frame_recv_callback if stream has been closed
 	     already or being closed. */
     stream = http2_session_get_stream(session, frame.hd.stream_id);
-    if (!stream || stream.state == StreamState.CLOSING) {
+    if (!stream || stream.state == StreamState.CLOSING)
+	{
         return 0;
     }
     
@@ -3110,8 +3074,7 @@ int session_after_header_block_received(Session session)
 		if (frame.hd.type == FrameType.PUSH_PROMISE) {
             Stream subject_stream;
             
-            subject_stream = http2_session_get_stream(
-                session, frame.push_promise.promised_stream_id);
+            subject_stream = http2_session_get_stream(session, frame.push_promise.promised_stream_id);
             if (subject_stream) {
                 rv = http2_http_on_request_headers(subject_stream, frame);
             }
@@ -3126,7 +3089,7 @@ int session_after_header_block_received(Session session)
                     rv = http2_http_on_response_headers(stream);
                     break;
                 case HEADERS:
-                    if (stream.http_flags & HTTPFlags.EXPECT_FINAL_RESPONSE) {
+                    if (stream.httpFlags & HTTPFlags.EXPECT_FINAL_RESPONSE) {
                         assert(!session.server);
                         rv = http2_http_on_response_headers(stream);
                     } else {
@@ -3272,7 +3235,7 @@ int http2_session_on_response_headers_received(Session session, Frame frame, Str
             session, frame, FrameError.PROTOCOL_ERROR,
             "response HEADERS: stream_id == 0");
     }
-    if (stream.shut_flags & ShutdownFlag.RD) {
+    if (stream.shutFlags & ShutdownFlag.RD) {
         /* half closed (remote): from the spec:
 
            If an endpoint receives additional frames for a stream that is
@@ -3312,7 +3275,7 @@ int http2_session_on_push_response_headers_received(Session session, Frame frame
         return session_inflate_handle_invalid_stream(session, frame, FrameError.REFUSED_STREAM);
     }
     
-    http2_stream_promise_fulfilled(stream);
+    stream.promiseFulfilled();
     ++session.num_incoming_streams;
     rv = session_call_on_begin_headers(session, frame);
     if (rv != 0) {
@@ -3325,26 +3288,24 @@ int http2_session_on_headers_received(Session session, Frame frame, Stream strea
 {
     int rv = 0;
     if (frame.hd.stream_id == 0) {
-        return session_inflate_handle_invalid_connection(
-            session, frame, FrameError.PROTOCOL_ERROR, "HEADERS: stream_id == 0");
+        return session_inflate_handle_invalid_connection(session, frame, FrameError.PROTOCOL_ERROR, "HEADERS: stream_id == 0");
     }
-    if (stream.state == StreamState.RESERVED) {
+    if (stream.state == StreamState.RESERVED) 
+	{
         /* reserved. The valid push response HEADERS is processed by
 	       http2_session_on_push_response_headers_received(). This
 	       generic HEADERS is called invalid cases for HEADERS against
 	       reserved state. */
-        return session_inflate_handle_invalid_connection(
-            session, frame, FrameError.PROTOCOL_ERROR, "HEADERS: stream in reserved");
+        return session_inflate_handle_invalid_connection(session, frame, FrameError.PROTOCOL_ERROR, "HEADERS: stream in reserved");
     }
-    if ((stream.shut_flags & ShutdownFlag.RD)) {
+    if ((stream.shutFlags & ShutdownFlag.RD)) {
         /* half closed (remote): from the spec:
 
 	       If an endpoint receives additional frames for a stream that is
 	       in this state it MUST respond with a stream error (Section
 	       5.4.2) of type STREAM_CLOSED.
 	    */
-        return session_inflate_handle_invalid_stream(session, frame,
-            StreamState.CLOSED);
+        return session_inflate_handle_invalid_stream(session, frame, StreamState.CLOSED);
     }
     if (http2_session_is_my_stream_id(session, frame.hd.stream_id)) {
         if (stream.state == StreamState.OPENED) {
@@ -3359,15 +3320,15 @@ int http2_session_on_headers_received(Session session, Frame frame, Stream strea
 	         eventually sent, so we just ignore this frame. */
             return ErrorCode.IGN_HEADER_BLOCK;
         } else {
-            return session_inflate_handle_invalid_stream(session, frame,
-                FrameError.PROTOCOL_ERROR);
+            return session_inflate_handle_invalid_stream(session, frame, FrameError.PROTOCOL_ERROR);
         }
     }
     /* If this is remote peer initiated stream, it is OK unless it
 	     has sent END_STREAM frame already. But if stream is in
 	     StreamState.CLOSING, we discard the frame. This is a race
 	     condition. */
-    if (stream.state != StreamState.CLOSING) {
+    if (stream.state != StreamState.CLOSING) 
+	{
         rv = session_call_on_begin_headers(session, frame);
         if (rv != 0) {
             return rv;
@@ -3387,8 +3348,7 @@ int session_process_headers_frame(Session session)
 	rv = frame.headers.unpack(iframe.sbuf[], frame.headers.flags);
     
     if (rv != 0) {
-        return http2_session_terminate_session_with_reason(
-            session, FrameError.PROTOCOL_ERROR, "HEADERS: could not unpack");
+        return http2_session_terminate_session_with_reason(session, FrameError.PROTOCOL_ERROR, "HEADERS: could not unpack");
     }
     stream = http2_session_get_stream(session, frame.hd.stream_id);
     if (!stream) {
@@ -3399,16 +3359,14 @@ int session_process_headers_frame(Session session)
     if (http2_session_is_my_stream_id(session, frame.hd.stream_id)) {
         if (stream.state == StreamState.OPENING) {
             frame.headers.cat = HeadersCategory.RESPONSE;
-            return http2_session_on_response_headers_received(session, frame,
-                stream);
+            return http2_session_on_response_headers_received(session, frame, stream);
         }
         frame.headers.cat = HeadersCategory.HEADERS;
         return http2_session_on_headers_received(session, frame, stream);
     }
     if (stream.state == StreamState.RESERVED) {
         frame.headers.cat = HeadersCategory.PUSH_RESPONSE;
-        return http2_session_on_push_response_headers_received(session, frame,
-            stream);
+        return http2_session_on_push_response_headers_received(session, frame, stream);
     }
     frame.headers.cat = HeadersCategory.HEADERS;
     return http2_session_on_headers_received(session, frame, stream);
@@ -3420,8 +3378,7 @@ int http2_session_on_priority_received(Session session, Frame frame)
     Stream stream;
     
     if (frame.hd.stream_id == 0) {
-        return session_handle_invalid_connection(
-            session, frame, FrameError.PROTOCOL_ERROR, "PRIORITY: stream_id == 0");
+        return session_handle_invalid_connection(session, frame, FrameError.PROTOCOL_ERROR, "PRIORITY: stream_id == 0");
     }
     
     if (!session.server) {
@@ -3439,15 +3396,13 @@ int http2_session_on_priority_received(Session session, Frame frame)
         }
         
         stream = http2_session_open_stream(
-            session, frame.hd.stream_id, StreamFlags.NONE,
-            &frame.priority.pri_spec, StreamState.IDLE, null);
+            session, frame.hd.stream_id, StreamFlags.NONE, &frame.priority.pri_spec, StreamState.IDLE, null);
         
         if (stream == null) {
             return ErrorCode.NOMEM;
         }
     } else {
-        rv = http2_session_reprioritize_stream(session, stream,
-            &frame.priority.pri_spec);
+        rv = http2_session_reprioritize_stream(session, stream,  &frame.priority.pri_spec);
         
         if (http2_is_fatal(rv)) {
             return rv;
@@ -3472,14 +3427,12 @@ int http2_session_on_rst_stream_received(Session session,
     ErrorCode rv;
     Stream stream;
     if (frame.hd.stream_id == 0) {
-        return session_handle_invalid_connection(
-            session, frame, FrameError.PROTOCOL_ERROR, "RST_STREAM: stream_id == 0");
+        return session_handle_invalid_connection(session, frame, FrameError.PROTOCOL_ERROR, "RST_STREAM: stream_id == 0");
     }
     stream = http2_session_get_stream(session, frame.hd.stream_id);
     if (!stream) {
         if (session_detect_idle_stream(session, frame.hd.stream_id)) {
-            return session_handle_invalid_connection(
-                session, frame, FrameError.PROTOCOL_ERROR, "RST_STREAM: stream in idle");
+            return session_handle_invalid_connection(session, frame, FrameError.PROTOCOL_ERROR, "RST_STREAM: stream in idle");
         }
     }
     
@@ -3514,18 +3467,16 @@ int update_remote_initial_window_size_func(http2_map_entry *entry, void *ptr)
     arg = cast(http2_update_window_size_arg *)ptr;
     stream = cast(Stream) entry;
     
-    rv = http2_stream_update_remote_initial_window_size(stream, arg.new_window_size, arg.old_window_size);
+	rv = updateRemoteInitialWindowSize(stream, arg.new_window_size, arg.old_window_size);
     if (rv != 0) {
 		return http2_session_terminate_session(arg.session, FrameError.FLOW_CONTROL_ERROR);
     }
     
-    /* If window size gets positive, push deferred DATA frame to
-     outbound queue. */
-    if (stream.remote_window_size > 0 &&
-        http2_stream_check_deferred_by_flow_control(stream)) {
+    /* If window size gets positive, push deferred DATA frame to outbound queue. */
+	if (stream.remoteWindowSize > 0 && stream.isDeferredByFlowControl())
+	{
         
-        rv = http2_stream_resume_deferred_item(
-            stream, StreamFlags.DEFERRED_FLOW_CONTROL, arg.session);
+        rv = stream.resumeDeferredItem(StreamFlags.DEFERRED_FLOW_CONTROL, arg.session);
         
         if (http2_is_fatal(rv)) {
             return rv;
@@ -3538,13 +3489,8 @@ int update_remote_initial_window_size_func(http2_map_entry *entry, void *ptr)
  * Updates the remote initial window size of all active streams.  If
  * error occurs, all streams may not be updated.
  *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * ErrorCode.NOMEM
- *     Out of memory.
  */
-int session_update_remote_initial_window_size(Session session, int new_initial_window_size) 
+void session_update_remote_initial_window_size(Session session, int new_initial_window_size) 
 {
     http2_update_window_size_arg arg;
     
@@ -3563,21 +3509,19 @@ int update_local_initial_window_size_func(http2_map_entry *entry, void *ptr)
     Stream stream;
     arg = cast(http2_update_window_size_arg *)ptr;
     stream = cast(Stream)entry;
-    rv = http2_stream_update_local_initial_window_size(
-        stream, arg.new_window_size, arg.old_window_size);
+	rv = updateLocalInitialWindowSize(stream, arg.new_window_size, arg.old_window_size);
     if (rv != 0) {
 		return http2_session_terminate_session(arg.session, FrameError.FLOW_CONTROL_ERROR);
     }
     if (!(arg.session.opt_flags & OptionsMask.NO_AUTO_WINDOW_UPDATE)) {
         
-        if (http2_should_send_window_update(stream.local_window_size,
-                stream.recv_window_size)) {
+        if (http2_should_send_window_update(stream.localWindowSize, stream.recvWindowSize)) {
             
-            rv = http2_session_add_window_update(arg.session, FrameFlags.NONE, stream.stream_id, stream.recv_window_size);
+            rv = http2_session_add_window_update(arg.session, FrameFlags.NONE, stream.id, stream.recvWindowSize);
             if (rv != 0) {
                 return rv;
             }
-            stream.recv_window_size = 0;
+            stream.recvWindowSize = 0;
         }
     }
     return 0;
@@ -3586,14 +3530,8 @@ int update_local_initial_window_size_func(http2_map_entry *entry, void *ptr)
 /*
  * Updates the local initial window size of all active streams.  If
  * error occurs, all streams may not be updated.
- *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * ErrorCode.NOMEM
- *     Out of memory.
  */
-int session_update_local_initial_window_size(Session session, int new_initial_window_size, int old_initial_window_size)
+void session_update_local_initial_window_size(Session session, int new_initial_window_size, int old_initial_window_size)
 {
     http2_update_window_size_arg arg;
     arg.session = session;
@@ -3613,10 +3551,8 @@ int session_update_local_initial_window_size(Session session, int new_initial_wi
  *
  * ErrorCode.HEADER_COMP
  *     The header table size is out of range
- * ErrorCode.NOMEM
- *     Out of memory
  */
-int http2_session_update_local_settings(Session session, http2_settings_entry *iv, size_t niv) 
+ErrorCode http2_session_update_local_settings(Session session, http2_settings_entry *iv, size_t niv) 
 {
     ErrorCode rv;
     size_t i;
@@ -3625,7 +3561,7 @@ int http2_session_update_local_settings(Session session, http2_settings_entry *i
     ubyte header_table_size_seen = 0;
     /* Use the value last seen. */
     for (i = 0; i < niv; ++i) {
-        with(Setting) switch (iv[i].settings_id) {
+        with(Setting) switch (iv[i].id) {
             case HEADER_TABLE_SIZE:
                 header_table_size_seen = 1;
                 header_table_size = iv[i].value;
@@ -3652,7 +3588,7 @@ int http2_session_update_local_settings(Session session, http2_settings_entry *i
     }
     
     for (i = 0; i < niv; ++i) {
-        with(Setting) switch (iv[i].settings_id) {
+        with(Setting) switch (iv[i].id) {
             case HEADER_TABLE_SIZE:
                 session.local_settings.header_table_size = iv[i].value;
                 break;
@@ -3717,23 +3653,19 @@ int http2_session_on_settings_received(Session session, Frame frame, int noack)
     for (i = 0; i < frame.settings.niv; ++i) {
         http2_settings_entry *entry = &frame.settings.iv[i];
         
-        with(Setting) switch (entry.settings_id) {
+        with(Setting) switch (entry.id) {
             case HEADER_TABLE_SIZE:
                 
                 if (entry.value > MAX_HEADER_TABLE_SIZE) {
-                    return session_handle_invalid_connection(
-                        session, frame, FrameError.COMPRESSION_ERROR,
-                        "SETTINGS: too large SETTINGS_HEADER_TABLE_SIZE");
+                    return session_handle_invalid_connection(session, frame, FrameError.COMPRESSION_ERROR, "SETTINGS: too large SETTINGS_HEADER_TABLE_SIZE");
                 }
                 
-                rv = http2_hd_deflate_change_table_size(&session.hd_deflater,
-                    entry.value);
+                rv = http2_hd_deflate_change_table_size(&session.hd_deflater, entry.value);
                 if (rv != 0) {
                     if (http2_is_fatal(rv)) {
                         return rv;
                     } else {
-                        return session_handle_invalid_connection(
-                            session, frame, FrameError.COMPRESSION_ERROR, null);
+                        return session_handle_invalid_connection(session, frame, FrameError.COMPRESSION_ERROR, null);
                     }
                 }
                 
@@ -3762,9 +3694,7 @@ int http2_session_on_settings_received(Session session, Frame frame, int noack)
                 /* Update the initial window size of the all active streams */
                 /* Check that initial_window_size < (1u << 31) */
                 if (entry.value > MAX_WINDOW_SIZE) {
-                    return session_handle_invalid_connection(
-                        session, frame, FrameError.FLOW_CONTROL_ERROR,
-                        "SETTINGS: too large SETTINGS_INITIAL_WINDOW_SIZE");
+                    return session_handle_invalid_connection(session, frame, FrameError.FLOW_CONTROL_ERROR, "SETTINGS: too large SETTINGS_INITIAL_WINDOW_SIZE");
                 }
                 
                 rv = session_update_remote_initial_window_size(session, entry.value);
@@ -3774,8 +3704,7 @@ int http2_session_on_settings_received(Session session, Frame frame, int noack)
                 }
                 
                 if (rv != 0) {
-                    return session_handle_invalid_connection(
-                        session, frame, FrameError.FLOW_CONTROL_ERROR, null);
+                    return session_handle_invalid_connection(session, frame, FrameError.FLOW_CONTROL_ERROR, null);
                 }
                 
                 session.remote_settings.initial_window_size = entry.value;
@@ -3785,9 +3714,7 @@ int http2_session_on_settings_received(Session session, Frame frame, int noack)
                 
                 if (entry.value < MAX_FRAME_SIZE_MIN ||
                     entry.value > MAX_FRAME_SIZE_MAX) {
-                    return session_handle_invalid_connection(
-                        session, frame, FrameError.PROTOCOL_ERROR,
-                        "SETTINGS: invalid SETTINGS_MAX_FRAME_SIZE");
+                    return session_handle_invalid_connection(session, frame, FrameError.PROTOCOL_ERROR, "SETTINGS: invalid SETTINGS_MAX_FRAME_SIZE");
                 }
                 
                 session.remote_settings.max_frame_size = entry.value;
@@ -3832,7 +3759,7 @@ int session_process_settings_frame(Session session)
         /* If we have less value, then we must have
        SETTINGS_HEADER_TABLE_SIZE in i < iframe.niv */
         for (i = 0; i < iframe.niv; ++i) {
-            if (iframe.iv[i].settings_id == Setting.HEADER_TABLE_SIZE) {
+            if (iframe.iv[i].id == Setting.HEADER_TABLE_SIZE) {
                 break;
             }
         }
@@ -3899,7 +3826,7 @@ int http2_session_on_push_promise_received(Session session, Frame frame)
         }
         return ErrorCode.IGN_HEADER_BLOCK;
     }
-    if (stream.shut_flags & ShutdownFlag.RD) {
+    if (stream.shutFlags & ShutdownFlag.RD) {
         if (session.policy.on_invalid_frame_recv_callback) {
             if (session.policy.on_invalid_frame_recv_callback(session, frame, FrameError.PROTOCOL_ERROR, session.user_data) != 0) {
                 return ErrorCode.CALLBACK_FAILURE;
@@ -3916,8 +3843,7 @@ int http2_session_on_push_promise_received(Session session, Frame frame)
     
     /* TODO It is unclear reserved stream dpeneds on associated
      stream with or without exclusive flag set */
-    http2_priority_spec_init(&pri_spec, stream.stream_id,
-        DEFAULT_WEIGHT, 0);
+    http2_priority_spec_init(&pri_spec, stream.id, DEFAULT_WEIGHT, 0);
     
     promised_stream = http2_session_open_stream(
         session, frame.push_promise.promised_stream_id, StreamFlags.NONE,
@@ -3945,8 +3871,7 @@ int session_process_push_promise_frame(Session session)
         &frame.push_promise, iframe.sbuf[]);
     
     if (rv != 0) {
-        return http2_session_terminate_session_with_reason(
-            session, FrameError.PROTOCOL_ERROR, "PUSH_PROMISE: could not unpack");
+        return http2_session_terminate_session_with_reason(session, FrameError.PROTOCOL_ERROR, "PUSH_PROMISE: could not unpack");
     }
     
     return http2_session_on_push_promise_received(session, frame);
@@ -3956,8 +3881,7 @@ int http2_session_on_ping_received(Session session, Frame frame)
 {
     int rv = 0;
     if (frame.hd.stream_id != 0) {
-        return session_handle_invalid_connection(
-            session, frame, FrameError.PROTOCOL_ERROR, "PING: stream_id != 0");
+        return session_handle_invalid_connection(session, frame, FrameError.PROTOCOL_ERROR, "PING: stream_id != 0");
     }
     if ((frame.hd.flags & FrameFlags.ACK) == 0 &&
         !session_is_closing(session)) {
@@ -3985,8 +3909,7 @@ int http2_session_on_goaway_received(Session session, Frame frame)
     ErrorCode rv;
     
     if (frame.hd.stream_id != 0) {
-        return session_handle_invalid_connection(
-            session, frame, FrameError.PROTOCOL_ERROR, "GOAWAY: stream_id != 0");
+        return session_handle_invalid_connection(session, frame, FrameError.PROTOCOL_ERROR, "GOAWAY: stream_id != 0");
     }
     /* Spec says Endpoints MUST NOT increase the value they send in the
      last stream identifier. */
@@ -3994,9 +3917,7 @@ int http2_session_on_goaway_received(Session session, Frame frame)
             !http2_session_is_my_stream_id(session,
                 frame.goaway.last_stream_id)) ||
         session.remote_last_stream_id < frame.goaway.last_stream_id) {
-        return session_handle_invalid_connection(session, frame,
-            FrameError.PROTOCOL_ERROR,
-            "GOAWAY: invalid last_stream_id");
+        return session_handle_invalid_connection(session, frame, FrameError.PROTOCOL_ERROR, "GOAWAY: invalid last_stream_id");
     }
     
     session.goaway_flags |= GoAwayFlags.RECV;
@@ -4029,14 +3950,11 @@ int session_on_connection_window_update_received(Session session, Frame frame)
 {
     /* Handle connection-level flow control */
     if (frame.window_update.window_size_increment == 0) {
-        return session_handle_invalid_connection(session, frame,
-            FrameError.PROTOCOL_ERROR, null);
+        return session_handle_invalid_connection(session, frame, FrameError.PROTOCOL_ERROR, null);
     }
     
-    if (MAX_WINDOW_SIZE - frame.window_update.window_size_increment <
-        session.remote_window_size) {
-        return session_handle_invalid_connection(session, frame,
-            FrameError.FLOW_CONTROL_ERROR, null);
+    if (MAX_WINDOW_SIZE - frame.window_update.window_size_increment < session.remote_window_size) {
+        return session_handle_invalid_connection(session, frame, FrameError.FLOW_CONTROL_ERROR, null);
     }
     session.remote_window_size += frame.window_update.window_size_increment;
     
@@ -4049,34 +3967,28 @@ int session_on_stream_window_update_received(Session session, Frame frame)
     Stream stream;
     stream = http2_session_get_stream(session, frame.hd.stream_id);
     if (!stream) {
-        if (session_detect_idle_stream(session, frame.hd.stream_id)) {
-            return session_handle_invalid_connection(session, frame,
-                FrameError.PROTOCOL_ERROR,
-                "WINDOW_UPDATE to idle stream");
+        if (session_detect_idle_stream(session, frame.hd.stream_id))
+		{
+            return session_handle_invalid_connection(session, frame, FrameError.PROTOCOL_ERROR, "WINDOW_UPDATE to idle stream");
         }
         return 0;
     }
     if (state_reserved_remote(session, stream)) {
-        return session_handle_invalid_connection(
-            session, frame, FrameError.PROTOCOL_ERROR,
-            "WINDOW_UPADATE to reserved stream");
+        return session_handle_invalid_connection(session, frame, FrameError.PROTOCOL_ERROR, "WINDOW_UPADATE to reserved stream");
     }
     if (frame.window_update.window_size_increment == 0) {
         return session_handle_invalid_stream(session, frame,
             FrameError.PROTOCOL_ERROR);
     }
-    if (MAX_WINDOW_SIZE - frame.window_update.window_size_increment <
-        stream.remote_window_size) {
-        return session_handle_invalid_stream(session, frame,
-            FrameError.FLOW_CONTROL_ERROR);
+    if (MAX_WINDOW_SIZE - frame.window_update.window_size_increment < stream.remoteWindowSize)
+	{
+        return session_handle_invalid_stream(session, frame, FrameError.FLOW_CONTROL_ERROR);
     }
-    stream.remote_window_size += frame.window_update.window_size_increment;
+    stream.remoteWindowSize += frame.window_update.window_size_increment;
     
-    if (stream.remote_window_size > 0 &&
-        http2_stream_check_deferred_by_flow_control(stream)) {
+    if (stream.remoteWindowSize > 0 && stream.isDeferredByFlowControl()) {
         
-        rv = http2_stream_resume_deferred_item(
-            stream, StreamFlags.DEFERRED_FLOW_CONTROL, session);
+        rv = resumeDeferredItem(stream, StreamFlags.DEFERRED_FLOW_CONTROL, session);
         
         if (http2_is_fatal(rv)) {
             return rv;
@@ -4136,7 +4048,7 @@ int http2_session_on_data_received(Session session, Frame frame)
         (frame.hd.flags & FrameFlags.END_STREAM)) {
         if (http2_http_on_remote_end_stream(stream) != 0) {
             call_cb = 0;
-            rv = http2_session_add_rst_stream(session, stream.stream_id,
+            rv = http2_session_add_rst_stream(session, stream.id,
                 FrameError.PROTOCOL_ERROR);
             if (http2_is_fatal(rv)) {
                 return rv;
@@ -4198,30 +4110,23 @@ int adjust_recv_window_size(int *recv_window_size_ptr, size_t delta, int local_w
  * control and decides whether to send WINDOW_UPDATE to that stream.
  * If OptionFlags.NO_AUTO_WINDOW_UPDATE is set, WINDOW_UPDATE will not
  * be sent.
- *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * ErrorCode.NOMEM
- *     Out of memory.
  */
-int session_update_recv_stream_window_size(Session session, Stream stream, size_t delta_size, int send_window_update) 
+void session_update_recv_stream_window_size(Session session, Stream stream, size_t delta_size, int send_window_update) 
 {
     ErrorCode rv;
-    rv = adjust_recv_window_size(&stream.recv_window_size, delta_size, stream.local_window_size);
+    rv = adjust_recv_window_size(&stream.recvWindowSize, delta_size, stream.localWindowSize);
     if (rv != 0) {
-        return http2_session_add_rst_stream(session, stream.stream_id, FrameError.FLOW_CONTROL_ERROR);
+        return http2_session_add_rst_stream(session, stream.id, FrameError.FLOW_CONTROL_ERROR);
     }
     /* We don't have to send WINDOW_UPDATE if the data received is the
      last chunk in the incoming stream. */
     if (send_window_update && !(session.opt_flags & OptionsMask.NO_AUTO_WINDOW_UPDATE)) {
         /* We have to use local_settings here because it is the constraint
        the remote endpoint should honor. */
-        if (http2_should_send_window_update(stream.local_window_size,
-                stream.recv_window_size)) {
-            rv = http2_session_add_window_update(session, FrameFlags.NONE, stream.stream_id, stream.recv_window_size);
+        if (http2_should_send_window_update(stream.localWindowSize, stream.recvWindowSize)) {
+            rv = http2_session_add_window_update(session, FrameFlags.NONE, stream.id, stream.recvWindowSize);
             if (rv == 0) {
-                stream.recv_window_size = 0;
+                stream.recvWindowSize = 0;
             } else {
                 return rv;
             }
@@ -4235,23 +4140,19 @@ int session_update_recv_stream_window_size(Session session, Stream stream, size_
  * control and decides whether to send WINDOW_UPDATE to the
  * connection.  If OptionFlags.NO_AUTO_WINDOW_UPDATE is set,
  * WINDOW_UPDATE will not be sent.
- *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * ErrorCode.NOMEM
- *     Out of memory.
  */
-int session_update_recv_connection_window_size(Session session, size_t delta_size) 
+void session_update_recv_connection_window_size(Session session, size_t delta_size) 
 {
     ErrorCode rv;
     rv = adjust_recv_window_size(&session.recv_window_size, delta_size, session.local_window_size);
     if (rv != 0) {
         return http2_session_terminate_session(session, FrameError.FLOW_CONTROL_ERROR);
     }
-    if (!(session.opt_flags & OptionsMask.NO_AUTO_WINDOW_UPDATE)) {
+    if (!(session.opt_flags & OptionsMask.NO_AUTO_WINDOW_UPDATE))
+	{
         
-        if (http2_should_send_window_update(session.local_window_size, session.recv_window_size)) {
+        if (http2_should_send_window_update(session.local_window_size, session.recv_window_size)) 
+		{
             /* Use stream ID 0 to update connection-level flow control window */
             rv = http2_session_add_window_update(session, FrameFlags.NONE, 0, session.recv_window_size);
             if (rv != 0) {
@@ -4264,32 +4165,33 @@ int session_update_recv_connection_window_size(Session session, size_t delta_siz
     return 0;
 }
 
-int session_update_consumed_size(Session session, int *consumed_size_ptr, int *recv_window_size_ptr, int stream_id, size_t delta_size, int local_window_size) 
+int session_update_consumed_size(Session session, ref int consumed_size, ref int recv_window_size, int stream_id, size_t delta_size, int local_window_size) 
 {
     int recv_size;
     ErrorCode rv;
     
-    if (cast(size_t)*consumed_size_ptr > MAX_WINDOW_SIZE - delta_size) {
-        return http2_session_terminate_session(session,
-            FrameError.FLOW_CONTROL_ERROR);
+    if (cast(size_t)consumed_size > MAX_WINDOW_SIZE - delta_size)
+	{
+        return http2_session_terminate_session(session, FrameError.FLOW_CONTROL_ERROR);
     }
     
-    *consumed_size_ptr += delta_size;
+    consumed_size += delta_size;
     
     /* recv_window_size may be smaller than consumed_size, because it
      may be decreased by negative value with
      http2_submit_window_update(). */
-    recv_size = http2_min(*consumed_size_ptr, *recv_window_size_ptr);
+    recv_size = min(consumed_size, recv_window_size);
     
-    if (http2_should_send_window_update(local_window_size, recv_size)) {
+    if (http2_should_send_window_update(local_window_size, recv_size)) 
+	{
         rv = http2_session_add_window_update(session, FrameFlags.NONE, stream_id, recv_size);
         
         if (rv != 0) {
             return rv;
         }
         
-        *recv_window_size_ptr -= recv_size;
-        *consumed_size_ptr -= recv_size;
+        recv_window_size -= recv_size;
+        consumed_size -= recv_size;
     }
     
     return 0;
@@ -4297,7 +4199,7 @@ int session_update_consumed_size(Session session, int *consumed_size_ptr, int *r
 
 int session_update_stream_consumed_size(Session session, Stream stream, size_t delta_size) 
 {
-    return session_update_consumed_size( session, &stream.consumed_size, &stream.recv_window_size, stream.stream_id, delta_size, stream.local_window_size);
+    return session_update_consumed_size(session, &stream.consumedSize, &stream.recvWindowSize, stream.id, delta_size, stream.localWindowSize);
 }
 
 int session_update_connection_consumed_size(Session session, size_t delta_size) 
@@ -4319,10 +4221,8 @@ int session_update_connection_consumed_size(Session session, size_t delta_size)
  * ErrorCode.IGN_PAYLOAD
  *   The reception of DATA frame is connection error; or should be
  *   ignored.
- * ErrorCode.NOMEM
- *   Out of memory.
  */
-int session_on_data_received_fail_fast(Session session) 
+ErrorCode session_on_data_received_fail_fast(Session session) 
 {
     ErrorCode rv;
     Stream stream;
@@ -4343,14 +4243,15 @@ int session_on_data_received_fail_fast(Session session)
     }
     stream = http2_session_get_stream(session, stream_id);
     if (!stream) {
-        if (session_detect_idle_stream(session, stream_id)) {
+        if (session_detect_idle_stream(session, stream_id)) 
+		{
             failure_reason = "DATA: stream in idle";
             error_code = StreamState.CLOSED;
             goto fail;
         }
         return ErrorCode.IGN_PAYLOAD;
     }
-    if (stream.shut_flags & ShutdownFlag.RD) {
+    if (stream.shutFlags & ShutdownFlag.RD) {
         failure_reason = "DATA: stream in half-closed(remote)";
         error_code = StreamState.CLOSED;
         goto fail;
@@ -4375,8 +4276,7 @@ int session_on_data_received_fail_fast(Session session)
     }
     return 0;
 fail:
-    rv = http2_session_terminate_session_with_reason(session, error_code,
-        failure_reason);
+    rv = http2_session_terminate_session_with_reason(session, error_code, failure_reason);
     if (http2_is_fatal(rv)) {
         return rv;
     }
@@ -4398,16 +4298,14 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
     size_t pri_fieldlen;
     http2_mem *mem;
     
-    DEBUGF(fprintf(stderr,
-            "recv: connection recv_window_size=%d, local_window=%d\n",
-            session.recv_window_size, session.local_window_size));
+    DEBUGF(fprintf(stderr, "recv: connection recv_window_size=%d, local_window=%d\n", session.recv_window_size, session.local_window_size));
     
     mem = &session.mem;
     
     for (;;) {
         with(InboundState) switch (iframe.state) {
             case READ_CLIENT_PREFACE:
-                readlen = http2_min(inlen, iframe.payloadleft);
+                readlen = min(inlen, iframe.payloadleft);
                 
                 if (memcmp(CLIENT_CONNECTION_PREFACE.ptr + CLIENT_CONNECTION_PREFACE.length - iframe.payloadleft, pos, readlen) != 0) 
 				{
@@ -4433,7 +4331,8 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
 					return pos - first;
                 }
                 
-                if (iframe.sbuf.pos[3] != FrameType.SETTINGS || (iframe.sbuf.pos[4] & FrameFlags.ACK)) {
+                if (iframe.sbuf.pos[3] != FrameType.SETTINGS || (iframe.sbuf.pos[4] & FrameFlags.ACK))
+				{
                     
                     iframe.state = IGN_ALL;
                     
@@ -4464,8 +4363,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                 http2_frame_unpack_frame_hd(&iframe.frame.hd, iframe.sbuf.pos);
                 iframe.payloadleft = iframe.frame.hd.length;
                 
-                DEBUGF(fprintf(stderr, "recv: payloadlen=%zu, type=%u, flags=0x%02x, "
-                        "stream_id=%d\n",
+                DEBUGF(fprintf(stderr, "recv: payloadlen=%zu, type=%u, flags=0x%02x, stream_id=%d\n",
                         iframe.frame.hd.length, iframe.frame.hd.type,
                         iframe.frame.hd.flags, iframe.frame.hd.stream_id));
                 
@@ -4499,8 +4397,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                         
                         rv = session_on_data_received_fail_fast(session);
                         if (rv == ErrorCode.IGN_PAYLOAD) {
-                            DEBUGF(fprintf(stderr, "recv: DATA not allowed stream_id=%d\n",
-                                    iframe.frame.hd.stream_id));
+                            DEBUGF(fprintf(stderr, "recv: DATA not allowed stream_id=%d\n", iframe.frame.hd.stream_id));
                             iframe.state = IGN_DATA;
                             break;
                         }
@@ -4512,8 +4409,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                         rv = iframe.handlePad();
                         if (rv < 0) {
                             iframe.state = IGN_DATA;
-                            rv = http2_session_terminate_session_with_reason(session, FrameError.PROTOCOL_ERROR,
-                                 "DATA: insufficient padding space");
+                            rv = http2_session_terminate_session_with_reason(session, FrameError.PROTOCOL_ERROR, "DATA: insufficient padding space");
                             
                             if (http2_is_fatal(rv)) {
                                 return rv;
@@ -4541,8 +4437,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                             
                             iframe.state = IGN_PAYLOAD;
                             
-                            rv = http2_session_terminate_session_with_reason(session, FrameError.PROTOCOL_ERROR,
-                                 "HEADERS: insufficient padding space");
+                            rv = http2_session_terminate_session_with_reason(session, FrameError.PROTOCOL_ERROR, "HEADERS: insufficient padding space");
                             if (http2_is_fatal(rv)) {
                                 return rv;
                             }
@@ -4674,9 +4569,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                         if (rv < 0) {
                             busy = 1;
                             iframe.state = IGN_PAYLOAD;
-                            rv = http2_session_terminate_session_with_reason(
-                                session, FrameError.PROTOCOL_ERROR,
-                                "PUSH_PROMISE: insufficient padding space");
+                            rv = http2_session_terminate_session_with_reason(session, FrameError.PROTOCOL_ERROR, "PUSH_PROMISE: insufficient padding space");
                             if (http2_is_fatal(rv)) {
                                 return rv;
                             }
@@ -4794,8 +4687,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
 							padlen = iframe.computePad();
                             if (padlen < 0) {
                                 busy = 1;
-                                rv = http2_session_terminate_session_with_reason(
-                                    session, FrameError.PROTOCOL_ERROR, "HEADERS: invalid padding");
+                                rv = http2_session_terminate_session_with_reason(session, FrameError.PROTOCOL_ERROR, "HEADERS: invalid padding");
                                 if (http2_is_fatal(rv)) {
                                     return rv;
                                 }
@@ -4859,8 +4751,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
 							padlen = iframe.computePad();
                             if (padlen < 0) {
                                 busy = 1;
-                                rv = http2_session_terminate_session_with_reason(session, FrameError.PROTOCOL_ERROR,
-                                     "PUSH_PROMISE: invalid padding");
+                                rv = http2_session_terminate_session_with_reason(session, FrameError.PROTOCOL_ERROR, "PUSH_PROMISE: invalid padding");
                                 if (http2_is_fatal(rv)) {
                                     return rv;
                                 }
@@ -5176,8 +5067,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                             "got stream_id=%d, type=%d\n",
 							iframe.frame.hd.stream_id, FrameType.CONTINUATION,
                             cont_hd.stream_id, cont_hd.type));
-                    rv = http2_session_terminate_session_with_reason(session, FrameError.PROTOCOL_ERROR,
-                        "unexpected non-CONTINUATION frame or stream_id is invalid");
+                    rv = http2_session_terminate_session_with_reason(session, FrameError.PROTOCOL_ERROR, "unexpected non-CONTINUATION frame or stream_id is invalid");
                     if (http2_is_fatal(rv)) {
                         return rv;
                     }
@@ -5251,8 +5141,7 @@ int http2_session_mem_recv(Session session, in ubyte[] input)
                 
                 padlen = iframe.computePad();
                 if (padlen < 0) {
-                    rv = http2_session_terminate_session_with_reason(
-                        session, FrameError.PROTOCOL_ERROR, "DATA: invalid padding");
+                    rv = http2_session_terminate_session_with_reason(session, FrameError.PROTOCOL_ERROR, "DATA: invalid padding");
                     if (http2_is_fatal(rv)) {
                         return rv;
                     }
@@ -5518,9 +5407,7 @@ int http2_session_add_ping(Session session, FrameFlags flags, const ubyte *opaqu
     return 0;
 }
 
-int http2_session_add_goaway(Session session, int last_stream_id,
-    FrameError error_code, const ubyte *opaque_data,
-    size_t opaque_data_len, ubyte aux_flags) {
+int http2_session_add_goaway(Session session, int last_stream_id, FrameError error_code, in ubyte[] opaque_data, ubyte aux_flags) {
     ErrorCode rv;
     OutboundItem item;
     Frame frame;
@@ -5557,7 +5444,7 @@ int http2_session_add_goaway(Session session, int last_stream_id,
     
     /* last_stream_id must not be increased from the value previously
      sent */
-    last_stream_id = http2_min(last_stream_id, session.local_last_stream_id);
+    last_stream_id = min(last_stream_id, session.local_last_stream_id);
     
     http2_frame_goaway_init(&frame.goaway, last_stream_id, error_code, opaque_data_copy, opaque_data_len);
     
@@ -5601,7 +5488,7 @@ int http2_session_add_window_update(Session session, FrameFlags flags, int strea
     return 0;
 }
 
-int http2_session_add_settings(Session session, FrameFlags flags, const http2_settings_entry *iv, size_t niv) 
+int http2_session_add_settings(Session session, FrameFlags flags, in Setting[] iv) 
 {
     OutboundItem item;
     Frame frame;
@@ -5620,7 +5507,7 @@ int http2_session_add_settings(Session session, FrameFlags flags, const http2_se
         return ErrorCode.TOO_MANY_INFLIGHT_SETTINGS;
     }
     
-    if (!http2_iv_check(iv, niv)) {
+    if (!iv.check()) {
         return ErrorCode.INVALID_ARGUMENT;
     }
     
@@ -5680,7 +5567,7 @@ int http2_session_add_settings(Session session, FrameFlags flags, const http2_se
     /* Extract Setting.MAX_CONCURRENT_STREAMS here and use
      it to refuse the incoming streams with RST_STREAM. */
     for (i = niv; i > 0; --i) {
-        if (iv[i - 1].settings_id == Setting.MAX_CONCURRENT_STREAMS) {
+        if (iv[i - 1].id == Setting.MAX_CONCURRENT_STREAMS) {
             session.pending_local_max_concurrent_stream = iv[i - 1].value;
             break;
         }
@@ -5709,8 +5596,7 @@ int http2_session_pack_data(Session session, http2_bufs *bufs, size_t datamax, F
             return ErrorCode.INVALID_ARGUMENT;
         }
         
-        payloadlen = session.policy.read_length_callback(session, frame.hd.type, stream.stream_id, session.remote_window_size, 
-			stream.remote_window_size, session.remote_settings.max_frame_size, session.user_data);
+        payloadlen = session.policy.read_length_callback(session, frame.hd.type, stream.id, session.remote_window_size, stream.remoteWindowSize, session.remote_settings.max_frame_size, session.user_data);
         
         DEBUGF(fprintf(stderr, "send: read_length_callback=%zd\n", payloadlen));
         
@@ -5753,14 +5639,15 @@ int http2_session_pack_data(Session session, http2_bufs *bufs, size_t datamax, F
         &aux_data.data_prd.source, session.user_data);
     
     if (payloadlen == ErrorCode.DEFERRED ||
-        payloadlen == ErrorCode.TEMPORAL_CALLBACK_FAILURE) {
-        DEBUGF(fprintf(stderr, "send: DATA postponed due to %s\n",
-                http2_strerror(cast(int)payloadlen)));
+        payloadlen == ErrorCode.TEMPORAL_CALLBACK_FAILURE)
+	{
+        DEBUGF(fprintf(stderr, "send: DATA postponed due to %s\n", http2_strerror(cast(int)payloadlen)));
         
         return cast(int)payloadlen;
     }
     
-    if (payloadlen < 0 || datamax < cast(size_t)payloadlen) {
+    if (payloadlen < 0 || datamax < cast(size_t)payloadlen) 
+	{
         /* This is the error code when callback is failed. */
         return ErrorCode.CALLBACK_FAILURE;
     }
@@ -5781,10 +5668,9 @@ int http2_session_pack_data(Session session, http2_bufs *bufs, size_t datamax, F
     frame.hd.length = payloadlen;
     frame.data.padlen = 0;
     
-    max_payloadlen = http2_min(datamax, frame.hd.length + MAX_PADLEN);
+    max_payloadlen = min(datamax, frame.hd.length + MAX_PADLEN);
     
-    padded_payloadlen =
-        session_call_select_padding(session, frame, max_payloadlen);
+    padded_payloadlen = session_call_select_padding(session, frame, max_payloadlen);
     
     if (http2_is_fatal(cast(int)padded_payloadlen)) {
         return cast(int)padded_payloadlen;
@@ -5807,7 +5693,7 @@ void *http2_session_get_stream_user_data(Session session,
     Stream stream;
     stream = http2_session_get_stream(session, stream_id);
     if (stream) {
-        return stream.stream_user_data;
+        return stream.userData;
     } else {
         return null;
     }
@@ -5816,10 +5702,9 @@ void *http2_session_get_stream_user_data(Session session,
 int http2_session_set_stream_user_data(Session session, int stream_id, void *stream_user_data) {
     Stream stream;
     stream = http2_session_get_stream(session, stream_id);
-    if (!stream) {
+    if (!stream)
         return ErrorCode.INVALID_ARGUMENT;
-    }
-    stream.stream_user_data = stream_user_data;
+    stream.userData = stream_user_data;
     return 0;
 }
 
@@ -5827,12 +5712,11 @@ int http2_session_resume_data(Session session, int stream_id) {
     ErrorCode rv;
     Stream stream;
     stream = http2_session_get_stream(session, stream_id);
-    if (stream == null || !http2_stream_check_deferred_item(stream)) {
+
+    if (stream == null || !stream.checkDeferredItem()) 
         return ErrorCode.INVALID_ARGUMENT;
-    }
-    
-    rv = http2_stream_resume_deferred_item(
-        stream, StreamFlags.DEFERRED_USER, session);
+        
+    rv = stream.resumeDeferredItem(StreamFlags.DEFERRED_USER, session);
     
     if (http2_is_fatal(rv)) {
         return rv;
@@ -5853,7 +5737,7 @@ int http2_session_get_stream_effective_recv_data_length(Session session, int str
     if (stream == null) {
         return -1;
     }
-    return stream.recv_window_size < 0 ? 0 : stream.recv_window_size;
+    return stream.recvWindowSize < 0 ? 0 : stream.recvWindowSize;
 }
 
 int http2_session_get_stream_effective_local_window_size(Session session, int stream_id) {
@@ -5862,7 +5746,7 @@ int http2_session_get_stream_effective_local_window_size(Session session, int st
     if (stream == null) {
         return -1;
     }
-    return stream.local_window_size;
+    return stream.localWindowSize;
 }
 
 int http2_session_get_effective_recv_data_length(Session session) {
@@ -5882,17 +5766,15 @@ int http2_session_get_stream_remote_window_size(Session session,
         return -1;
     }
     
-    /* stream.remote_window_size can be negative when
-     SETTINGS_INITIAL_WINDOW_SIZE is changed. */
-    return http2_max(0, stream.remote_window_size);
+    /* stream.remoteWindowSize can be negative when SETTINGS_INITIAL_WINDOW_SIZE is changed. */
+    return max(0, stream.remoteWindowSize);
 }
 
 int http2_session_get_remote_window_size(Session session) {
     return session.remote_window_size;
 }
 
-uint http2_session_get_remote_settings(Session session,
-    http2_settings_id id) {
+uint http2_session_get_remote_settings(Session session, SettingsID id) {
     with(Setting) switch (id) {
         case HEADER_TABLE_SIZE:
             return session.remote_settings.header_table_size;
@@ -5976,7 +5858,7 @@ int http2_session_get_stream_local_close(Session session, int stream_id)
         return -1;
     }
     
-    return (stream.shut_flags & ShutdownFlag.WR) != 0;
+    return (stream.shutFlags & ShutdownFlag.WR) != 0;
 }
 
 int http2_session_get_stream_remote_close(Session session, int stream_id) 
@@ -5989,7 +5871,7 @@ int http2_session_get_stream_remote_close(Session session, int stream_id)
         return -1;
     }
     
-    return (stream.shut_flags & ShutdownFlag.RD) != 0;
+    return (stream.shutFlags & ShutdownFlag.RD) != 0;
 }
 
 int http2_session_consume(Session session, int stream_id,

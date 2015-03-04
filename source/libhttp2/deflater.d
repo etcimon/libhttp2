@@ -87,7 +87,7 @@ struct Deflater
 	 * ErrorCode.BUFFER_ERROR
 	 *     Out of buffer space.
 	 */
-	ErrorCode deflateBufs(Buffers bufs, in NVPair[] nva) {
+	ErrorCode deflate(Buffers bufs, in NVPair[] nva) {
 		size_t i;
 		ErrorCode rv;
 		
@@ -164,7 +164,7 @@ struct Deflater
 		
 		bufs = Buffers(buf[0 .. buflen]);
 				
-		rv = deflateBufs(bufs, nv, nvlen);
+		rv = deflate(bufs, nva);
 		
 		buflen = bufs.length;
 		

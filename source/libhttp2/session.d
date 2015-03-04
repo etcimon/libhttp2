@@ -145,7 +145,7 @@ struct InboundFrame {
 		
 		http2_frame_unpack_settings_entry(&iv, iframe.sbuf.pos);
 		
-		with(Setting) switch (iv.settings_id) {
+		with(Setting) switch (iv.id) {
 			case HEADER_TABLE_SIZE:
 			case ENABLE_PUSH:
 			case MAX_CONCURRENT_STREAMS:
@@ -155,12 +155,12 @@ struct InboundFrame {
 				break;
 			default:
 				DEBUGF(fprintf(stderr, "recv: ignore unknown settings id=0x%02x\n",
-						iv.settings_id));
+						iv.id));
 				return;
 		}
 		
 		for (i = 0; i < iframe.niv; ++i) {
-			if (iframe.iv[i].settings_id == iv.settings_id) {
+			if (iframe.iv[i].id == iv.id) {
 				iframe.iv[i] = iv;
 				break;
 			}
@@ -170,7 +170,7 @@ struct InboundFrame {
 			iframe.iv[iframe.niv++] = iv;
 		}
 		
-		if (iv.settings_id == Setting.HEADER_TABLE_SIZE &&
+		if (iv.id == Setting.HEADER_TABLE_SIZE &&
 			iv.value < iframe.iv[http2_INBOUND_NUM_IV - 1].value) {
 			
 			iframe.iv[http2_INBOUND_NUM_IV - 1] = iv;
@@ -1028,10 +1028,9 @@ public:
 	 * @function
 	 *
 	 * Returns the value of SETTINGS |id| notified by a remote endpoint.
-	 * The |id| must be one of values defined in
-	 * $(D http2_settings_id).
+	 * The |id| must be one of values defined in $(D SettingsID).
 	 */
-	uint http2_session_get_remote_settings(Session session, http2_settings_id id);
+	uint http2_session_get_remote_settings(Session session, SettingsID id);
 
 	/**
 	 * @function

@@ -157,7 +157,12 @@ struct NVPair
 	string name;
 	string value;
 	NVFlags flags;
+
+	bool opEquals(ref NVPair other) {
+		return name == other.name && value == other.value;
+	}
 }
+
 
 //http2_frame_type
 /// The frame types in HTTP/2 specification.
@@ -404,3 +409,29 @@ enum StreamDPRI {
 	TOP = 0x02,
 	REST = 0x04
 }
+
+
+//http2_settings_entry
+struct Setting {
+	alias SettingCode = ubyte;
+	/// Notes: If we add SETTINGS, update the capacity of HTTP2_INBOUND_NUM_IV as well
+	enum : SettingCode {
+		HEADER_TABLE_SIZE = 0x01,
+		ENABLE_PUSH = 0x02,
+		MAX_CONCURRENT_STREAMS = 0x03,
+		INITIAL_WINDOW_SIZE = 0x04,
+		MAX_FRAME_SIZE = 0x05,
+		MAX_HEADER_LIST_SIZE = 0x06
+	}
+	
+	/// The SETTINGS ID.
+	SettingCode id;
+	uint value;
+	
+	void unpack(in ubyte* payload) {
+		id = read!ushort(payload);
+		value = read!uint(&payload[2]);
+	}
+}
+
+alias SettingsID = Setting.SettingCode;

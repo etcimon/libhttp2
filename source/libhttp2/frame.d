@@ -119,7 +119,7 @@ struct FrameHeader
 	 *
 	 * We don't process any padding here.
 	 */
-	int packShared(Buffers bufs) 
+	void packShared(Buffers bufs) 
 	{
 		Buffer* buf;
 		Chain ci;
@@ -169,8 +169,49 @@ struct FrameHeader
 			buf.pos -= FRAME_HDLEN;
 			pack(buf.pos);
 		}
+	}
+
+
+	void addPad(Buffers bufs, size_t padlen) 
+	{
+		Buffer* buf;
 		
-		return 0;
+		if (padlen == 0) {
+			DEBUGF(fprintf(stderr, "send: padlen = 0, nothing to do\n"));
+			
+			return ;
+		}
+		
+		/*
+	   * We have arranged bufs like this:
+	   *
+	   *  0                   1                   2                   3
+	   *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+	   * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
+	   * | |Frame header     | Frame payload...                          :
+	   * +-+-----------------+-------------------------------------------+
+	   * | |Frame header     | Frame payload...                          :
+	   * +-+-----------------+-------------------------------------------+
+	   * | |Frame header     | Frame payload...                          :
+	   * +-+-----------------+-------------------------------------------+
+	   *
+	   * We arranged padding so that it is included in the first frame
+	   * completely.  For padded frame, we are going to adjust buf.pos of
+	   * frame which includes padding and serialize (memmove) frame header
+	   * in the correct position.  Also extends buf.last to include
+	   * padding.
+	   */
+		
+		buf = &bufs.head.buf;
+		
+		assert(buf.available >= cast(size_t)padlen - 1);
+		
+		frameSetPad(buf, padlen);
+		
+		length += padlen;
+		flags |= FrameFlags.PADDED;
+		
+		DEBUGF(fprintf(stderr, "send: final payloadlen=%zu, padlen=%zu\n", length, padlen));
 	}
 
 	void free(){}
@@ -217,13 +258,13 @@ struct Headers
 	}
 
 	/*
-	 * Packs HEADERS frame |frame| in wire format and store it in |bufs|.
+	 * Packs HEADERS frame in wire format and store it in |bufs|.
 	 * This function expands |bufs| as necessary to store frame.
 	 *
 	 * The caller must make sure that bufs.reset() is called before calling this function.
 	 *
-	 * frame.hd.length is assigned after length is determined during
-	 * packing process.  CONTINUATION frames are also serialized in this
+	 * hd.length is assigned after length is determined during
+	 * packing process. CONTINUATION frames are also serialized in this
 	 * function. This function does not handle padding.
 	 *
 	 * This function returns 0 if it succeeds, or returns one of the
@@ -240,7 +281,7 @@ struct Headers
 		
 		assert(bufs.head == bufs.cur);
 		
-		nv_offset = blockOffset(frame);
+		nv_offset = blockOffset();
 		
 		buf = &bufs.cur.buf;
 		
@@ -248,26 +289,24 @@ struct Headers
 		buf.last = buf.pos;
 		
 		/* This call will adjust buf.last to the correct position */
-		rv = deflater.deflateBufs(bufs, frame.nva);
+		rv = deflater.deflate(bufs, nva);
 		
-		if (rv == ErrorCode.BUFFER_ERROR) {
+		if (rv == ErrorCode.BUFFER_ERROR)
 			rv = ErrorCode.HEADER_COMP;
-		}
-		
+
 		buf.pos -= nv_offset;
 		
-		if (rv != 0) {
+		if (rv != 0)
 			return rv;
+		
+		if (hd.flags & FrameFlags.PRIORITY) {
+			pri_spec.unpack(buf.pos);
 		}
 		
-		if (frame.hd.flags & FrameFlags.PRIORITY) {
-			http2_frame_pack_priority_spec(buf.pos, &frame.pri_spec);
-		}
+		padlen = 0;
+		hd.length = bufs.length;
 		
-		frame.padlen = 0;
-		frame.hd.length = http2_bufs_len(bufs);
-		
-		return frame.hd.packShared(bufs);
+		return hd.packShared(bufs);
 	}
 
 	/*
@@ -285,8 +324,8 @@ struct Headers
 	 * compressed header block starts. The frame payload does not include
 	 * frame header.
 	 */
-	size_t blockOffset(ref Headers frame) {
-		return frame.hd.flags.priorityLength();
+	size_t blockOffset() {
+		return hd.flags.priorityLength();
 	}
 
 }
@@ -422,31 +461,44 @@ struct Reset {
 	}
 	
 	void free(){}
-}
 
-
-//http2_settings_entry
-struct Setting {
-	alias SettingCode = ubyte;
-	/// Notes: If we add SETTINGS, update the capacity of HTTP2_INBOUND_NUM_IV as well
-	enum : SettingCode {
-		HEADER_TABLE_SIZE = 0x01,
-		ENABLE_PUSH = 0x02,
-		MAX_CONCURRENT_STREAMS = 0x03,
-		INITIAL_WINDOW_SIZE = 0x04,
-		MAX_FRAME_SIZE = 0x05,
-		MAX_HEADER_LIST_SIZE = 0x06
+	/*
+	 * Packs RST_STREAM frame |frame| in wire frame format and store it in
+	 * |bufs|.
+	 *
+	 * The caller must make sure that bufs.reset() is called
+	 * before calling this function.
+	 */
+	void pack(Buffers bufs) 
+	{
+		Buffer* buf;
+		
+		assert(bufs.head == bufs.cur);
+		
+		buf = &bufs.head.buf;
+		
+		assert(buf.available >= 4);
+		
+		buf.pos -= FRAME_HDLEN;
+		
+		frame.hd.pack(buf.pos);
+		
+		write!uint(buf.last, frame.error_code);
+		buf.last += 4;
 	}
-
-	/// The SETTINGS ID.
-	SettingCode id;
-	uint value;
+	
+	/*
+	 * Unpacks RST_STREAM frame byte sequence into |frame|.
+	 */
+	void unpack(in ubyte* payload) {
+		error_code = read!uint(payload);
+	}
 }
 
 /// The SETTINGS frame
 struct Settings {
 	FrameHeader hd;
-	Setting[] settings;
+	Setting[] iv;
 
 	/*
 	 * Initializes SETTINGS frame |frame| with given values. |frame| takes
@@ -460,6 +512,97 @@ struct Settings {
 	}
 	
 	void free() { Mem.free(iv); }
+
+
+	/*
+	 * Packs SETTINGS frame in wire format and store it in |bufs|.
+	 *
+	 * The caller must make sure that bufs.reset() is called
+	 * before calling this function.
+	 *
+	 * This function returns 0 if it succeeds, or returns one of the
+	 * following negative error codes:
+	 *
+	 * ErrorCode.FRAME_SIZE_ERROR
+	 *     The length of the frame is too large.
+	 */
+	ErrorCode pack(Buffers bufs) {
+		Buffer* buf;
+		
+		assert(bufs.head == bufs.cur);
+		
+		buf = &bufs.head.buf;
+		
+		if (buf.available < cast(size_t) hd.length) {
+			return ErrorCode.FRAME_SIZE_ERROR;
+		}
+
+		buf.pos -= FRAME_HDLEN;
+		
+		frame.hd.pack(buf.pos);
+		
+		buf.last += pack(buf.last, iv);
+		
+		return 0;
+	}
+
+	
+	/*
+	 * Makes a copy of |iv| in frame.settings.iv.
+	 */
+	void unpack(out Setting[] _iv) 
+	{
+		if (iv) free();
+		
+		if (_iv.length == 0) {
+			iv = null;
+			return;
+		}
+		iv = Mem.alloc!(Setting[])(_iv.length);
+		memcpy(iv, _iv, _iv.length * Setting.sizeof);
+		
+	}
+
+	/*
+	 * Unpacks SETTINGS payload into |iv|. The number of entries are
+	 * assigned to the |iv.length|. This function allocates enough memory
+	 * to store the result in |iv|. The caller is responsible to free
+	 * |iv| after its use.
+	 */
+	static void unpack(out Setting[] iv, in ubyte[] payload) {
+		size_t i;
+		
+		size_t len = payload.length / FRAME_SETTINGS_ENTRY_LENGTH;
+		
+		if (len == 0) {
+			iv = null;
+			return;
+		}
+		
+		iv = Mem.alloc!(Setting[])(len);
+
+		for (i = 0; i < len; ++i) {
+			size_t off = i * FRAME_SETTINGS_ENTRY_LENGTH;
+			iv[i].unpack(&payload[off]);
+		}
+	}
+
+	/*
+	 * Packs the |iv|, which includes |iv.length| entries, in the |buf|,
+	 * assuming the |buf| has at least 8 * |iv.length| bytes.
+	 *
+	 * Returns the number of bytes written into the |buf|.
+	 */
+	private static size_t pack(out ubyte* buf, in Setting[] iv)
+	{
+		size_t i;
+		for (i = 0; i < niv; ++i, buf += FRAME_SETTINGS_ENTRY_LENGTH) {
+			write!ushort(buf, iv[i].id);
+			write!uint(buf + 2, iv[i].value);
+		}
+		return FRAME_SETTINGS_ENTRY_LENGTH * niv;
+	}
+
 }
 
 //http2_push_promise
@@ -490,6 +633,68 @@ struct PushPromise {
 	}
 	
 	void free() { Mem.free(nva); }
+
+	/*
+	 * Packs PUSH_PROMISE frame in wire format and store it in
+	 * |bufs|.  This function expands |bufs| as necessary to store
+	 * frame.
+	 *
+	 * The caller must make sure that bufs.reset() is called
+	 * before calling this function.
+	 *
+	 * frame.hd.length is assigned after length is determined during
+	 * packing process. CONTINUATION frames are also serialized in this
+	 * function. This function does not handle padding.
+	 *
+	 * This function returns 0 if it succeeds, or returns one of the
+	 * following negative error codes:
+	 *
+	 * ErrorCode.HEADER_COMP
+	 *     The deflate operation failed.
+	 */
+	ErrorCode pack(Buffers bufs, ref Deflater deflater) 
+	{
+		size_t nv_offset = 4;
+		int rv;
+		Buffer* buf;
+		
+		assert(bufs.head == bufs.cur);
+		
+		buf = &bufs.cur.buf;
+		
+		buf.pos += nv_offset;
+		buf.last = buf.pos;
+		
+		/* This call will adjust buf.last to the correct position */
+		rv = deflater.deflate(bufs, nva);
+		
+		if (rv == ErrorCode.BUFFER_ERROR)
+			rv = ErrorCode.HEADER_COMP;
+		
+		buf.pos -= nv_offset;
+		
+		if (rv != 0)
+			return rv;
+		
+		write!uint(buf.pos, promised_stream_id);
+		
+		padlen = 0;
+		hd.length = bufs.length;
+		
+		return hd.packShared(bufs);
+	}
+	
+	/*
+	 * Unpacks PUSH_PROMISE frame byte sequence.  This
+	 * function only unpacks bytes that come before name/value header
+	 * block and after possible Pad Length field.
+	 *
+	 * TODO: handle END_HEADERS flag is not set
+	 */
+	void unpack(in ubyte[] payload) {
+		promised_stream_id = read!uint(payload) & STREAM_ID_MASK;
+		nva = null;
+	}
 }
 
 // http2_ping
@@ -507,11 +712,45 @@ struct Ping {
 	this(FrameFlags flags, in ubyte[] _opaque_data) {
 		hd = FrameHeader(8, FrameType.PING, flags, 0);
 		if (opaque_data.length > 0)
-			opaque_data[0 .. _opaque_data.length] = _opaque_data[0 .. $];
+			opaque_data[0 .. min(8, _opaque_data.length)] = _opaque_data[0 .. min(8, _opaque_data.length)];
+		else
+			opaque_data = null;
 	}
 	
 	void free(){}
 
+	/*
+	 * Packs PING frame in wire format and store it in |bufs|.
+	 *
+	 * The caller must make sure that bufs.reset() is called
+	 * before calling this function.
+	 */
+	void pack(Buffers bufs) {
+		Buffer* buf;
+		
+		assert(bufs.head == bufs.cur);
+		
+		buf = &bufs.head.buf;
+		
+		assert(buf.available >= 8);
+		
+		buf.pos -= FRAME_HDLEN;
+		
+		hd.pack(buf.pos);
+		
+		buf.last = memcpy(buf.last, opaque_data.ptr, opaque_data.sizeof);
+		
+		return 0;
+	}
+	
+	/*
+	 * Unpacks PING wire format into |frame|.
+	 */
+	void unpack(in ubyte[] _opaque_data)
+	{
+		if (opaque_data.length > 0)
+			opaque_data[0 .. min(8, _opaque_data.length)] = _opaque_data[0 .. min(8, _opaque_data.length)];
+	}
 }
 
 //http2_goaway
@@ -537,6 +776,93 @@ struct GoAway {
 
 	void free() { Mem.free(opaque_data); }
 
+
+	/*
+	 * Packs GOAWAY frame in wire format and store it in |bufs|.
+	 * This function expands |bufs| as necessary to store frame.
+	 *
+	 * The caller must make sure that bufs.reset() is called
+	 * before calling this function.
+	 *
+	 * This function returns 0 if it succeeds or one of the following
+	 * negative error codes:
+	 *
+	 * ErrorCode.FRAME_SIZE_ERROR
+	 *     The length of the frame is too large.
+	 */
+	ErrorCode pack(Buffers bufs) 
+	{
+		int rv;
+		Buffer* buf;
+		
+		assert(bufs.head == bufs.cur);
+		
+		buf = &bufs.head.buf;
+		
+		buf.pos -= FRAME_HDLEN;
+		
+		hd.pack(buf.pos);
+		
+		write!uint(buf.last, last_stream_id);
+		buf.last += 4;
+		
+		write!uint(buf.last, error_code);
+		buf.last += 4;
+		
+		rv = http2_bufs_add(bufs, opaque_data);
+		
+		if (rv == ErrorCode.BUFFER_ERROR)
+			return ErrorCode.FRAME_SIZE_ERROR;
+		
+		if (rv != 0) 
+			return rv;
+
+		return 0;
+	}
+	
+	/*
+	 * Unpacks GOAWAY wire format.  The |payload| of length
+	 * |payloadlen| contains first 8 bytes of payload.  The
+	 * |var_gift_payload| contains the remaining payload and its 
+	 * buffer is gifted to the function and then
+	 * |frame|.  The |var_gift_payload| must be freed by GoAway.free().
+	 */
+	void unpack(in ubyte* payload, ubyte[] var_gift_payload)
+	{
+		last_stream_id = read!uint(payload.ptr) & STREAM_ID_MASK;
+		error_code = read!uint(payload.ptr + 4);
+		opaque_data = var_gift_payload;
+	}
+
+
+	
+	/*
+	 * Unpacks GOAWAY wire format.  This function only exists
+	 * for unit test.  After allocating buffer for debug data, this
+	 * function internally calls http2_frame_unpack_goaway_payload().
+	 */
+	void http2_frame_unpack_goaway_payload2(in ubyte[] payload) 
+	{
+		ubyte[] var_gift_payload;
+		size_t var_gift_payloadlen;
+		size_t payloadlen = payload.length;
+		
+		if (payloadlen > 8) {
+			var_gift_payloadlen = payloadlen - 8;
+		} else {
+			var_gift_payloadlen = 0;
+		}
+
+		if (!var_gift_payloadlen) {
+			var_gift_payload = null;
+		} else {
+			var_gift_payload = Mem.alloc!(ubyte[])(var_gift_payloadlen);						
+			memcpy(var_gift_payload.ptr, payload.ptr + 8, var_gift_payloadlen);
+		}
+		
+		unpack(payload.ptr,	var_gift_payload);
+	}
+
 }
 
 //http2_window_update
@@ -553,6 +879,38 @@ struct WindowUpdate {
 	}
 	
 	void free(){}
+
+	/*
+	 * Packs WINDOW_UPDATE frame in wire frame format and store it
+	 * in |bufs|.
+	 *
+	 * The caller must make sure that bufs.reset() is called
+	 * before calling this function.
+	 */
+	void pack(Buffers bufs) {
+		Buffer* buf;
+		
+		assert(bufs.head == bufs.cur);
+		
+		buf = &bufs.head.buf;
+		
+		assert(buf.available >= 4);
+		
+		buf.pos -= FRAME_HDLEN;
+		
+		hd.pack(buf.pos);
+		
+		write!uint(buf.last, window_size_increment);
+		buf.last += 4;
+	}
+	
+	/*
+	 * Unpacks WINDOW_UPDATE frame byte sequence.
+	 */
+	void unpack(in ubyte* payload) {
+		window_size_increment = read!uint(payload) & WINDOW_SIZE_INCREMENT_MASK;
+	}
+
 }
 
 //http2_extension
@@ -693,438 +1051,6 @@ class OutboundItem {
 	bool queued;
 }
 
-
-/*
- * Packs RST_STREAM frame |frame| in wire frame format and store it in
- * |bufs|.
- *
- * The caller must make sure that nghttp2_bufs_reset(bufs) is called
- * before calling this function.
- *
- * This function always succeeds and returns 0.
- */
-int http2_frame_pack_rst_stream(Buffers bufs,
-	ref Reset frame) {
-	Buffer* buf;
-	
-	assert(bufs.head == bufs.cur);
-	
-	buf = &bufs.head.buf;
-	
-	assert(http2_buf_avail(buf) >= 4);
-	
-	buf.pos -= FRAME_HDLEN;
-	
-	frame.hd.pack(buf.pos);
-	
-	write!uint(buf.last, frame.error_code);
-	buf.last += 4;
-	
-	return 0;
-}
-
-/*
- * Unpacks RST_STREAM frame byte sequence into |frame|.
- */
-void http2_frame_unpack_rst_stream_payload(ref Reset frame,
-	const ubyte* payload,
-	size_t payloadlen) {
-	frame.error_code = read!uint(payload);
-}
-
-/*
- * Packs SETTINGS frame |frame| in wire format and store it in
- * |bufs|.
- *
- * The caller must make sure that nghttp2_bufs_reset(bufs) is called
- * before calling this function.
- *
- * This function returns 0 if it succeeds, or returns one of the
- * following negative error codes:
- *
- * ErrorCode.FRAME_SIZE_ERROR
- *     The length of the frame is too large.
- */
-ErrorCode http2_frame_pack_settings(Buffers bufs, http2_settings *frame) {
-	Buffer* buf;
-	
-	assert(bufs.head == bufs.cur);
-	
-	buf = &bufs.head.buf;
-	
-	if (http2_buf_avail(buf) < cast(size_t)frame.hd.length) {
-		return ErrorCode.FRAME_SIZE_ERROR;
-	}
-	
-	buf.pos -= FRAME_HDLEN;
-	
-	frame.hd.pack(buf.pos);
-	
-	buf.last +=
-		http2_frame_pack_settings_payload(buf.last, frame.iv, frame.niv);
-	
-	return 0;
-}
-
-/*
- * Packs the |iv|, which includes |niv| entries, in the |buf|,
- * assuming the |buf| has at least 8 * |niv| bytes.
- *
- * Returns the number of bytes written into the |buf|.
- */
-size_t http2_frame_pack_settings_payload(ubyte* buf, in Setting[] iv)
-{
-	size_t i;
-	for (i = 0; i < niv; ++i, buf += FRAME_SETTINGS_ENTRY_LENGTH) {
-		write!ushort(buf, iv[i].settings_id);
-		write!uint(buf + 2, iv[i].value);
-	}
-	return FRAME_SETTINGS_ENTRY_LENGTH * niv;
-}
-
-/*
- * Makes a copy of |iv| in frame.settings.iv. The |niv| is assigned
- * to frame.settings.niv.
- *
- */
-void http2_frame_unpack_settings_payload(http2_settings *frame, Setting[] iv) 
-{
-	size_t payloadlen = niv * sizeof(http2_settings_entry);
-	
-	if (niv == 0) {
-		frame.iv = null;
-	} else {
-		frame.iv = http2_mem_malloc(mem, payloadlen);
-		
-		if (frame.iv == null) {
-			return ErrorCode.NOMEM;
-		}
-		
-		memcpy(frame.iv, iv, payloadlen);
-	}
-	
-	frame.niv = niv;
-	return 0;
-}
-
-void http2_frame_unpack_settings_entry(ref Setting iv, const ubyte* payload) {
-	iv.settings_id = read!ushort(payload);
-	iv-value = read!uint(&payload[2]);
-}
-
-/*
- * Unpacks SETTINGS payload into |*iv_ptr|. The number of entries are
- * assigned to the |*niv_ptr|. This function allocates enough memory
- * to store the result in |*iv_ptr|. The caller is responsible to free
- * |*iv_ptr| after its use.
- */
-void http2_frame_unpack_settings_payload2(ref Setting[] iv, in ubyte[] payload) {
-	size_t i;
-	
-	*niv_ptr = payload.length / FRAME_SETTINGS_ENTRY_LENGTH;
-	
-	if (*niv_ptr == 0) {
-		*iv = null;
-		
-		return 0;
-	}
-	
-	*iv_ptr =
-		http2_mem_malloc(mem, (*niv_ptr) * sizeof(http2_settings_entry));
-	
-	if (*iv_ptr == null) {
-		return ErrorCode.NOMEM;
-	}
-	
-	for (i = 0; i < *niv_ptr; ++i) {
-		size_t off = i * FRAME_SETTINGS_ENTRY_LENGTH;
-		http2_frame_unpack_settings_entry(&(*iv_ptr)[i], &payload[off]);
-	}
-	
-	return 0;
-}
-
-/*
- * Packs PUSH_PROMISE frame |frame| in wire format and store it in
- * |bufs|.  This function expands |bufs| as necessary to store
- * frame.
- *
- * The caller must make sure that nghttp2_bufs_reset(bufs) is called
- * before calling this function.
- *
- * frame.hd.length is assigned after length is determined during
- * packing process.  CONTINUATION frames are also serialized in this
- * function. This function does not handle padding.
- *
- * This function returns 0 if it succeeds, or returns one of the
- * following negative error codes:
- *
- * ErrorCode.HEADER_COMP
- *     The deflate operation failed.
- */
-ErrorCode http2_frame_pack_push_promise(Buffers bufs, ref PushPromise frame, ref HuffmanDeflater deflater) 
-{
-	size_t nv_offset = 4;
-	int rv;
-	Buffer* buf;
-	
-	assert(bufs.head == bufs.cur);
-	
-	buf = &bufs.cur.buf;
-	
-	buf.pos += nv_offset;
-	buf.last = buf.pos;
-	
-	/* This call will adjust buf.last to the correct position */
-	rv = http2_hd_deflate_hd_bufs(deflater, bufs, frame.nva);
-	
-	if (rv == ErrorCode.BUFFER_ERROR) {
-		rv = ErrorCode.HEADER_COMP;
-	}
-	
-	buf.pos -= nv_offset;
-	
-	if (rv != 0) {
-		return rv;
-	}
-	
-	write!uint(buf.pos, frame.promised_stream_id);
-	
-	frame.padlen = 0;
-	frame.hd.length = http2_bufs_len(bufs);
-	
-	return frame.hd.packShared(bufs);
-}
-
-/*
- * Unpacks PUSH_PROMISE frame byte sequence into |frame|.  This
- * function only unapcks bytes that come before name/value header
- * block and after possible Pad Length field.
- *
- * This function returns 0 if it succeeds or one of the following
- * negative error codes:
- *
- * ErrorCode.PROTO
- *     TODO END_HEADERS flag is not set
- */
-int http2_frame_unpack_push_promise_payload(ref PushPromise frame, in ubyte[] payload) {
-	frame.promised_stream_id = read!uint(payload) & STREAM_ID_MASK;
-	frame.nva = null;
-	return 0;
-}
-
-/*
- * Packs PING frame |frame| in wire format and store it in
- * |bufs|.
- *
- * The caller must make sure that nghttp2_bufs_reset(bufs) is called
- * before calling this function.
- *
- * This function always succeeds and returns 0.
- */
-int http2_frame_pack_ping(Buffers bufs, http2_ping *frame) {
-	Buffer* buf;
-	
-	assert(bufs.head == bufs.cur);
-	
-	buf = &bufs.head.buf;
-	
-	assert(http2_buf_avail(buf) >= 8);
-	
-	buf.pos -= FRAME_HDLEN;
-	
-	frame.hd.pack(buf.pos);
-	
-	buf.last =
-		http2_cpymem(buf.last, frame.opaque_data, sizeof(frame.opaque_data));
-	
-	return 0;
-}
-
-/*
- * Unpacks PING wire format into |frame|.
- */
-void http2_frame_unpack_ping_payload(http2_ping *frame,
-	const ubyte* payload,
-	size_t payloadlen) {
-	memcpy(frame.opaque_data, payload, sizeof(frame.opaque_data));
-}
-
-/*
- * Packs GOAWAY frame |frame| in wire format and store it in |bufs|.
- * This function expands |bufs| as necessary to store frame.
- *
- * The caller must make sure that nghttp2_bufs_reset(bufs) is called
- * before calling this function.
- *
- * This function returns 0 if it succeeds or one of the following
- * negative error codes:
- *
- * ErrorCode.FRAME_SIZE_ERROR
- *     The length of the frame is too large.
- */
-ErrorCode http2_frame_pack_goaway(Buffers bufs, http2_goaway *frame) {
-	int rv;
-	Buffer* buf;
-	
-	assert(bufs.head == bufs.cur);
-	
-	buf = &bufs.head.buf;
-	
-	buf.pos -= FRAME_HDLEN;
-	
-	frame.hd.pack(buf.pos);
-	
-	write!uint(buf.last, frame.last_stream_id);
-	buf.last += 4;
-	
-	write!uint(buf.last, frame.error_code);
-	buf.last += 4;
-	
-	rv = http2_bufs_add(bufs, frame.opaque_data, frame.opaque_data_len);
-	
-	if (rv == ErrorCode.BUFFER_ERROR) {
-		return ErrorCode.FRAME_SIZE_ERROR;
-	}
-	
-	if (rv != 0) {
-		return rv;
-	}
-	
-	return 0;
-}
-
-/*
- * Unpacks GOAWAY wire format into |frame|.  The |payload| of length
- * |payloadlen| contains first 8 bytes of payload.  The
- * |var_gift_payload| of length |var_gift_payloadlen| contains
- * remaining payload and its buffer is gifted to the function and then
- * |frame|.  The |var_gift_payloadlen| must be freed by
- * http2_frame_goaway_free().
- */
-void http2_frame_unpack_goaway_payload(http2_goaway *frame,
-	const ubyte* payload,
-	size_t payloadlen,
-	ubyte* var_gift_payload,
-	size_t var_gift_payloadlen) {
-	frame.last_stream_id = read!uint(payload) & STREAM_ID_MASK;
-	frame.error_code = read!uint(payload + 4);
-	
-	frame.opaque_data = var_gift_payload;
-	frame.opaque_data_len = var_gift_payloadlen;
-}
-
-/*
- * Unpacks GOAWAY wire format into |frame|.  This function only exists
- * for unit test.  After allocating buffer for debug data, this
- * function internally calls http2_frame_unpack_goaway_payload().
- */
-void http2_frame_unpack_goaway_payload2(http2_goaway *frame,
-	const ubyte* payload,
-	size_t payloadlen, http2_mem *mem) {
-	ubyte* var_gift_payload;
-	size_t var_gift_payloadlen;
-	
-	if (payloadlen > 8) {
-		var_gift_payloadlen = payloadlen - 8;
-	} else {
-		var_gift_payloadlen = 0;
-	}
-	
-	payloadlen -= var_gift_payloadlen;
-	
-	if (!var_gift_payloadlen) {
-		var_gift_payload = null;
-	} else {
-		var_gift_payload = http2_mem_malloc(mem, var_gift_payloadlen);
-		
-		if (var_gift_payload == null) {
-			return ErrorCode.NOMEM;
-		}
-		
-		memcpy(var_gift_payload, payload + 8, var_gift_payloadlen);
-	}
-	
-	http2_frame_unpack_goaway_payload(frame, payload, payloadlen,
-		var_gift_payload, var_gift_payloadlen);
-	
-	return 0;
-}
-
-/*
- * Packs WINDOW_UPDATE frame |frame| in wire frame format and store it
- * in |bufs|.
- *
- * The caller must make sure that nghttp2_bufs_reset(bufs) is called
- * before calling this function.
- *
- * This function always succeeds and returns 0.
- */
-int http2_frame_pack_window_update(Buffers bufs,
-	http2_window_update *frame) {
-	Buffer* buf;
-	
-	assert(bufs.head == bufs.cur);
-	
-	buf = &bufs.head.buf;
-	
-	assert(http2_buf_avail(buf) >= 4);
-	
-	buf.pos -= FRAME_HDLEN;
-	
-	frame.hd.pack(buf.pos);
-	
-	write!uint(buf.last, frame.window_size_increment);
-	buf.last += 4;
-	
-	return 0;
-}
-
-/*
- * Unpacks WINDOW_UPDATE frame byte sequence into |frame|.
- */
-void http2_frame_unpack_window_update_payload(http2_window_update *frame,
-	const ubyte* payload,
-	size_t payloadlen) {
-	frame.window_size_increment =
-		read!uint(payload) & WINDOW_SIZE_INCREMENT_MASK;
-}
-
-/*
- * Makes copy of |iv| and return the copy. The |niv| is the number of
- * entries in |iv|. This function returns the pointer to the copy if
- * it succeeds, or null.
- */
-http2_settings_entry *http2_frame_iv_copy(const http2_settings_entry *iv,
-	size_t niv, http2_mem *mem) {
-	http2_settings_entry *iv_copy;
-	size_t len = niv * sizeof(http2_settings_entry);
-	
-	if (len == 0) {
-		return null;
-	}
-	
-	iv_copy = http2_mem_malloc(mem, len);
-	
-	if (iv_copy == null) {
-		return null;
-	}
-	
-	memcpy(iv_copy, iv, len);
-	
-	return iv_copy;
-}
-
-int http2_nv_equal(const http2_nv *a, const http2_nv *b) {
-	return a.namelen == b.namelen && a.valuelen == b.valuelen &&
-		memcmp(a.name, b.name, a.namelen) == 0 &&
-			memcmp(a.value, b.value, a.valuelen) == 0;
-}
-
-void http2_nv_array_del(http2_nv *nva, http2_mem *mem) {
-	http2_mem_free(mem, nva);
-}
-
 int bytes_compar(const ubyte* a, size_t alen, const ubyte* b, size_t blen) {
 	int rv;
 	
@@ -1151,109 +1077,43 @@ int bytes_compar(const ubyte* a, size_t alen, const ubyte* b, size_t blen) {
 	return rv;
 }
 
-int http2_nv_compare_name(const http2_nv *lhs, const http2_nv *rhs) {
-	return bytes_compar(lhs.name, lhs.namelen, rhs.name, rhs.namelen);
-}
-
-int nv_compar(const void *lhs, const void *rhs) {
-	const http2_nv *a = (const http2_nv *)lhs;
-	const http2_nv *b = (const http2_nv *)rhs;
-	int rv;
-	
-	rv = bytes_compar(a.name, a.namelen, b.name, b.namelen);
-	
-	if (rv == 0) {
-		return bytes_compar(a.value, a.valuelen, b.value, b.valuelen);
-	}
-	
-	return rv;
-}
-
-void http2_nv_array_sort(http2_nv *nva, size_t nvlen) {
-	qsort(nva, nvlen, sizeof(http2_nv), nv_compar);
-}
-
-int http2_nv_array_copy(http2_nv **nva_ptr, const http2_nv *nva,
-	size_t nvlen, http2_mem *mem) {
-	size_t i;
-	ubyte* data;
-	size_t buflen = 0;
-	http2_nv *p;
-	
-	for (i = 0; i < nvlen; ++i) {
-		buflen += nva[i].namelen + nva[i].valuelen;
-	}
-	
-	if (nvlen == 0) {
-		*nva_ptr = null;
-		
-		return 0;
-	}
-	
-	buflen += sizeof(http2_nv) * nvlen;
-	
-	*nva_ptr = http2_mem_malloc(mem, buflen);
-	
-	if (*nva_ptr == null) {
-		return ErrorCode.NOMEM;
-	}
-	
-	p = *nva_ptr;
-	data = (ubyte* )(*nva_ptr) + sizeof(http2_nv) * nvlen;
-	
-	for (i = 0; i < nvlen; ++i) {
-		p.flags = nva[i].flags;
-		
-		memcpy(data, nva[i].name, nva[i].namelen);
-		p.name = data;
-		p.namelen = nva[i].namelen;
-		http2_downcase(p.name, p.namelen);
-		data += nva[i].namelen;
-		memcpy(data, nva[i].value, nva[i].valuelen);
-		p.value = data;
-		p.valuelen = nva[i].valuelen;
-		data += nva[i].valuelen;
-		++p;
-	}
-	return 0;
-}
-
-int http2_iv_check(const http2_settings_entry *iv, size_t niv) 
+// true if everything is fine, false otherwise
+bool check(in Setting[] iv) 
 {
 	size_t i;
-	for (i = 0; i < niv; ++i) {
-		switch (iv[i].settings_id) {
+	foreach (entry; iv) {
+		switch (entry.id) {
 			case SETTINGS_HEADER_TABLE_SIZE:
-				if (iv[i].value > MAX_HEADER_TABLE_SIZE) {
-					return 0;
+				if (entry.value > MAX_HEADER_TABLE_SIZE) {
+					return true;
 				}
 				break;
 			case SETTINGS_MAX_CONCURRENT_STREAMS:
 				break;
 			case SETTINGS_ENABLE_PUSH:
-				if (iv[i].value != 0 && iv[i].value != 1) {
-					return 0;
+				if (entry.value != 0 && entry.value != 1) {
+					return true;
 				}
 				break;
 			case SETTINGS_INITIAL_WINDOW_SIZE:
-				if (iv[i].value > cast(uint)MAX_WINDOW_SIZE) {
-					return 0;
+				if (entry.value > cast(uint)MAX_WINDOW_SIZE) {
+					return true;
 				}
 				break;
 			case SETTINGS_MAX_FRAME_SIZE:
-				if (iv[i].value < MAX_FRAME_SIZE_MIN ||
-					iv[i].value > MAX_FRAME_SIZE_MAX) {
-					return 0;
+				if (entry.value < MAX_FRAME_SIZE_MIN ||
+					entry.value > MAX_FRAME_SIZE_MAX) {
+					return true;
 				}
 				break;
 			case SETTINGS_MAX_HEADER_LIST_SIZE:
 				break;
 		}
 	}
-	return 1;
+	return false;
 }
 
-void frame_set_pad(Buffer* buf, size_t padlen) 
+void frameSetPad(Buffer* buf, size_t padlen) 
 {
 	size_t trail_padlen;
 	size_t newlen;
@@ -1277,55 +1137,7 @@ void frame_set_pad(Buffer* buf, size_t padlen)
 	/* extend buffers trail_padlen bytes, since we ate previous padlen -
      trail_padlen byte(s) */
 	buf.last += trail_padlen;
-	
-	return;
 }
-
-int http2_frame_add_pad(Buffers bufs, ref FrameHeader hd, size_t padlen) 
-{
-	Buffer* buf;
-	
-	if (padlen == 0) {
-		DEBUGF(fprintf(stderr, "send: padlen = 0, nothing to do\n"));
-		
-		return 0;
-	}
-	
-	/*
-   * We have arranged bufs like this:
-   *
-   *  0                   1                   2                   3
-   *  0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
-   * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-   * | |Frame header     | Frame payload...                          :
-   * +-+-----------------+-------------------------------------------+
-   * | |Frame header     | Frame payload...                          :
-   * +-+-----------------+-------------------------------------------+
-   * | |Frame header     | Frame payload...                          :
-   * +-+-----------------+-------------------------------------------+
-   *
-   * We arranged padding so that it is included in the first frame
-   * completely.  For padded frame, we are going to adjust buf.pos of
-   * frame which includes padding and serialize (memmove) frame header
-   * in the correct position.  Also extends buf.last to include
-   * padding.
-   */
-	
-	buf = &bufs.head.buf;
-	
-	assert(http2_buf_avail(buf) >= cast(size_t)padlen - 1);
-	
-	frame_set_pad(buf, padlen);
-	
-	hd.length += padlen;
-	hd.flags |= FrameFlags.PADDED;
-	
-	DEBUGF(fprintf(stderr, "send: final payloadlen=%zu, padlen=%zu\n", hd.length,
-			padlen));
-	
-	return 0;
-}
-
 
 /**
  * Returns the number of priority field depending on the |flags|.  If
