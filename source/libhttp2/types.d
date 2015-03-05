@@ -135,6 +135,82 @@ enum ErrorCode : int {
 	BAD_PREFACE = -903
 }
 
+/*
+ * Returns string describing the |error_code|.  The |error_code| must be one of the $(D ErrorCode).
+ */
+string toString(ErrorCode error_code) {
+	with(ErrorCode) final switch (error_code) {
+		case OK:
+			return "Success";
+		case ERROR:
+			return "Unknown error";
+		case INVALID_ARGUMENT:
+			return "Invalid argument";
+		case BUFFER_ERROR:
+			return "Out of buffer space";
+		case UNSUPPORTED_VERSION:
+			return "Unsupported SPDY version";
+		case WOULDBLOCK:
+			return "Operation would block";
+		case PROTO:
+			return "Protocol error";
+		case INVALID_FRAME:
+			return "Invalid frame octets";
+		case EOF:
+			return "EOF";
+		case DEFERRED:
+			return "Data transfer deferred";
+		case STREAM_ID_NOT_AVAILABLE:
+			return "No more Stream ID available";
+		case STREAM_CLOSED:
+			return "Stream was already closed or invalid";
+		case STREAM_CLOSING:
+			return "Stream is closing";
+		case STREAM_SHUT_WR:
+			return "The transmission is not allowed for this stream";
+		case INVALID_STREAM_ID:
+			return "Stream ID is invalid";
+		case INVALID_STREAM_STATE:
+			return "Invalid stream state";
+		case DEFERRED_DATA_EXIST:
+			return "Another DATA frame has already been deferred";
+		case SESSION_CLOSING:
+			return "The current session is closing";
+		case START_STREAM_NOT_ALLOWED:
+			return "request HEADERS is not allowed";
+		case GOAWAY_ALREADY_SENT:
+			return "GOAWAY has already been sent";
+		case INVALID_HEADER_BLOCK:
+			return "Invalid header block";
+		case INVALID_STATE:
+			return "Invalid state";
+		case TEMPORAL_CALLBACK_FAILURE:
+			return "The user callback function failed due to the temporal error";
+		case FRAME_SIZE_ERROR:
+			return "The length of the frame is invalid";
+		case HEADER_COMP:
+			return "Header compression/decompression error";
+		case FLOW_CONTROL:
+			return "Flow control error";
+		case INSUFF_BUFSIZE:
+			return "Insufficient buffer size given to function";
+		case PAUSE:
+			return "Callback was paused by the application";
+		case TOO_MANY_INFLIGHT_SETTINGS:
+			return "Too many inflight SETTINGS";
+		case PUSH_DISABLED:
+			return "Server push is disabled by peer";
+		case DATA_EXIST:
+			return "DATA frame already exists";
+		case NOMEM:
+			return "Out of memory";
+		case CALLBACK_FAILURE:
+			return "The user callback function failed";
+		case BAD_PREFACE:
+			return "Received bad connection preface";
+	}
+}
+
 //http2_nv_flag
 /// The flags for header field name/value pair.
 enum NVFlags : ubyte 

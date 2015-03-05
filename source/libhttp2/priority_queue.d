@@ -5,7 +5,7 @@ import libhttp2.types;
 import memutils.utils;
 
 /// Implementation of priority queue
-class PriorityQueue
+struct PriorityQueue
 {
 private:
 	/// The pointer to the pointer to the item stored 
@@ -16,15 +16,24 @@ private:
 	size_t m_capacity;
 
 public:
-	this()
+
+	this(size_t capacity = 128)
 	{
-		m_capacity = 128;
-		m_queue = Mem.alloc!(OutboundItem[])(pq.capacity);
+		m_capacity = capacity;
+		m_queue = Mem.alloc!(OutboundItem[])(capacity);
 		m_queue = m_queue.ptr[0 .. 0];
 	}
 
-	/// Deallocates any resources allocated.  The stored items are not freed by this function.
-	void free() {
+	/// Deallocates any resources allocated.  All stored items are freed by this function.
+	void free()
+	{
+		while (!empty) 
+		{
+			OutboundItem item = top;
+			item.free();
+			Mem.free(item);
+			pop();
+		}
 		Mem.free(m_queue[0 .. m_capacity]);
 		m_queue = null;
 		m_capacity = 0;
@@ -156,7 +165,7 @@ private:
 			bubbleDown(minindex);
 		}
 	}
-
+package:
 	static int compare(in OutboundItem lhs, in OutboundItem rhs) 
 	{
 		if (lhs.cycle == rhs.cycle) {

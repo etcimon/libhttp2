@@ -7,28 +7,28 @@ import libhttp2.session;
 alias HTTP2SessionPolicy = Policy;
 
 package:
-interface Policy
+abstract class Policy
 {
     /**
-     * Callback function invoked when |session| wants to send data to the
+     * Callback function invoked when Session wants to send data to the
      * remote peer.  The implementation of this function must send at most
-     * |length| bytes of data stored in |data|.  
+     * |data.length| bytes of data stored in |data|.  
      * It must return the number of bytes sent if
      * it succeeds.  If it cannot send any single byte without blocking,
      * it must return $(D ErrorCode.WOULDBLOCK).  For other errors,
      * it must return $(D ErrorCode.CALLBACK_FAILURE).  
      *
      * This callback is required if the application uses
-     * `http2_session_send()` to send data to the remote endpoint.  If
-     * the application uses solely `http2_session_mem_send()` instead,
+     * $(D Session.send) to send data to the remote endpoint.  If
+     * the application uses solely $(D Session.memSend) instead,
      * this callback function is unnecessary.
      */
-    int write(Session session, in ubyte[] data);
+    int write(in ubyte[] data);
     
     /**
-     * Callback function invoked when |session| wants to receive data from
+     * Callback function invoked when Session wants to receive data from
      * the remote peer.  The implementation of this function must read at
-     * most |length| bytes of data and store it in |buf|.  
+     * most |data.length| bytes of data and store it in |data|.  
      * 
      * It must return the number of
      * bytes written in |buf| if it succeeds.  If it cannot read any
@@ -39,41 +39,60 @@ interface Policy
      * Returning 0 is treated as $(D ErrorCode.WOULDBLOCK). 
      *
      * This callback is required if the application uses
-     * `http2_session_recv()` to receive data from the remote endpoint.
+     * $(D Session.recv) to receive data from the remote endpoint.
      * If the application uses solely `http2_session_mem_recv()`
      * instead, this callback function is unnecessary.
      */
-    int read(Session session, ref ubyte[] data);
+    int read(out ubyte[] data);
 
     /**
-     * Callback function invoked by `http2_session_recv()` when a frame
+     * Callback function invoked by $(D Session.recv) when a frame
      * is received.  The |user_data| pointer is the third argument passed
      * in to the call to `http2_session_client_new()` or
      * `http2_session_server_new()`.
      *
-     * If frame is HEADERS or PUSH_PROMISE, the ``nva`` and ``nvlen``
+     * If frame is HEADERS or PUSH_PROMISE, the ``nva`` 
      * member of their data structure are always ``NULL`` and 0
      * respectively.  The header name/value pairs are emitted via
-     * :type:`http2_on_header_callback`.
+     * $(D onFrameHeader).
      *
      * For HEADERS, PUSH_PROMISE and DATA frames, this callback may be
      * called after stream is closed (see :type:`http2_on_stream_close_callback`). 
      *
      * Only HEADERS and DATA frame can signal the end of incoming data.
-     * If ``frame->hd.flags & FrameFlags.END_STREAM`` is nonzero, the
+     * If ``frame.hd.flags & FrameFlags.END_STREAM`` is nonzero, the
      * |frame| is the last frame from the remote peer in this stream.
      *
      * This callback won't be called for CONTINUATION frames.
      * HEADERS/PUSH_PROMISE + CONTINUATIONs are treated as single frame.
      *
      * If nonzero value is returned, it is treated as fatal error and
-     * `http2_session_recv()` and `http2_session_mem_recv()` functions
+     * $(D Session.recv) and `http2_session_mem_recv()` functions
      * immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-    bool onFrame(Session session, const Frame frame);
+    bool onFrame(in Frame frame); // receive
+
+	/**
+     * Callback function invoked when a frame header is received.  The
+     * |hd| points to received frame header.
+     *
+     * Unlike $(D onFrame), this callback will
+     * also be called when frame header of CONTINUATION frame is received.
+     *
+     * If both :type:`http2_on_begin_frame_callback` and
+     * :type:`http2_on_begin_headers_callback` are set and HEADERS or
+     * PUSH_PROMISE is received, :type:`http2_on_begin_frame_callback`
+     * will be called first.
+     *
+     * The implementation of this function must return true if it succeeds.
+     * If false value is returned, it is treated as fatal error and
+     * $(D Session.recv) and `http2_session_mem_recv()` functions
+     * immediately return $(D ErrorCode.CALLBACK_FAILURE).
+     */
+	bool onFrameHeader(in FrameHeader hd); // receive
 
     /**
-     * Callback function invoked by `http2_session_recv()` when an
+     * Callback function invoked by $(D Session.recv) when an
      * invalid non-DATA frame is received.  The |error_code| indicates the
      * error.  It is usually one of the $(D FrameError) but
      * that is not guaranteed.  When this callback function is invoked,
@@ -85,10 +104,10 @@ interface Policy
      * respectively.
      *
      * If this callback returns false, it is treated as fatal error and
-     * `http2_session_recv()` and `http2_session_send()` functions
+     * $(D Session.recv) and $(D Session.send) functions
      * immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-    bool onInvalidFrame(Session session, const Frame frame, FrameError error_code);
+    bool onInvalidFrame(in Frame frame, FrameError error_code);
 
 
     /**
@@ -104,16 +123,16 @@ interface Policy
      * $(D ErrorCode.PAUSE) to make `http2_session_mem_recv()`
      * return without processing further input bytes.  The memory
      * pointed by the |data| is retained until
-     * `http2_session_mem_recv()` or `http2_session_recv()` is called.
+     * `http2_session_mem_recv()` or $(D Session.recv) is called.
      * The application must retain the input bytes which was used to
      * produce the |data| parameter, because it may refer to the memory
      * region included in the input bytes.
      *
      * If this callback returns false, it is treated as fatal error and
-     * `http2_session_recv()` and `http2_session_mem_recv()` functions
+     * $(D Session.recv) and `http2_session_mem_recv()` functions
      * immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-    bool onDataChunkRecv(Session session, FrameFlags flags, in Stream stream, in ubyte[] data);
+    bool onDataChunkRecv(FrameFlags flags, in Stream stream, in ubyte[] data);
 
     /**
      * Callback function invoked just before the non-DATA frame |frame| is
@@ -121,38 +140,19 @@ interface Policy
      *
      * The implementation of this function must return true if it succeeds.
      * If this callback returns false, it is treated as fatal error and
-     * `http2_session_recv()` and `http2_session_send()` functions
+     * $(D Session.recv) and $(D Session.send) functions
      * immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-    bool onFrameReady(Session session, const Frame frame);
-
-    /**
-     * Callback function invoked when a frame header is received.  The
-     * |hd| points to received frame header.
-     *
-     * Unlike :type:`http2_on_frame_recv_callback`, this callback will
-     * also be called when frame header of CONTINUATION frame is received.
-     *
-     * If both :type:`http2_on_begin_frame_callback` and
-     * :type:`http2_on_begin_headers_callback` are set and HEADERS or
-     * PUSH_PROMISE is received, :type:`http2_on_begin_frame_callback`
-     * will be called first.
-     *
-     * The implementation of this function must return true if it succeeds.
-     * If nonzero value is returned, it is treated as fatal error and
-     * `http2_session_recv()` and `http2_session_mem_recv()` functions
-     * immediately return $(D ErrorCode.CALLBACK_FAILURE).
-     */
-    bool onFrameHeader(Session session, const FrameHeader hd);
+    bool onFrameReady(in Frame frame); // send
 
     /**
      * Callback function invoked after the frame |frame| is sent.  
      * 
      * If this callback returns false, it is treated as fatal error and
-     * `http2_session_recv()` and `http2_session_send()` functions
+     * $(D Session.recv) and $(D Session.send) functions
      * immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-    bool onFrameSent(Session session, const Frame frame);
+    bool onFrameSent(in Frame frame); // send
 
     /**
      * Callback function invoked after the non-DATA frame |frame| is not
@@ -161,10 +161,10 @@ interface Policy
      * $(D ErrorCode).  
      *
      * If this callback returns false, it is treated as fatal error and
-     * `http2_session_recv()` and `http2_session_send()` functions
+     * $(D Session.recv) and $(D Session.send) functions
      * immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-    bool onFrameFailure(Session session, const Frame frame, ErrorCode error_code);
+    bool onFrameFailure(in Frame frame, ErrorCode error_code);
 
     /**
      * Callback function invoked when the stream |stream_id| is closed.
@@ -175,17 +175,17 @@ interface Policy
      * This function is also called for a stream in reserved state.
      *
      * If this callback returns false, it is treated as fatal error and
-     * `http2_session_recv()` and `http2_session_send()` functions
+     * $(D Session.recv) and $(D Session.send) functions
      * immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-    bool onStreamExit(Session session, in Stream stream, ErrorCode error_code);
+    bool onStreamExit(in Stream stream, ErrorCode error_code);
 
     /**
      * Callback function invoked when the reception of header block in
      * HEADERS or PUSH_PROMISE is started.  Each header name/value pair
      * will be emitted by :type:`http2_on_header_callback`.
      *
-     * The ``frame->hd.flags`` may not have
+     * The ``frame.hd.flags`` may not have
      * $(D FrameFlags.END_HEADERS) flag set, which indicates that one
      * or more CONTINUATION frames are involved.  But the application does
      * not need to care about that because the header name/value pairs are
@@ -193,7 +193,7 @@ interface Policy
      *
      * If this callback returns false, stream fails with `ErrorCode.CALLBACK_FAILURE`
      */
-    bool onHeaders(Session session, in Frame frame);
+    bool onHeaders(in Frame frame);
 
     /**
      * Callback function invoked when a header name/value pair is received
@@ -201,20 +201,19 @@ interface Policy
      * The |value| of length |valuelen| is header value.  The |flags| is
      * bitwise OR of one or more of :type:`http2_nv_flag`.
      *
-     * If $(D HTTP2_NV_FLAG_NO_INDEX) is set in |flags|, the receiver
+     * If $(D NVFlags.NO_INDEX) is set in |flags|, the receiver
      * must not index this name/value pair when forwarding it to the next
      * hop.  More specifically, "Literal Header Field never Indexed"
      * representation must be used in HPACK encoding.
      *
-     * When this callback is invoked, ``frame->hd.type`` is either
+     * When this callback is invoked, $(D frame.hd.type) is either
      * $(D FrameFlags.HEADERS) or $(D FrameFlags.PUSH_PROMISE).  After all
      * header name/value pairs are processed with this callback, and no
-     * error has been detected, :type:`http2_on_frame_recv_callback`
-     * will be invoked.  If there is an error in decompression,
-     * :type:`http2_on_frame_recv_callback` for the |frame| will not be
-     * invoked.
+     * error has been detected, $(D Policy.onFrame) will be invoked.  
+     * If there is an error in decompression, $(D Policy.onFrame) for the |frame| 
+     * will not be invoked.
      *
-     * The |value| may be ``NULL`` if the |valuelen| is 0.
+     * The |value| may be null if the |value.length| is 0.
      *
      * Please note that unless `http2_option_set_no_http_messaging()` is
      * used, nghttp2 library does perform validation against the |name|
@@ -223,48 +222,45 @@ interface Policy
      * performs vaidation based on HTTP Messaging rule, which is briefly
      * explained in `HTTP Messaging`_ section.
      *
-     * If the application uses `http2_session_mem_recv()`, it can return
-     * $(D ErrorCode.PAUSE) to make `http2_session_mem_recv()`
+     * If the application uses $(D Session.memRecv), it can return
+     * $(D ErrorCode.PAUSE) to make $(D Session.memRecv)
      * return without processing further input bytes.  The memory pointed
      * by |frame|, |name| and |value| parameters are retained until
-     * `http2_session_mem_recv()` or `http2_session_recv()` is called.
+     * $(D Session.memRecv) or $(D Session.recv) is called.
      * The application must retain the input bytes which was used to
      * produce these parameters, because it may refer to the memory region
      * included in the input bytes.
      *
      * Returning $(D ErrorCode.TEMPORAL_CALLBACK_FAILURE) will close
-     * the stream by issuing RST_STREAM with
-     * $(D HTTP2_INTERNAL_ERROR).  In this case,
-     * :type:`http2_on_frame_recv_callback` will not be invoked.  If a
+     * the stream by issuing RST_STREAM with $(D FrameError.INTERNAL_ERROR). 
+     * In this case, $(D Policy.onFrame) will not be invoked.  If a
      * different error code is desirable, use
      * `http2_submit_rst_stream()` with a desired error code and then
      * return $(D ErrorCode.TEMPORAL_CALLBACK_FAILURE).
      *
-     * The implementation of this function must return true if it succeeds.
-     * It may return $(D ErrorCode.PAUSE) or
-     * $(D ErrorCode.TEMPORAL_CALLBACK_FAILURE).  For other critical
-     * failures, it must return $(D ErrorCode.CALLBACK_FAILURE).  If
-     * the other nonzero value is returned, it is treated as
-     * $(D ErrorCode.CALLBACK_FAILURE).  If
-     * $(D ErrorCode.CALLBACK_FAILURE) is returned,
-     * `http2_session_recv()` and `http2_session_mem_recv()` functions
-     * immediately return $(D ErrorCode.CALLBACK_FAILURE).
+     * The implementation of this function must return 0 if it succeeds.
+     * It may return $(D ErrorCode.PAUSE) or $(D ErrorCode.TEMPORAL_CALLBACK_FAILURE).  
+     * For other critical failures, it must return $(D ErrorCode.CALLBACK_FAILURE). 
+     * If any other nonzero value is returned, it is treated as $(D ErrorCode.CALLBACK_FAILURE).
+     * If $(D ErrorCode.CALLBACK_FAILURE) is returned, $(D Session.recv) and 
+     * $(D Session.memRecv) functions immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-    ErrorCode onHeader(Session session, const Frame frame, in ubyte[] name, in ubyte[] value, ubyte flags);
+    ErrorCode onHeader(in Frame frame, in ubyte[] name, in ubyte[] value, NVFlags flags);
 
     /**
      * Callback function invoked when the library asks application how
      * many padding bytes are required for the transmission of the
      * |frame|.  The application must choose the total length of payload
-     * including padded bytes in range [frame->hd.length, max_payloadlen],
+     * including padded bytes in range [frame.hd.length, max_payloadlen],
      * inclusive.  Choosing number not in this range will be treated as
-     * $(D ErrorCode.CALLBACK_FAILURE).  Returning
-     * ``frame->hd.length`` means no padding is added.  Returning
-     * $(D ErrorCode.CALLBACK_FAILURE) will make
-     * `http2_session_send()` function immediately return
-     * $(D ErrorCode.CALLBACK_FAILURE).
+     * $(D ErrorCode.CALLBACK_FAILURE).  Returning ``frame.hd.length`` 
+     * means no padding is added.  Returning $(D ErrorCode.CALLBACK_FAILURE) will make
+     * $(D Session.send()) function immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-    int selectPaddingLength(Session session, const Frame frame, int max_payloadlen);
+    int selectPaddingLength(in Frame frame, int max_payloadlen)
+	{
+		return frame.hd.length;
+	}
 
     /**
      * Callback function invoked when library wants to get max length of
@@ -285,7 +281,7 @@ interface Policy
      * $(D ErrorCode.CALLBACK_FAILURE) will signal the entire session
      * failure..
      */
-    int maxFrameSize(Session session, FrameType frame_type, Stream stream,  int session_remote_window_size, int stream_remote_window_size, uint remote_max_frame_size);
+    int maxFrameSize(FrameType frame_type, Stream stream,  int session_remote_window_size, int stream_remote_window_size, uint remote_max_frame_size);
 
 
 }

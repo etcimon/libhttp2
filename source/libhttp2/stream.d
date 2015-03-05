@@ -90,7 +90,19 @@ struct StreamRoots
 
 class Stream {
 
-    this(int stream_id,
+	this(int stream_id,
+		StreamFlags flags,
+		StreamState initial_state,
+		int weight,
+		StreamRoots roots,
+		int remote_initial_window_size,
+		int local_initial_window_size,
+		void *stream_user_data)
+	{
+		initialize(stream_id, flags, initial_state, weight, roots, remote_initial_window_size, local_initial_window_size, stream_user_data);
+	}
+
+    void initialize(int stream_id,
 		 StreamFlags flags,
 		 StreamState initial_state,
 		 int weight,
@@ -687,7 +699,7 @@ class Stream {
     /*
      * Returns nonzero if $(D Stream) is in any dependency tree.
      */
-    int inDepTree() {
+    bool inDepTree() {
         return m_dep_prev || m_dep_next || m_sib_prev ||
                m_sib_next || m_root_next || m_root_prev ||
                m_roots.head is this;

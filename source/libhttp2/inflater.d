@@ -395,7 +395,7 @@ struct Inflater
 					rv = read(nvbufs, pos, last);
 
 					if (rv < 0) {
-						DEBUGF(fprintf(stderr, "inflatehd: value read failure %zd: %s\n", rv, http2_strerror(cast(int)rv)));
+						DEBUGF(fprintf(stderr, "inflatehd: value read failure %zd: %s\n", rv, toString(cast(ErrorCode)rv)));
 						goto fail;
 					}
 					

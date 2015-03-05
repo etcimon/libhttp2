@@ -22,7 +22,7 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
-module libhttp2.huffman_decoder;
+module libhttp2.deflater;
 
 import libhttp2.constants;
 import libhttp2.types;
