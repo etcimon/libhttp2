@@ -282,10 +282,10 @@ static int on_header_callback(Session session,
 	void *user_data) {
 	my_user_data *ud = (my_user_data *)user_data;
 	++ud.header_cb_called;
-	ud.nv.name = (ubyte *)name;
-	ud.nv.namelen = namelen;
-	ud.nv.value = (ubyte *)value;
-	ud.nv.valuelen = valuelen;
+	ud.hf.name = (ubyte *)name;
+	ud.hf.namelen = namelen;
+	ud.hf.value = (ubyte *)value;
+	ud.hf.valuelen = valuelen;
 	
 	ud.frame = frame;
 	return 0;
@@ -353,8 +353,8 @@ void test_http2_session_recv(void) {
 	http2_frame frame;
 	size_t i;
 	http2_outbound_item *item;
-	http2_nv *nva;
-	size_t nvlen;
+	HeaderField[] hfa;
+	size_t hfa.length;
 	http2_hd_deflater deflater;
 	int rv;
 	http2_mem *mem;
@@ -373,10 +373,10 @@ void test_http2_session_recv(void) {
 	http2_session_server_new(&session, &callbacks, &user_data);
 	http2_hd_deflate_init(&deflater, mem);
 	
-	nvlen = ARRLEN(reqnv);
-	http2_nv_array_copy(&nva, reqnv, nvlen, mem);
+	hfa.length = ARRLEN(reqnv);
+	http2_nv_array_copy(hfa, reqnv, hfa.length, mem);
 	http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 1,
-		HTTP2_HCAT_HEADERS, null, nva, nvlen);
+		HTTP2_HCAT_HEADERS, null, hfa, hfa.length);
 	rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 	
 	assert(0 == rv);
@@ -396,7 +396,7 @@ void test_http2_session_recv(void) {
 	user_data.begin_frame_cb_called = 0;
 	
 	while ((size_t)df.seqidx < framelen) {
-		assert(0 == session.recv()));
+		assert(0 == http2_session_recv(session));
 	}
 	assert(1 == user_data.frame_recv_cb_called);
 	assert(1 == user_data.begin_frame_cb_called);
@@ -417,7 +417,7 @@ void test_http2_session_recv(void) {
 	user_data.frame_recv_cb_called = 0;
 	user_data.begin_frame_cb_called = 0;
 	
-	assert(0 == session.recv()));
+	assert(0 == http2_session_recv(session));
 	assert(1 == user_data.frame_recv_cb_called);
 	assert(1 == user_data.begin_frame_cb_called);
 	
@@ -451,7 +451,7 @@ void test_http2_session_recv(void) {
 	user_data.frame_recv_cb_called = 0;
 	user_data.begin_frame_cb_called = 0;
 	
-	assert(0 == session.recv()));
+	assert(0 == http2_session_recv(session));
 	assert(0 == user_data.frame_recv_cb_called);
 	assert(0 == user_data.begin_frame_cb_called);
 	
@@ -474,9 +474,7 @@ void test_http2_session_recv_invalid_stream_id(void) {
 	http2_hd_deflater deflater;
 	int rv;
 	http2_mem *mem;
-	http2_nv *nva;
-	size_t nvlen;
-	
+	HeaderField[] hfa;	
 	mem = http2_mem_default();
 	frame_pack_bufs_init(&bufs);
 	
@@ -489,10 +487,10 @@ void test_http2_session_recv_invalid_stream_id(void) {
 	http2_session_server_new(&session, &callbacks, &user_data);
 	http2_hd_deflate_init(&deflater, mem);
 	
-	nvlen = ARRLEN(reqnv);
-	http2_nv_array_copy(&nva, reqnv, nvlen, mem);
+	hfa.length = ARRLEN(reqnv);
+	http2_nv_array_copy(hfa, reqnv, hfa.length, mem);
 	http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 2,
-		HTTP2_HCAT_HEADERS, null, nva, nvlen);
+		HTTP2_HCAT_HEADERS, null, hfa, hfa.length);
 	rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 	
 	assert(0 == rv);
@@ -501,7 +499,7 @@ void test_http2_session_recv_invalid_stream_id(void) {
 	scripted_data_feed_init2(&df, &bufs);
 	http2_frame_headers_free(&frame.headers, mem);
 	
-	assert(0 == session.recv()));
+	assert(0 == http2_session_recv(session));
 	assert(1 == user_data.invalid_frame_recv_cb_called);
 	
 	http2_bufs_free(&bufs);
@@ -516,8 +514,7 @@ void test_http2_session_recv_invalid_frame(void) {
 	my_user_data user_data;
 	http2_bufs bufs;
 	http2_frame frame;
-	http2_nv *nva;
-	size_t nvlen;
+	HeaderField[] hfa;
 	http2_hd_deflater deflater;
 	int rv;
 	http2_mem *mem;
@@ -534,10 +531,10 @@ void test_http2_session_recv_invalid_frame(void) {
 	user_data.frame_send_cb_called = 0;
 	http2_session_server_new(&session, &callbacks, &user_data);
 	http2_hd_deflate_init(&deflater, mem);
-	nvlen = ARRLEN(reqnv);
-	http2_nv_array_copy(&nva, reqnv, nvlen, mem);
+	hfa.length = ARRLEN(reqnv);
+	http2_nv_array_copy(hfa, reqnv, hfa.length, mem);
 	http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 1,
-		HTTP2_HCAT_HEADERS, null, nva, nvlen);
+		HTTP2_HCAT_HEADERS, null, hfa, hfa.length);
 	rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 	
 	assert(0 == rv);
@@ -545,7 +542,7 @@ void test_http2_session_recv_invalid_frame(void) {
 	
 	scripted_data_feed_init2(&df, &bufs);
 	
-	assert(0 == session.recv()));
+	assert(0 == http2_session_recv(session));
 	assert(0 == session.send());
 	assert(0 == user_data.frame_send_cb_called);
 	
@@ -553,7 +550,7 @@ void test_http2_session_recv_invalid_frame(void) {
    * pseudo headers and without END_STREAM flag set */
 	scripted_data_feed_init2(&df, &bufs);
 	
-	assert(0 == session.recv()));
+	assert(0 == http2_session_recv(session));
 	assert(0 == session.send());
 	assert(1 == user_data.frame_send_cb_called);
 	assert(HTTP2_RST_STREAM == user_data.sent_frame_type);
@@ -574,7 +571,7 @@ void test_http2_session_recv_eof(void) {
 	callbacks.recv_callback = eof_recv_callback;
 	
 	http2_session_client_new(&session, &callbacks, null);
-	assert(ErrorCode.EOF == session.recv()));
+	assert(ErrorCode.EOF == http2_session_recv(session));
 	
 	http2_session_del(session);
 }
@@ -706,8 +703,7 @@ void test_http2_session_recv_data(void) {
 void test_http2_session_recv_continuation(void) {
 	Session session;
 	http2_session_callbacks callbacks;
-	http2_nv *nva;
-	size_t nvlen;
+	HeaderField[] hfa;
 	http2_frame frame;
 	http2_bufs bufs;
 	http2_buf *buf;
@@ -733,10 +729,10 @@ void test_http2_session_recv_continuation(void) {
 	http2_hd_deflate_init(&deflater, mem);
 	
 	/* Make 1 HEADERS and insert CONTINUATION header */
-	nvlen = ARRLEN(reqnv);
-	http2_nv_array_copy(&nva, reqnv, nvlen, mem);
+	hfa.length = ARRLEN(reqnv);
+	http2_nv_array_copy(hfa, reqnv, hfa.length, mem);
 	http2_frame_headers_init(&frame.headers, FrameFlags.NONE, 1,
-		HTTP2_HCAT_HEADERS, null, nva, nvlen);
+		HTTP2_HCAT_HEADERS, null, hfa, hfa.length);
 	rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 	
 	assert(0 == rv);
@@ -796,10 +792,10 @@ void test_http2_session_recv_continuation(void) {
 	http2_hd_deflate_init(&deflater, mem);
 	
 	/* HEADERS without END_HEADERS flag */
-	nvlen = ARRLEN(reqnv);
-	http2_nv_array_copy(&nva, reqnv, nvlen, mem);
+	hfa.length = ARRLEN(reqnv);
+	http2_nv_array_copy(hfa, reqnv, hfa.length, mem);
 	http2_frame_headers_init(&frame.headers, FrameFlags.NONE, 1,
-		HTTP2_HCAT_HEADERS, null, nva, nvlen);
+		HTTP2_HCAT_HEADERS, null, hfa, hfa.length);
 	http2_bufs_reset(&bufs);
 	rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 	
@@ -845,8 +841,7 @@ void test_http2_session_recv_continuation(void) {
 void test_http2_session_recv_headers_with_priority(void) {
 	Session session;
 	http2_session_callbacks callbacks;
-	http2_nv *nva;
-	size_t nvlen;
+	HeaderField[] hfa;
 	http2_frame frame;
 	http2_bufs bufs;
 	http2_buf *buf;
@@ -871,14 +866,14 @@ void test_http2_session_recv_headers_with_priority(void) {
 	open_stream(session, 1);
 	
 	/* With FrameFlags.PRIORITY without exclusive flag set */
-	nvlen = ARRLEN(reqnv);
-	http2_nv_array_copy(&nva, reqnv, nvlen, mem);
+	hfa.length = ARRLEN(reqnv);
+	http2_nv_array_copy(hfa, reqnv, hfa.length, mem);
 	
 	http2_priority_spec_init(&pri_spec, 1, 99, 0);
 	
 	http2_frame_headers_init(&frame.headers,
 		FrameFlags.END_HEADERS | FrameFlags.PRIORITY,
-		3, HTTP2_HCAT_HEADERS, &pri_spec, nva, nvlen);
+		3, HTTP2_HCAT_HEADERS, &pri_spec, hfa, hfa.length);
 	
 	rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 	
@@ -906,14 +901,14 @@ void test_http2_session_recv_headers_with_priority(void) {
 	
 	/* With FrameFlags.PRIORITY, but cut last 1 byte to make it
      invalid. */
-	nvlen = ARRLEN(reqnv);
-	http2_nv_array_copy(&nva, reqnv, nvlen, mem);
+	hfa.length = ARRLEN(reqnv);
+	http2_nv_array_copy(hfa, reqnv, hfa.length, mem);
 	
 	http2_priority_spec_init(&pri_spec, 0, 99, 0);
 	
 	http2_frame_headers_init(&frame.headers,
 		FrameFlags.END_HEADERS | FrameFlags.PRIORITY,
-		5, HTTP2_HCAT_HEADERS, &pri_spec, nva, nvlen);
+		5, HTTP2_HCAT_HEADERS, &pri_spec, hfa, hfa.length);
 	
 	rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 	
@@ -953,14 +948,14 @@ void test_http2_session_recv_headers_with_priority(void) {
 	
 	http2_hd_deflate_init(&deflater, mem);
 	
-	nvlen = ARRLEN(reqnv);
-	http2_nv_array_copy(&nva, reqnv, nvlen, mem);
+	hfa.length = ARRLEN(reqnv);
+	http2_nv_array_copy(hfa, reqnv, hfa.length, mem);
 	
 	http2_priority_spec_init(&pri_spec, 1, 0, 0);
 	
 	http2_frame_headers_init(&frame.headers,
 		FrameFlags.END_HEADERS | FrameFlags.PRIORITY,
-		1, HTTP2_HCAT_HEADERS, &pri_spec, nva, nvlen);
+		1, HTTP2_HCAT_HEADERS, &pri_spec, hfa, hfa.length);
 	
 	rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 	
@@ -998,8 +993,7 @@ void test_http2_session_recv_headers_with_priority(void) {
 void test_http2_session_recv_premature_headers(void) {
 	Session session;
 	http2_session_callbacks callbacks;
-	http2_nv *nva;
-	size_t nvlen;
+	HeaderField[] hfa;
 	http2_frame frame;
 	http2_bufs bufs;
 	http2_buf *buf;
@@ -1018,10 +1012,10 @@ void test_http2_session_recv_premature_headers(void) {
 	
 	http2_hd_deflate_init(&deflater, mem);
 	
-	nvlen = ARRLEN(reqnv);
-	http2_nv_array_copy(&nva, reqnv, nvlen, mem);
+	hfa.length = ARRLEN(reqnv);
+	http2_nv_array_copy(hfa, reqnv, hfa.length, mem);
 	http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 1,
-		HTTP2_HCAT_HEADERS, null, nva, nvlen);
+		HTTP2_HCAT_HEADERS, null, hfa, hfa.length);
 	rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 	
 	assert(0 == rv);
@@ -1326,8 +1320,8 @@ void test_http2_session_continue(void) {
 	Session session;
 	http2_session_callbacks callbacks;
 	my_user_data user_data;
-	const http2_nv nv1[] = {MAKE_NV(":method", "GET"), MAKE_NV(":path", "/")};
-	const http2_nv nv2[] = {MAKE_NV("user-agent", "nghttp2/1.0.0"),
+	const http2_nv hf1[] = {MAKE_NV(":method", "GET"), MAKE_NV(":path", "/")};
+	const http2_nv hf2[] = {MAKE_NV("user-agent", "nghttp2/1.0.0"),
 		MAKE_NV("alpha", "bravo")};
 	http2_bufs bufs;
 	http2_buf *buf;
@@ -1336,8 +1330,8 @@ void test_http2_session_continue(void) {
 	ubyte buffer[4096];
 	http2_buf databuf;
 	http2_frame frame;
-	http2_nv *nva;
-	size_t nvlen;
+	HeaderField[] hfa;
+	size_t hfa.length;
 	const http2_frame *recv_frame;
 	http2_frame_hd data_hd;
 	http2_hd_deflater deflater;
@@ -1361,10 +1355,10 @@ void test_http2_session_continue(void) {
 	http2_hd_deflate_init(&deflater, mem);
 	
 	/* Make 2 HEADERS frames */
-	nvlen = ARRLEN(nv1);
-	http2_nv_array_copy(&nva, nv1, nvlen, mem);
+	hfa.length = ARRLEN(hf1);
+	http2_nv_array_copy(hfa, hf1, hfa.length, mem);
 	http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 1,
-		HTTP2_HCAT_HEADERS, null, nva, nvlen);
+		HTTP2_HCAT_HEADERS, null, hfa, hfa.length);
 	rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 	
 	assert(0 == rv);
@@ -1378,10 +1372,10 @@ void test_http2_session_continue(void) {
 	framelen1 = http2_buf_len(buf);
 	databuf.last = http2_cpymem(databuf.last, buf.pos, http2_buf_len(buf));
 	
-	nvlen = ARRLEN(nv2);
-	http2_nv_array_copy(&nva, nv2, nvlen, mem);
+	hfa.length = ARRLEN(hf2);
+	http2_nv_array_copy(hfa, hf2, hfa.length, mem);
 	http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 3,
-		HTTP2_HCAT_HEADERS, null, nva, nvlen);
+		HTTP2_HCAT_HEADERS, null, hfa, hfa.length);
 	http2_bufs_reset(&bufs);
 	rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 	
@@ -1411,7 +1405,7 @@ void test_http2_session_continue(void) {
 	assert(1 == user_data.begin_headers_cb_called);
 	assert(1 == user_data.header_cb_called);
 	
-	assert(http2_nv_equal(&nv1[0], &user_data.nv));
+	assert(http2_nv_equal(&hf1[0], &user_data.hf));
 	
 	/* get 2nd header field */
 	user_data.begin_headers_cb_called = 0;
@@ -1425,7 +1419,7 @@ void test_http2_session_continue(void) {
 	assert(0 == user_data.begin_headers_cb_called);
 	assert(1 == user_data.header_cb_called);
 	
-	assert(http2_nv_equal(&nv1[1], &user_data.nv));
+	assert(http2_nv_equal(&hf1[1], &user_data.hf));
 	
 	/* will call end_headers_callback and receive 2nd HEADERS and pause */
 	user_data.begin_headers_cb_called = 0;
@@ -1443,7 +1437,7 @@ void test_http2_session_continue(void) {
 	assert(1 == user_data.begin_headers_cb_called);
 	assert(1 == user_data.header_cb_called);
 	
-	assert(http2_nv_equal(&nv2[0], &user_data.nv));
+	assert(http2_nv_equal(&hf2[0], &user_data.hf));
 	
 	/* get 2nd header field */
 	user_data.begin_headers_cb_called = 0;
@@ -1457,7 +1451,7 @@ void test_http2_session_continue(void) {
 	assert(0 == user_data.begin_headers_cb_called);
 	assert(1 == user_data.header_cb_called);
 	
-	assert(http2_nv_equal(&nv2[1], &user_data.nv));
+	assert(http2_nv_equal(&hf2[1], &user_data.hf));
 	
 	/* No input data, frame_recv_callback is called */
 	user_data.begin_headers_cb_called = 0;
@@ -1517,8 +1511,8 @@ void test_http2_session_add_frame(void) {
 	my_user_data user_data;
 	http2_outbound_item *item;
 	http2_frame *frame;
-	http2_nv *nva;
-	size_t nvlen;
+	HeaderField[] hfa;
+	size_t hfa.length;
 	http2_mem *mem;
 	
 	mem = http2_mem_default();
@@ -1534,12 +1528,12 @@ void test_http2_session_add_frame(void) {
 	
 	frame = &item.frame;
 	
-	nvlen = ARRLEN(reqnv);
-	http2_nv_array_copy(&nva, reqnv, nvlen, mem);
+	hfa.length = ARRLEN(reqnv);
+	http2_nv_array_copy(hfa, reqnv, hfa.length, mem);
 	
 	http2_frame_headers_init(
 		&frame.headers, FrameFlags.END_HEADERS | FrameFlags.PRIORITY,
-		session.next_stream_id, HTTP2_HCAT_REQUEST, null, nva, nvlen);
+		session.next_stream_id, HTTP2_HCAT_REQUEST, null, hfa, hfa.length);
 	
 	session.next_stream_id += 2;
 	
@@ -1562,8 +1556,8 @@ void test_http2_session_on_request_headers_received(void) {
 	http2_stream *stream;
 	int stream_id = 1;
 	http2_nv malformed_nva[] = {MAKE_NV(":path", "\x01")};
-	http2_nv *nva;
-	size_t nvlen;
+	HeaderField[] hfa;
+	size_t hfa.length;
 	http2_priority_spec pri_spec;
 	http2_mem *mem;
 	
@@ -1637,11 +1631,11 @@ void test_http2_session_on_request_headers_received(void) {
 	/* Check malformed headers. The library accept it. */
 	http2_session_server_new(&session, &callbacks, &user_data);
 	
-	nvlen = ARRLEN(malformed_nva);
-	http2_nv_array_copy(&nva, malformed_nva, nvlen, mem);
+	hfa.length = ARRLEN(malformed_nva);
+	http2_nv_array_copy(hfa, malformed_nva, hfa.length, mem);
 	http2_frame_headers_init(&frame.headers,
 		FrameFlags.END_HEADERS | FrameFlags.PRIORITY,
-		1, HTTP2_HCAT_HEADERS, null, nva, nvlen);
+		1, HTTP2_HCAT_HEADERS, null, hfa, hfa.length);
 	user_data.begin_headers_cb_called = 0;
 	user_data.invalid_frame_recv_cb_called = 0;
 	assert(0 == http2_session_on_request_headers_received(session, &frame));
@@ -2166,8 +2160,8 @@ void test_http2_session_on_push_promise_received(void) {
 	http2_stream *stream, *promised_stream;
 	http2_outbound_item *item;
 	http2_nv malformed_nva[] = {MAKE_NV(":path", "\x01")};
-	http2_nv *nva;
-	size_t nvlen;
+	HeaderField[] hfa;
+	size_t hfa.length;
 	http2_mem *mem;
 	
 	mem = http2_mem_default();
@@ -2335,10 +2329,10 @@ void test_http2_session_on_push_promise_received(void) {
 	stream = http2_session_open_stream(session, 1, HTTP2_STREAM_FLAG_NONE,
 		&pri_spec_default,
 		HTTP2_STREAM_OPENING, null);
-	nvlen = ARRLEN(malformed_nva);
-	http2_nv_array_copy(&nva, malformed_nva, nvlen, mem);
+	hfa.length = ARRLEN(malformed_nva);
+	http2_nv_array_copy(hfa, malformed_nva, hfa.length, mem);
 	http2_frame_push_promise_init(&frame.push_promise, FrameFlags.END_HEADERS,
-		1, 2, nva, nvlen);
+		1, 2, hfa, hfa.length);
 	user_data.begin_headers_cb_called = 0;
 	user_data.invalid_frame_recv_cb_called = 0;
 	assert(0 == http2_session_on_push_promise_received(session, &frame));
@@ -2621,9 +2615,9 @@ void test_http2_session_send_headers_frame_size_error(void) {
 	http2_session_callbacks callbacks;
 	http2_outbound_item *item;
 	http2_frame *frame;
-	http2_nv *nva;
-	size_t nvlen;
-	size_t vallen = HTTP2_HD_MAX_NV;
+	HeaderField[] hfa;
+	size_t hfa.length;
+	size_t vallen = MAX_HF_LEN;
 	http2_nv nv[28];
 	size_t nnv = ARRLEN(nv);
 	size_t i;
@@ -2647,8 +2641,8 @@ void test_http2_session_send_headers_frame_size_error(void) {
 	callbacks.on_frame_not_send_callback = on_frame_not_send_callback;
 	
 	http2_session_client_new(&session, &callbacks, &ud);
-	nvlen = nnv;
-	http2_nv_array_copy(&nva, nv, nvlen, mem);
+	hfa.length = nnv;
+	http2_nv_array_copy(hfa, nv, hfa.length, mem);
 	
 	item = Mem.alloc!OutboundItem(session);
 	
@@ -2656,7 +2650,7 @@ void test_http2_session_send_headers_frame_size_error(void) {
 	
 	http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS,
 		session.next_stream_id, HTTP2_HCAT_REQUEST,
-		null, nva, nvlen);
+		null, hfa, hfa.length);
 	
 	session.next_stream_id += 2;
 	
@@ -3241,8 +3235,8 @@ void test_http2_submit_request_with_data(void) {
 	assert(1 == http2_submit_request(session, null, reqnv, ARRLEN(reqnv),
 			&data_prd, null));
 	item = session.getNextOutboundItem();
-	assert(ARRLEN(reqnv) == item.frame.headers.nvlen);
-	assert_nv_equal(reqnv, item.frame.headers.nva, item.frame.headers.nvlen);
+	assert(ARRLEN(reqnv) == item.frame.headers.hflen);
+	assert_nv_equal(reqnv, item.frame.headers.hfa, item.frame.headers.hflen);
 	assert(0 == session.send());
 	assert(0 == ud.data_source_length);
 	
@@ -3276,8 +3270,8 @@ void test_http2_submit_request_without_data(void) {
 	assert(1 == http2_submit_request(session, null, reqnv, ARRLEN(reqnv),
 			&data_prd, null));
 	item = session.getNextOutboundItem();
-	assert(ARRLEN(reqnv) == item.frame.headers.nvlen);
-	assert_nv_equal(reqnv, item.frame.headers.nva, item.frame.headers.nvlen);
+	assert(ARRLEN(reqnv) == item.frame.headers.hflen);
+	assert_nv_equal(reqnv, item.frame.headers.hfa, item.frame.headers.hflen);
 	assert(item.frame.hd.flags & FrameFlags.END_STREAM);
 	
 	assert(0 == session.send());
@@ -3286,8 +3280,8 @@ void test_http2_submit_request_without_data(void) {
 	http2_bufs_add(&bufs, acc.buf, acc.length);
 	inflate_hd(&inflater, &out, &bufs, HTTP2_FRAME_HDLEN);
 	
-	assert(ARRLEN(reqnv) == out.nvlen);
-	assert_nv_equal(reqnv, out.nva, out.nvlen);
+	assert(ARRLEN(reqnv) == out.hflen);
+	assert_nv_equal(reqnv, out.hfa, out.hflen);
 	http2_frame_headers_free(&frame.headers, mem);
 	nva_out_reset(&out);
 	
@@ -3314,8 +3308,8 @@ void test_http2_submit_response_with_data(void) {
 	assert(0 == http2_submit_response(session, 1, resnv, ARRLEN(resnv),
 			&data_prd));
 	item = session.getNextOutboundItem();
-	assert(ARRLEN(resnv) == item.frame.headers.nvlen);
-	assert_nv_equal(resnv, item.frame.headers.nva, item.frame.headers.nvlen);
+	assert(ARRLEN(resnv) == item.frame.headers.hflen);
+	assert_nv_equal(resnv, item.frame.headers.hfa, item.frame.headers.hflen);
 	assert(0 == session.send());
 	assert(0 == ud.data_source_length);
 	
@@ -3351,8 +3345,8 @@ void test_http2_submit_response_without_data(void) {
 	assert(0 == http2_submit_response(session, 1, resnv, ARRLEN(resnv),
 			&data_prd));
 	item = session.getNextOutboundItem();
-	assert(ARRLEN(resnv) == item.frame.headers.nvlen);
-	assert_nv_equal(resnv, item.frame.headers.nva, item.frame.headers.nvlen);
+	assert(ARRLEN(resnv) == item.frame.headers.hflen);
+	assert_nv_equal(resnv, item.frame.headers.hfa, item.frame.headers.hflen);
 	assert(item.frame.hd.flags & FrameFlags.END_STREAM);
 	
 	assert(0 == session.send());
@@ -3361,8 +3355,8 @@ void test_http2_submit_response_without_data(void) {
 	http2_bufs_add(&bufs, acc.buf, acc.length);
 	inflate_hd(&inflater, &out, &bufs, HTTP2_FRAME_HDLEN);
 	
-	assert(ARRLEN(resnv) == out.nvlen);
-	assert_nv_equal(resnv, out.nva, out.nvlen);
+	assert(ARRLEN(resnv) == out.hflen);
+	assert_nv_equal(resnv, out.hfa, out.hflen);
 	
 	nva_out_reset(&out);
 	http2_bufs_free(&bufs);
@@ -3381,8 +3375,8 @@ void test_http2_submit_headers_start_stream(void) {
 	assert(1 == http2_submit_headers(session, FrameFlags.END_STREAM, -1,
 			null, reqnv, ARRLEN(reqnv), null));
 	item = session.getNextOutboundItem();
-	assert(ARRLEN(reqnv) == item.frame.headers.nvlen);
-	assert_nv_equal(reqnv, item.frame.headers.nva, item.frame.headers.nvlen);
+	assert(ARRLEN(reqnv) == item.frame.headers.hflen);
+	assert_nv_equal(reqnv, item.frame.headers.hfa, item.frame.headers.hflen);
 	assert((FrameFlags.END_HEADERS | FrameFlags.END_STREAM) ==
 		item.frame.hd.flags);
 	assert(0 == (item.frame.hd.flags & FrameFlags.PRIORITY));
@@ -3405,8 +3399,8 @@ void test_http2_submit_headers_reply(void) {
 	assert(0 == http2_submit_headers(session, FrameFlags.END_STREAM, 1,
 			null, resnv, ARRLEN(resnv), null));
 	item = session.getNextOutboundItem();
-	assert(ARRLEN(resnv) == item.frame.headers.nvlen);
-	assert_nv_equal(resnv, item.frame.headers.nva, item.frame.headers.nvlen);
+	assert(ARRLEN(resnv) == item.frame.headers.hflen);
+	assert_nv_equal(resnv, item.frame.headers.hfa, item.frame.headers.hflen);
 	assert((FrameFlags.END_STREAM | FrameFlags.END_HEADERS) ==
 		item.frame.hd.flags);
 	
@@ -3505,8 +3499,8 @@ void test_http2_submit_headers(void) {
 	assert(0 == http2_submit_headers(session, FrameFlags.END_STREAM, 1,
 			null, reqnv, ARRLEN(reqnv), null));
 	item = session.getNextOutboundItem();
-	assert(ARRLEN(reqnv) == item.frame.headers.nvlen);
-	assert_nv_equal(reqnv, item.frame.headers.nva, item.frame.headers.nvlen);
+	assert(ARRLEN(reqnv) == item.frame.headers.hflen);
+	assert_nv_equal(reqnv, item.frame.headers.hfa, item.frame.headers.hflen);
 	assert((FrameFlags.END_STREAM | FrameFlags.END_HEADERS) ==
 		item.frame.hd.flags);
 	
@@ -3533,8 +3527,8 @@ void test_http2_submit_headers(void) {
 	http2_bufs_add(&bufs, acc.buf, acc.length);
 	inflate_hd(&inflater, &out, &bufs, HTTP2_FRAME_HDLEN);
 	
-	assert(ARRLEN(reqnv) == out.nvlen);
-	assert_nv_equal(reqnv, out.nva, out.nvlen);
+	assert(ARRLEN(reqnv) == out.hflen);
+	assert_nv_equal(reqnv, out.hfa, out.hflen);
 	
 	nva_out_reset(&out);
 	http2_bufs_free(&bufs);
@@ -3994,8 +3988,7 @@ void test_http2_submit_shutdown_notice(void) {
 	
 	http2_session_del(session);
 	
-	/* Using http2_submit_shutdown_notice() with client side session
-     is error */
+	/* Using http2_submit_shutdown_notice() with client side session is error */
 	http2_session_client_new(&session, &callbacks, null);
 	
 	assert(ErrorCode.INVALID_STATE ==
@@ -4010,8 +4003,7 @@ void test_http2_submit_invalid_nv(void) {
 	http2_nv empty_name_nv[] = {MAKE_NV("Version", "HTTP/1.1"),
 		MAKE_NV("", "empty name")};
 	
-	/* Now invalid header name/value pair in HTTP/1.1 is accepted in
-     nghttp2 */
+	/* Now invalid header field from HTTP/1.1 is accepted in libhttp2 */
 	
 	memset(&callbacks, 0, sizeof(http2_session_callbacks));
 	
@@ -6430,7 +6422,7 @@ void test_http2_session_on_header_temporal_failure(void) {
 	http2_buf *buf;
 	http2_hd_deflater deflater;
 	http2_nv nv[] = {MAKE_NV("alpha", "bravo"), MAKE_NV("charlie", "delta")};
-	http2_nv *nva;
+	HeaderField[] hfa;
 	size_t hdpos;
 	size_t rv;
 	http2_frame frame;
@@ -6448,10 +6440,10 @@ void test_http2_session_on_header_temporal_failure(void) {
 	
 	http2_hd_deflate_init(&deflater, mem);
 	
-	http2_nv_array_copy(&nva, reqnv, ARRLEN(reqnv), mem);
+	http2_nv_array_copy(hfa, reqnv, ARRLEN(reqnv), mem);
 	
 	http2_frame_headers_init(&frame.headers, FrameFlags.END_STREAM, 1,
-		HTTP2_HCAT_REQUEST, null, nva, ARRLEN(reqnv));
+		HTTP2_HCAT_REQUEST, null, hfa, ARRLEN(reqnv));
 	http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 	http2_frame_headers_free(&frame.headers, mem);
 	
@@ -6619,8 +6611,8 @@ void test_http2_session_cancel_reserved_remote(void) {
 	http2_session_callbacks callbacks;
 	http2_stream *stream;
 	http2_frame frame;
-	http2_nv *nva;
-	size_t nvlen;
+	HeaderField[] hfa;
+	size_t hfa.length;
 	http2_hd_deflater deflater;
 	http2_mem *mem;
 	http2_bufs bufs;
@@ -6648,11 +6640,11 @@ void test_http2_session_cancel_reserved_remote(void) {
 	
 	assert(0 == session.send());
 	
-	nvlen = ARRLEN(resnv);
-	http2_nv_array_copy(&nva, resnv, nvlen, mem);
+	hfa.length = ARRLEN(resnv);
+	http2_nv_array_copy(hfa, resnv, hfa.length, mem);
 	
 	http2_frame_headers_init(&frame.headers, FrameFlags.END_HEADERS, 2,
-		HTTP2_HCAT_PUSH_RESPONSE, null, nva, nvlen);
+		HTTP2_HCAT_PUSH_RESPONSE, null, hfa, hfa.length);
 	rv = http2_frame_pack_headers(&bufs, &frame.headers, &deflater);
 	
 	assert(0 == rv);
@@ -6755,7 +6747,7 @@ void test_http2_session_reset_pending_headers(void) {
 
 static void check_http2_http_recv_headers_fail(
 	Session session, http2_hd_deflater *deflater, int stream_id,
-	int stream_state, const http2_nv *nva, size_t nvlen) {
+	int stream_state, const HeaderField[] hfa, size_t hfa.length) {
 	http2_mem *mem;
 	size_t rv;
 	http2_outbound_item *item;
@@ -6769,8 +6761,8 @@ static void check_http2_http_recv_headers_fail(
 			&pri_spec_default, stream_state, null);
 	}
 	
-	rv = pack_headers(&bufs, deflater, stream_id, FrameFlags.END_HEADERS, nva,
-		nvlen, mem);
+	rv = pack_headers(&bufs, deflater, stream_id, FrameFlags.END_HEADERS, hfa,
+		hfa.length, mem);
 	assert(0 == rv);
 	
 	rv = http2_session_mem_recv(session, bufs.head.buf.pos,

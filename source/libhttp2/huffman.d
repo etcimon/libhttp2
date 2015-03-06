@@ -33,9 +33,9 @@ const HD_DEFAULT_MAX_BUFFER_SIZE = DEFAULT_HEADER_TABLE_SIZE;
 
 const ENTRY_OVERHEAD = 32;
 
-/// The maximum length of one name/value pair.  This is the sum of the length of name and value.  
+/// The maximum length of one header field.  This is the sum of the length of name and value.  
 /// This is not specified by the spec. We just chose the arbitrary size */
-const MAX_NV = 65536;
+const MAX_HF_LEN = 65536;
 
 /// Default size of maximum table buffer size for encoder. Even if remote decoder notifies 
 /// larger buffer size for its decoding, encoder only uses the memory up to this value.
@@ -77,7 +77,7 @@ alias HDEntry = RefCounted!HDEntryImpl;
 
 //http2_hd_entry
 class HDEntryImpl {
-	NVPair nv;
+	HeaderField hf;
 	uint name_hash;
 	uint value_hash;
 	HDFlags flags;
@@ -95,31 +95,31 @@ class HDEntryImpl {
 		
 		flags = _flags;
 		
-		/// Since HDEntry is used for indexing, ent.nv.flags always NVFlags.NONE
-		nv.flags = NVFlags.NONE;
+		/// Since HDEntry is used for indexing, ent.hf.flag always HeaderFlag.NONE
+		hf.flag = HeaderFlag.NONE;
 		
 		if ((flags & HDFlags.NAME_ALLOC) && (flags & HDFlags.NAME_GIFT) == 0) {
 			if (name.length == 0)
 				/* We should not allow empty header field name */
-				nv.name = null;
+				hf.name = null;
 			else
-				nv.name = Mem.copy(name);
-			
+				hf.name = Mem.copy(name);
+
 		} else
-			nv.name = name;
+			hf.name = name;
 		
 		scope(failure)
 		if (flags & HDFlags.NAME_ALLOC) {
-			Mem.free(nv.name);
+			Mem.free(hf.name);
 		}
 		
 		if ((flags & HDFlags.VALUE_ALLOC) && (flags & HDFlags.VALUE_GIFT) == 0) {
 			if (value.length == 0)
-				nv.value = null;
+				hf.value = null;
 			else
-				nv.value = Mem.copy(value);
+				hf.value = Mem.copy(value);
 		} else {
-			nv.value = value;
+			hf.value = value;
 		}
 		
 		ref_cnt = 1;
@@ -131,11 +131,11 @@ class HDEntryImpl {
 	~this() 
 	{
 		if (flags & HDFlags.NAME_ALLOC) {
-			Mem.free(nv.name);
+			Mem.free(hf.name);
 		}
 		
 		if (flags & HDFlags.VALUE_ALLOC) {
-			Mem.free(nv.value);
+			Mem.free(hf.value);
 		}
 	}
 }
@@ -198,20 +198,20 @@ class HDTable
 
 			size_t idx = hd_table.length - 1;
 			HDEntry ent = hd_table[idx];
-			hd_table_bufsize -= entryRoom(ent.nv.name.length, ent.nv.value.length);
+			hd_table_bufsize -= entryRoom(ent.hf.name.length, ent.hf.value.length);
 			hd_table.popBack();
 		}
 	}
 	
-	HDEntry add(const ref NVPair nv, uint name_hash, uint value_hash, HDFlags entry_flags) {
+	HDEntry add(const ref HeaderField hf, uint name_hash, uint value_hash, HDFlags entry_flags) {
 		int rv;
 		HDEntry new_ent;
 		size_t room;
 
-		room = entryRoom(nv.name.length, nv.value.length);		
+		room = entryRoom(hf.name.length, hf.value.length);		
 		shrink(room);
 		
-		new_ent = HDEntry(entry_flags, nv.name, nv.value, name_hash, value_hash);
+		new_ent = HDEntry(entry_flags, hf.name, hf.value, name_hash, value_hash);
 
 		if (room <= hd_table_bufsize_max) {
 			hd_table.put(new_ent);
@@ -231,26 +231,26 @@ class HDTable
 
 	}
 
-	int search(const ref NVPair nv, uint name_hash, uint value_hash, ref bool found) {
+	int search(const ref HeaderField hf, uint name_hash, uint value_hash, ref bool found) {
 		int left = -1;
 		int right = cast(int) static_table.length;
 		size_t i;
 		int res = -1;
 
-		int use_index = (nv.flags & NVFlags.NO_INDEX) == 0;
+		int use_index = (hf.flag & HeaderFlag.NO_INDEX) == 0;
 		
 		// Search dynamic table first, so that we can find recently used entry first
 		if (use_index) {
 			for (i = 0; i < hd_table.length; ++i) {
 				HDEntry* ent = &hd_table[i];
 
-				if (ent.name_hash != name_hash || ent.nv.name != nv.name)
+				if (ent.name_hash != name_hash || ent.hf.name != hf.name)
 					continue;
 
 				if (res == -1)
 					res =  cast(int) (i + static_table.length);
 
-				if (ent.value_hash == value_hash && ent.nv.value == nv.value) {
+				if (ent.value_hash == value_hash && ent.hf.value == hf.value) {
 					found = true;
 					return cast(int) (i + static_table.length);
 				}
@@ -271,12 +271,12 @@ class HDTable
 			if (ent.name_hash != name_hash)
 				break;
 			
-			if (ent.nv.name == nv.name)
+			if (ent.hf.name == hf.name)
 			{
 				if (res == -1)
 					res =  cast(int) (i + static_table.length);
 
-				if (use_index && ent.value_hash == value_hash && ent.nv.value == nv.value) 
+				if (use_index && ent.value_hash == value_hash && ent.hf.value == hf.value) 
 				{
 					found = true;
 					return cast(int) (static_table[i].index);
@@ -568,9 +568,9 @@ __gshared StaticEntry[] static_table;
 
 shared static this() { 
 
-	/* Make scalar initialization form of NVPair */
+	/* Make scalar initialization form of HeaderField */
 	string MAKE_STATIC_ENT(int I, string N, string V, int NH, int VH) {
-		return `StaticEntry( HDEntry( NVPair( ` ~ N ~ `, ` ~ V ~ `, NVFlags.NONE), ` ~ NH.to!string ~ `, ` ~ VH.to!string ~ `, 1, HDFlags.NONE ) , ` ~ I ~ `)`;
+		return `StaticEntry( HDEntry( HeaderField( ` ~ N ~ `, ` ~ V ~ `, HeaderFlag.NONE), ` ~ NH.to!string ~ `, ` ~ VH.to!string ~ `, 1, HDFlags.NONE ) , ` ~ I ~ `)`;
 	}
 	mixin(`static_table = [` ~ 
 		MAKE_STATIC_ENT(20, "age", "", 96511, 0) ~ `,` ~

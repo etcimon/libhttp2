@@ -1,7 +1,7 @@
 ﻿module libhttp2.helpers;
 
 import std.bitmanip : bigEndianToNative, nativeToBigEndian;
-import libhttp2.types : NVPair, Setting, Mem;
+import libhttp2.types : HeaderField, Setting, Mem;
 import std.c.string : memcpy;
 import std.string : toLowerInPlace;
 
@@ -15,17 +15,17 @@ T read(T = uint)(in ubyte* buf) {
 }
 
 
-NVPair[] copy(ref NVPair[] nva) {
-	if (nva.length == 0)
+HeaderField[] copy(ref HeaderField[] hfa) {
+	if (hfa.length == 0)
 		return null;
 
-	NVPair[] ret = Mem.alloc!(NVPair[])(nva.length);
+	HeaderField[] ret = Mem.alloc!(HeaderField[])(hfa.length);
 
-	foreach (size_t i, ref NVPair nv; nva) {
-		ret[i].flags = nv.flags;
-		ret[i].name = Mem.copy(nv.name);
+	foreach (size_t i, ref HeaderField hf; hfa) {
+		ret[i].flag = hf.flag;
+		ret[i].name = Mem.copy(hf.name);
 		toLowerInPlace(ret[i].name);
-		ret[i].value = Mem.copy(nv.value);
+		ret[i].value = Mem.copy(hf.value);
 	}
 	return ret;
 }

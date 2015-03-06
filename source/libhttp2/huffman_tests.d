@@ -311,7 +311,7 @@ void test_http2_hd_inflate_indname_inc_eviction(void) {
   nv.value = value;
   nv.valuelen = sizeof(value);
 
-  nv.flags = HTTP2_NV_FLAG_NONE;
+  nv.flag = HeaderFlag.NONE;
 
   assert(0 == http2_hd_emit_indname_block(&bufs, 14, &nv, 1));
   assert(0 == http2_hd_emit_indname_block(&bufs, 15, &nv, 1));
@@ -433,7 +433,7 @@ void test_http2_hd_inflate_clearall_inc(void) {
   nv.value = value;
   nv.valuelen = sizeof(value);
 
-  nv.flags = HTTP2_NV_FLAG_NONE;
+  nv.flag = HeaderFlag.NONE;
 
   http2_hd_inflate_init(&inflater, mem);
 
@@ -532,7 +532,7 @@ void test_http2_hd_ringbuf_reserve(void) {
   frame_pack_bufs_init(&bufs);
   nva_out_init(&out);
 
-  nv.flags = HTTP2_NV_FLAG_NONE;
+  nv.flag = HeaderFlag.NONE;
   nv.name = (ubyte *)"a";
   nv.namelen = strlen((const char *)nv.name);
   nv.valuelen = 4;
@@ -1023,7 +1023,7 @@ void test_http2_hd_no_index(void) {
 
   /* 1st :method: GET can be indexable, last one is not */
   for (i = 1; i < ARRLEN(nva); ++i) {
-    nva[i].flags = HTTP2_NV_FLAG_NO_INDEX;
+    nva[i].flags = HeaderFlag.NO_INDEX;
   }
 
   frame_pack_bufs_init(&bufs);
@@ -1043,9 +1043,9 @@ void test_http2_hd_no_index(void) {
   assert(ARRLEN(nva) == out.nvlen);
   assert_nv_equal(nva, out.nva, ARRLEN(nva));
 
-  assert(out.nva[0].flags == HTTP2_NV_FLAG_NONE);
+  assert(out.nva[0].flags == HeaderFlag.NONE);
   for (i = 1; i < ARRLEN(nva); ++i) {
-    assert(out.nva[i].flags == HTTP2_NV_FLAG_NO_INDEX);
+    assert(out.nva[i].flags == HeaderFlag.NO_INDEX);
   }
 
   nva_out_reset(&out);

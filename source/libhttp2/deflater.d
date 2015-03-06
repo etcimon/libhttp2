@@ -44,7 +44,7 @@ struct Deflater
     bool notify_table_size_change;
 
 	/*
-	 * Initializes |deflater| for deflating name/values pairs.
+	 * Initializes |deflater| for deflating header fields.
 	 *
 	 * The encoder only uses up to DEFAULT_MAX_DEFLATE_BUFFER_SIZE bytes
 	 * for header table even if the larger value is specified later in changeTableSize().
@@ -70,14 +70,14 @@ struct Deflater
 	}
 
 	/*
-	 * Deflates the |nva|, which has the |nvlen| name/value pairs, into
+	 * Deflates the |hfa|, which has |hfa.length| header fields, into
 	 * the |bufs|.
 	 *
 	 * This function expands |bufs| as necessary to store the result. If
 	 * buffers is full and the process still requires more space, this
 	 * funtion fails and returns ErrorCode.HEADER_COMP.
 	 *
-	 * After this function returns, it is safe to delete the |nva|.
+	 * After this function returns, it is safe to delete the |hfa|.
 	 *
 	 * This function returns 0 if it succeeds, or one of the following
 	 * negative error codes:
@@ -87,7 +87,7 @@ struct Deflater
 	 * ErrorCode.BUFFER_ERROR
 	 *     Out of buffer space.
 	 */
-	ErrorCode deflate(Buffers bufs, in NVPair[] nva) {
+	ErrorCode deflate(Buffers bufs, in HeaderField[] hfa) {
 		size_t i;
 		ErrorCode rv;
 		
@@ -116,13 +116,13 @@ struct Deflater
 			}
 		}
 		
-		for (i = 0; i < nva.length; ++i) {
-			rv = deflateNV(bufs, nva[i]);
+		for (i = 0; i < hfa.length; ++i) {
+			rv = deflate(bufs, hfa[i]);
 			if (rv != 0)
 				goto fail;
 		}
 		
-		DEBUGF(fprintf(stderr, "deflatehd: all input name/value pairs were deflated\n"));
+		DEBUGF(fprintf(stderr, "deflatehd: all input header fields were deflated\n"));
 		
 		return 0;
 	fail:
@@ -133,19 +133,18 @@ struct Deflater
 	}
 
 	/**
-	 * Deflates the |nva|, which has the |nva.length| name/value pairs, into
+	 * Deflates the |hfa|, which has |hfa.length| header fields, into
 	 * the |buf| of length |buf.length|.
 	 *
 	 * If |buf| is not large enough to store the deflated header block,
 	 * this function fails with $(D ErrorCode.INSUFF_BUFSIZE).  The
 	 * caller should use `Deflater.upperBound()` to know the upper
-	 * bound of buffer size required to deflate given header name/value
-	 * pairs.
+	 * bound of buffer size required to deflate given header fields.
 	 *
 	 * Once this function fails, subsequent call of this function always
 	 * returns $(D ErrorCode.HEADER_COMP).
 	 *
-	 * After this function returns, it is safe to delete the |nva|.
+	 * After this function returns, it is safe to delete the |hfa|.
 	 *
 	 * This function returns 0 if it succeeds, or one of the following
 	 * negative error codes:
@@ -155,7 +154,7 @@ struct Deflater
 	 * $(D ErrorCode.INSUFF_BUFSIZE)
 	 *     The provided |buflen| size is too small to hold the output.
 	 */
-	ErrorCode deflate(ubyte[] buf, in NVPair[] nva)
+	ErrorCode deflate(ubyte[] buf, in HeaderField[] hfa)
 	{
 		Buffers bufs;
 		ErrorCode rv;
@@ -164,7 +163,7 @@ struct Deflater
 		
 		bufs = Buffers(buf[0 .. buflen]);
 				
-		rv = deflate(bufs, nva);
+		rv = deflate(bufs, hfa);
 		
 		buflen = bufs.length;
 		
@@ -182,9 +181,9 @@ struct Deflater
 	}
 
 	/**
-	 * Returns an upper bound on the compressed size after deflation of |nva|
+	 * Returns an upper bound on the compressed size after deflation of |hfa|
 	 */
-	size_t upperBound(in NVPair[] nva) {
+	size_t upperBound(in HeaderField[] hfa) {
 		size_t n = 0;
 		size_t i;
 		
@@ -200,12 +199,13 @@ struct Deflater
 		   sufficient for upper bound.
 
 		   Encoding (1u << 31) - 1 using 7 bit prefix requires 6 bytes.  We
-		   need 2 of this for |nvlen| header fields.
+		   need 2 of this for |hflen| header fields.
 		 */
-		n += 6 * 2 * nva.length;
+		n += 6 * 2 * hfa.length;
 		
-		for (i = 0; i < nva.length; ++i) {
-			n += nva[i].name.length + nva[i].value.length;
+		for (i = 0; i < hfa.length; ++i)
+		{
+			n += hfa[i].name.length + hfa[i].value.length;
 		}
 		
 		return n;
@@ -240,22 +240,22 @@ struct Deflater
 	
 
 package:
-	ErrorCode deflateNV(Buffers bufs, const ref NVPair nv) {
+	ErrorCode deflate(Buffers bufs, const ref HeaderField hf) {
 		ErrorCode rv;
 		int res;
 		bool found;
 		int idx;
 		bool incidx;
-		uint name_hash = nv.name.hash();
-		uint value_hash = nv.value.hash();
+		uint name_hash = hf.name.hash();
+		uint value_hash = hf.value.hash();
 		
 		DEBUGF(fprintf(stderr, "deflatehd: deflating "));
-		DEBUGF(fwrite(nv.name, 1, stderr));
+		DEBUGF(fwrite(hf.name, 1, stderr));
 		DEBUGF(fprintf(stderr, ": "));
-		DEBUGF(fwrite(nv.value, 1, stderr));
+		DEBUGF(fwrite(hf.value, 1, stderr));
 		DEBUGF(fprintf(stderr, "\n"));		
 
-		res = ctx.search(nv, name_hash, value_hash, found);
+		res = ctx.search(hf, name_hash, value_hash, found);
 
 		idx = res;
 		
@@ -275,16 +275,16 @@ package:
 			DEBUGF(fprintf(stderr, "deflatehd: name match index=%zd\n", res));
 
 		
-		if (shouldIndex(nv)) 
+		if (shouldIndex(hf)) 
 		{
 			HDEntry new_ent;
 			if (idx != -1 && idx < cast(int) static_table.length) {
-				NVPair nv_indname;
-				nv_indname = nv;
-				nv_indname.name = ctx.get(idx).nv.name;
-				new_ent = ctx.add(nv_indname, name_hash, value_hash, HDFlags.VALUE_ALLOC);
+				HeaderField hf_indname;
+				hf_indname = hf;
+				hf_indname.name = ctx.get(idx).hf.name;
+				new_ent = ctx.add(hf_indname, name_hash, value_hash, HDFlags.VALUE_ALLOC);
 			} else 
-				new_ent = ctx.add(nv, name_hash, value_hash, HDFlags.NAME_ALLOC | HDFlags.VALUE_ALLOC);
+				new_ent = ctx.add(hf, name_hash, value_hash, HDFlags.NAME_ALLOC | HDFlags.VALUE_ALLOC);
 
 			if (!new_ent)
 				return ErrorCode.HEADER_COMP;
@@ -294,9 +294,9 @@ package:
 		}
 
 		if (idx == -1)
-			rv = emitNewNameBlock(bufs, nv, incidx);
+			rv = emitNewNameBlock(bufs, hf, incidx);
 		else
-			rv = emitIndexedNameBlock(bufs, idx, nv, incidx);
+			rv = emitIndexedNameBlock(bufs, idx, hf, incidx);
 		
 		if (rv != 0)
 			return rv;
@@ -305,25 +305,25 @@ package:
 		return 0;
 	}
 
-	bool shouldIndex(in NVPair nv)
+	bool shouldIndex(in HeaderField hf)
 	{
-		if ((nv.flags & NVFlags.NO_INDEX) || entryRoom(nv.name.length, nv.value.length) > ctx.hd_table_bufsize_max * 3 / 4) 
+		if ((hf.flag & HeaderFlag.NO_INDEX) || entryRoom(hf.name.length, hf.value.length) > ctx.hd_table_bufsize_max * 3 / 4) 
 		{
 			return false;
 		}
 
-		return  !name_match(nv, ":path") && 	 	!name_match(nv, "content-length") &&
-				!name_match(nv, "set-cookie") && 	!name_match(nv, "etag") &&
-				!name_match(nv, "if-modified-since") &&
-				!name_match(nv, "if-none-match") && !name_match(nv, "location") &&
-				!name_match(nv, "age");
+		return  !name_match(hf, ":path") && 	 	!name_match(hf, "content-length") &&
+				!name_match(hf, "set-cookie") && 	!name_match(hf, "etag") &&
+				!name_match(hf, "if-modified-since") &&
+				!name_match(hf, "if-none-match") && !name_match(hf, "location") &&
+				!name_match(hf, "age");
 	}
 
 }
 
 package:
 
-ErrorCode emitIndexedNameBlock(Buffers bufs, size_t idx, const ref NVPair nv, bool inc_indexing) {
+ErrorCode emitIndexedNameBlock(Buffers bufs, size_t idx, const ref HeaderField hf, bool inc_indexing) {
 	ErrorCode rv;
 	ubyte* bufp;
 	size_t blocklen;
@@ -331,7 +331,7 @@ ErrorCode emitIndexedNameBlock(Buffers bufs, size_t idx, const ref NVPair nv, bo
 	size_t prefixlen;
 	bool no_index;
 	
-	no_index = (nv.flags & NVFlags.NO_INDEX) != 0;
+	no_index = (hf.flag & HeaderFlag.NO_INDEX) != 0;
 	
 	if (inc_indexing)
 		prefixlen = 6;
@@ -340,7 +340,7 @@ ErrorCode emitIndexedNameBlock(Buffers bufs, size_t idx, const ref NVPair nv, bo
 	
 	DEBUGF(fprintf(stderr, "deflatehd: emit indname index=%zu, valuelen=%zu, "
 			"indexing=%d, no_index=%d\n",
-			idx, nv.valuelen, inc_indexing, no_index));
+			idx, hf.valuelen, inc_indexing, no_index));
 	
 	blocklen = countEncodedLength(idx + 1, prefixlen);
 	
@@ -358,32 +358,32 @@ ErrorCode emitIndexedNameBlock(Buffers bufs, size_t idx, const ref NVPair nv, bo
 	if (rv != 0)
 		return rv;
 		
-	rv = emitString(bufs, nv.value);
+	rv = emitString(bufs, hf.value);
 	if (rv != 0) 
 		return rv;
 	
 	return 0;
 }
 
-ErrorCode emitNewNameBlock(Buffers bufs, in NVPair nv, bool inc_indexing) {
+ErrorCode emitNewNameBlock(Buffers bufs, in HeaderField hf, bool inc_indexing) {
 	int rv;
 	bool no_index;
 	
-	no_index = (nv.flags & NVFlags.NO_INDEX) != 0;
+	no_index = (hf.flag & HeaderFlag.NO_INDEX) != 0;
 	
-	DEBUGF(fprintf(stderr, "deflatehd: emit newname namelen=%zu, valuelen=%zu, indexing=%d, no_index=%d\n",	nv.name.length, nv.value.length, inc_indexing, no_index));
+	DEBUGF(fprintf(stderr, "deflatehd: emit newname namelen=%zu, valuelen=%zu, indexing=%d, no_index=%d\n",	hf.name.length, hf.value.length, inc_indexing, no_index));
 	
 	rv = bufs.add(packFirstByte(inc_indexing, no_index));
 	if (rv != 0) {
 		return rv;
 	}
 	
-	rv = emitString(bufs, nv.name);
+	rv = emitString(bufs, hf.name);
 	if (rv != 0) {
 		return rv;
 	}
 	
-	rv = emitString(bufs, nv.value);
+	rv = emitString(bufs, hf.value);
 	if (rv != 0) {
 		return rv;
 	}

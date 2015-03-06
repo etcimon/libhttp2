@@ -1097,6 +1097,49 @@ private:
 		}
 	}
 
+package:
+
+
+	/*
+	 * This function is called when request header is received.  
+	 * This function performs validation and returns 0 if it succeeds, or -1.
+ 	 */
+	int validateRequestHeaders(in Frame frame);
+	
+	/*
+ 	 * This function is called when response header is received.  This
+ 	 * function performs validation and returns 0 if it succeeds, or -1.
+ 	 */
+	int validateResponseHeaders();
+	
+	/*
+	 * This function is called when trailer header (for both request and
+	 * response) is received.  This function performs validation and
+	 * returns 0 if it succeeds, or -1.
+	 */
+	int validateTrailerHeaders(in Frame frame);
+	
+	/*
+	 * This function is called when END_STREAM flag is seen in incoming
+	 * frame.  This function performs validation and returns 0 if it
+	 * succeeds, or -1.
+	 */
+	int validateRemoteEndStream(nghttp2_stream *stream);
+	
+	/*
+	 * This function is called when chunk of data is received.  This
+	 * function performs validation and returns 0 if it succeeds, or -1.
+	 */
+	int validateDataChunk(nghttp2_stream *stream, size_t n);
+	
+	/*
+	 * This function inspects header field in |frame| and records its
+	 * method in stream->http_flags.  If frame->hd.type is neither
+	 * NGHTTP2_HEADERS nor NGHTTP2_PUSH_PROMISE, this function does
+	 * nothing.
+	 */
+	void setRequestMethod(in Frame frame);
+
 private:
     /// Stream ID
     int m_id;

@@ -11,7 +11,7 @@ struct Inflater
 	HDTable ctx;
 	
 	/// header buffer
-	Buffers nvbufs;
+	Buffers hfbufs;
 	
 	/// Stores current state of huffman decoding
 	Decoder huff_decoder;
@@ -50,13 +50,13 @@ struct Inflater
 	this() {
 		ctx = Mem.alloc!HDTable();
 		scope(failure) Mem.free(ctx);
-		nvbufs = Mem.alloc!Buffers(MAX_NV / 8, 8, 1, 0);
+		hfbufs = Mem.alloc!Buffers(MAX_HF_LEN / 8, 8, 1, 0);
 	}
 
 	void free() {
 		Mem.free(ctx);
-		nvbufs.free();
-		Mem.free(nvbufs);
+		hfbufs.free();
+		Mem.free(hfbufs);
 	}
 
 	/**
@@ -76,13 +76,12 @@ struct Inflater
 	/**
 	 * Inflates name/value block stored in |input| with length |input.length|. 
 	 * This function performs decompression.  For each successful emission of
-	 * header name/value pair, $(D InflateFlag.EMIT) is set in
-	 * |inflate_flags| and name/value pair is assigned to the |nv_out|
-	 * and the function returns.  The caller must not free the members of
-	 * |nv_out|.
+	 * header field, $(D InflateFlag.EMIT) is set in |inflate_flags| and a header field
+	 * is assigned to |hf_out| and the function returns.  The caller must not free 
+	 * the members of |hf_out|.
 	 *
-	 * The |nv_out| may include pointers to the memory region in the |input|.
-	 * The caller must retain the |input| while the |nv_out| is used.
+	 * The |hf_out| may include pointers to the memory region in the |input|.
+	 * The caller must retain the |input| while the |hf_out| is used.
 	 *
 	 * The application should call this function repeatedly until the
 	 * `(*inflate_flags) & InflateFlag.FINAL` is true and
@@ -99,8 +98,6 @@ struct Inflater
 	 * This function returns the number of bytes processed if it succeeds,
 	 * or one of the following negative error codes:
 	 *
-	 * $(D ErrorCode.NOMEM)
-	 *     Out of memory.
 	 * $(D ErrorCode.HEADER_COMP)
 	 *     Inflation process has failed.
 	 * $(D ErrorCode.BUFFER_ERROR)
@@ -113,10 +110,10 @@ struct Inflater
 	 *         size_t rv;
 	 *
 	 *         for(;;) {
-	 *             NVPair nv;
+	 *             HeaderField nv;
 	 *             InflateFlag inflate_flags;
 	 *
-	 *             rv = hd_inflater.inflate(nv, inflate_flags, input, final);
+	 *             rv = hd_inflater.inflate(hf, inflate_flags, input, final);
 	 *
 	 *             if(rv < 0) {
 	 *                 fprintf(stderr, "inflate failed with error code %zd", rv);
@@ -126,9 +123,9 @@ struct Inflater
 	 *             input = input[rv .. $];
 	 *
 	 *             if(inflate_flags & InflateFlag.EMIT) {
-	 *                 fwrite(nv.name, 1, stderr);
+	 *                 fwrite(hf.name, 1, stderr);
 	 *                 fprintf(stderr, ": ");
-	 *                 fwrite(nv.value, 1, stderr);
+	 *                 fwrite(hf.value, 1, stderr);
 	 *                 fprintf(stderr, "\n");
 	 *             }
 	 * 
@@ -143,7 +140,7 @@ struct Inflater
 	 *     }
 	 *
 	 */
-	ErrorCode inflate()(ref NVPair nv_out, auto ref InflateFlag inflate_flags, ubyte[] input, bool is_final)
+	ErrorCode inflate()(ref HeaderField hf_out, auto ref InflateFlag inflate_flags, ubyte[] input, bool is_final)
 	{
 		ErrorCode rv;
 		ubyte* pos = input.ptr;
@@ -238,9 +235,9 @@ struct Inflater
 						index = left;
 						--index;
 						
-						nv_out = commitIndexed();
+						hf_out = commitIndexed();
 
-						if (nv_out == NVPair.init)
+						if (hf_out == HeaderField.init)
 							goto fail;
 
 						state = InflateState.OPCODE;
@@ -266,7 +263,7 @@ struct Inflater
 					/* Fall through */
 				case InflateState.NEWNAME_READ_NAMELEN:
 					rfin = false;
-					rv = readLength(rfin, pos, last, 7, MAX_NV);
+					rv = readLength(rfin, pos, last, 7, MAX_HF_LEN);
 
 					if (rv < 0)
 						goto fail;
@@ -284,7 +281,7 @@ struct Inflater
 						state = InflateState.NEWNAME_READ_NAME;
 					break;
 				case InflateState.NEWNAME_READ_NAMEHUFF:
-					rv = readHuffman(nvbufs, pos, last);
+					rv = readHuffman(hfbufs, pos, last);
 
 					if (rv < 0)
 						goto fail;
@@ -298,13 +295,13 @@ struct Inflater
 						goto almost_ok;
 					}
 					
-					newnamelen = nvbufs.length;
+					newnamelen = hfbufs.length;
 					
 					state = InflateState.CHECK_VALUELEN;
 					
 					break;
 				case InflateState.NEWNAME_READ_NAME:
-					rv = read(nvbufs, pos, last);
+					rv = read(hfbufs, pos, last);
 
 					if (rv < 0)
 						goto fail;
@@ -318,7 +315,7 @@ struct Inflater
 						goto almost_ok;
 					}
 					
-					newnamelen = nvbufs.length;
+					newnamelen = hfbufs.length;
 					
 					state = InflateState.CHECK_VALUELEN;
 					
@@ -333,7 +330,7 @@ struct Inflater
 					/* Fall through */
 				case InflateState.READ_VALUELEN:
 					rfin = false;
-					rv = readLength(rfin, pos, last, 7, MAX_NV);
+					rv = readLength(rfin, pos, last, 7, MAX_HF_LEN);
 					if (rv < 0)
 						goto fail;
 										
@@ -345,9 +342,9 @@ struct Inflater
 					DEBUGF(fprintf(stderr, "inflatehd: valuelen=%zu\n", left));
 					if (left == 0) {
 						if (opcode == OpCode.NEWNAME)
-							nv_out = commitNewName();
+							hf_out = commitNewName();
 						else
-							nv_out = commitIndexedName();
+							hf_out = commitIndexedName();
 
 						if (rv != 0)
 							goto fail;
@@ -366,7 +363,7 @@ struct Inflater
 					}
 					break;
 				case InflateState.READ_VALUEHUFF:
-					rv = readHuffman(nvbufs, pos, last);
+					rv = readHuffman(hfbufs, pos, last);
 
 					if (rv < 0) 
 						goto fail;
@@ -382,9 +379,9 @@ struct Inflater
 					}
 					
 					if (opcode == OpCode.NEWNAME) 
-						nv_out = commitNewName();
+						hf_out = commitNewName();
 					else
-						nv_out = commitIndexedName();
+						hf_out = commitIndexedName();
 															
 					state = InflateState.OPCODE;
 					inflate_flags |= InflateFlag.EMIT;
@@ -392,7 +389,7 @@ struct Inflater
 					return cast(int)(pos - first);
 
 				case InflateState.READ_VALUE:
-					rv = read(nvbufs, pos, last);
+					rv = read(hfbufs, pos, last);
 
 					if (rv < 0) {
 						DEBUGF(fprintf(stderr, "inflatehd: value read failure %zd: %s\n", rv, toString(cast(ErrorCode)rv)));
@@ -409,9 +406,9 @@ struct Inflater
 					}
 					
 					if (opcode == OpCode.NEWNAME)
-						nv_out = commitNewName();
+						hf_out = commitNewName();
 					else
-						nv_out = commitIndexedName();
+						hf_out = commitIndexedName();
 
 					state = InflateState.OPCODE;
 					inflate_flags |= InflateFlag.EMIT;
@@ -511,8 +508,6 @@ struct Inflater
 	 * This function returns the number of bytes read if it succeeds, or
 	 * one of the following negative error codes:
 	 *
-	 * ErrorCode.NOMEM
-	 *   Out of memory
 	 * ErrorCode.HEADER_COMP
 	 *   Huffman decoding failed
 	 * ErrorCode.BUFFER_ERROR
@@ -544,8 +539,6 @@ struct Inflater
 	 * This function returns the number of bytes read if it succeeds, or
 	 * one of the following negative error codes:
 	 *
-	 * ErrorCode.NOMEM
-	 *   Out of memory
 	 * ErrorCode.HEADER_COMP
 	 *   Header decompression failed
 	 * ErrorCode.BUFFER_ERROR
@@ -565,39 +558,39 @@ struct Inflater
 		return cast(int) len;
 	}
 
-	NVPair removeBufs(bool value_only) {
-		NVPair nv;
+	HeaderField removeBufs(bool value_only) {
+		HeaderField nv;
 		size_t buflen;
 		ubyte[] buf;
 		Buffer* pbuf;
 		
-		if (index_required || nvbufs.head != nvbufs.cur) {			
-			buf = nvbufs.remove();			
+		if (index_required || hfbufs.head != hfbufs.cur) {			
+			buf = hfbufs.remove();			
 			buflen = buf.length;
 			
 			if (value_only)
-				nv.name = null;
+				hf.name = null;
 			else
-				nv.name = buf[0 .. newnamelen];
+				hf.name = buf[0 .. newnamelen];
 			
-			nv.value = (buf + nv.name.length)[0 .. buflen - nv.name.length];
+			hf.value = (buf + hf.name.length)[0 .. buflen - hf.name.length];
 			
 			return nv;
 		}
 		
 		// If we are not going to store header in header table and name/value are in first chunk, 
-		// we just refer them from nv, instead of mallocing another memory.		
-		pbuf = &nvbufs.head.buf;
+		// we just refer them from hf, instead of mallocing another memory.		
+		pbuf = &hfbufs.head.buf;
 		
 		if (value_only)
-			nv.name = null;
+			hf.name = null;
 		else
-			nv.name = pbuf.pos[0 .. newnamelen];
+			hf.name = pbuf.pos[0 .. newnamelen];
 		
-		nv.value = (pbuf.pos + nv.name.length)[0 .. pbuf.length - nv.name.length];
+		hf.value = (pbuf.pos + hf.name.length)[0 .. pbuf.length - hf.name.length];
 		
 		// Resetting does not change the content of first buffer
-		nvbufs.reset();
+		hfbufs.reset();
 		
 		return nv;
 	}
@@ -607,25 +600,25 @@ package:
 	 * Finalize literal header representation - new name- reception. If
 	 * header is emitted, it is returned
 	 */
-	NVPair commitNewName() {
-		NVPair nv = removeBufs(false);
-		NVPair ret;
+	HeaderField commitNewName() {
+		HeaderField hf = removeBufs(false);
+		HeaderField ret;
 		
 		if (no_index)
-			nv.flags = NVFlags.NO_INDEX;
+			hf.flag = HeaderFlag.NO_INDEX;
 		else
-			nv.flags = NVFlags.NONE;
+			hf.flag = HeaderFlag.NONE;
 		
 		if (index_required) {
 			HDEntry new_ent;
 			HDFlags ent_flags;
 			
-			/* nv.value points to the middle of the buffer pointed by
-		       nv.name.  So we just need to keep track of nv.name for memory
+			/* hf.value points to the middle of the buffer pointed by
+		       hf.name.  So we just need to keep track of hf.name for memory
 		       management. */
 			ent_flags = HDFlags.NAME_ALLOC | HDFlags.NAME_GIFT;
 			
-			new_ent = ctx.add(nv, nv.name.hash(), nv.value.hash(), ent_flags);
+			new_ent = ctx.add(hf, hf.name.hash(), hf.value.hash(), ent_flags);
 			
 			ret = emitIndexedHeader(new_ent);
 			
@@ -639,20 +632,20 @@ package:
 		return ret;
 	}
 	
-	/// Finalize literal header representation - indexed name reception. If header is emitted, the NVPair is returned
-	NVPair commitIndexedName() {
-		NVPair ret;
+	/// Finalize literal header representation - indexed name reception. If header is emitted, the HeaderField is returned
+	HeaderField commitIndexedName() {
+		HeaderField ret;
 		HDEntry ent_name;
 		
-		NVPair nv = removeBufs(true /* value only */);
+		HeaderField hf = removeBufs(true /* value only */);
 		
 		if (no_index)
-			nv.flags = NVFlags.NO_INDEX;
+			hf.flag = HeaderFlag.NO_INDEX;
 		else
-			nv.flags = NVFlags.NONE;
+			hf.flag = HeaderFlag.NONE;
 		
 		ent_name = ctx.get(index);		
-		nv.name = ent_name.nv.name;
+		hf.name = ent_name.hf.name;
 		
 		if (index_required) {
 			HDEntry new_ent;
@@ -665,7 +658,7 @@ package:
 			if (!static_name) 
 				ent_flags |= HDFlags.NAME_ALLOC;
 			
-			new_ent = ctx.add(nv, ent_name.name_hash, nv.value.hash(), ent_flags);
+			new_ent = ctx.add(hf, ent_name.name_hash, hf.value.hash(), ent_flags);
 			ret = emitIndexedHeader(new_ent);
 			ent_keep = new_ent;
 			
@@ -681,27 +674,27 @@ package:
 	 * Finalize indexed header representation reception. If header is
 	 * emitted, returns it
 	 */
-	NVPair commitIndexed() {
+	HeaderField commitIndexed() {
 		HDEntry ent = ctx.get(index);		
 		return emitIndexedHeader(ent);
 	}
 
 	// for debugging
-	NVPair emitIndexedHeader(ref HDEntry ent) {
+	HeaderField emitIndexedHeader(ref HDEntry ent) {
 		DEBUGF(fprintf(stderr, "inflatehd: header emission: "));
-		DEBUGF(fwrite(ent.nv.name, 1, stderr));
+		DEBUGF(fwrite(ent.hf.name, 1, stderr));
 		DEBUGF(fprintf(stderr, ": "));
-		DEBUGF(fwrite(ent.nv.value, 1, stderr));
+		DEBUGF(fwrite(ent.hf.value, 1, stderr));
 		DEBUGF(fprintf(stderr, "\n"));
 		
 		return ent.nv;
 	}
 	
-	NVPair emitLiteralHeader(ref NVPair nv) {
+	HeaderField emitLiteralHeader(ref HeaderField nv) {
 		DEBUGF(fprintf(stderr, "inflatehd: header emission: "));
-		DEBUGF(fwrite(nv.name, 1, stderr));
+		DEBUGF(fwrite(hf.name, 1, stderr));
 		DEBUGF(fprintf(stderr, ": "));
-		DEBUGF(fwrite(nv.value, 1, stderr));
+		DEBUGF(fwrite(hf.value, 1, stderr));
 		DEBUGF(fprintf(stderr, "\n"));
 		
 		return nv;

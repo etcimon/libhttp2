@@ -42,6 +42,10 @@ struct FrameHeader
 
 	// unpack buf into FrameHeader
 	this(in ubyte* buf) {
+		unpack(buf);
+	}
+
+	void unpack(in ubyte* buf) {
 		length = read!uint(buf) >> 8;
 		type = FrameType(buf[3]);
 		flags = FrameFlags(buf[4]);
@@ -179,21 +183,21 @@ struct Headers
 	/// The priority specification
 	PrioritySpec pri_spec;
 	
-	/// The name/value pairs.
-	NVPair[] nva;
+	/// The header fields.
+	HeaderField[] hfa;
 	
 	/// The category of this HEADERS frame.
 	HeadersCategory cat;
 
 	/*
 	 * Initializes HEADERS frame |frame| with given values.  |frame| takes
-	 * ownership of |nva|, so caller must not free it. If |stream_id| is
+	 * ownership of |hfa|, so caller must not free it. If |stream_id| is
 	 * not assigned yet, it must be -1.
 	 */
-	this(FrameFlags flags, int stream_id, HeadersCategory _cat, in PrioritySpec _pri_spec, NVPair[] _nva) {
+	this(FrameFlags flags, int stream_id, HeadersCategory _cat, in PrioritySpec _pri_spec, HeaderField[] _hfa) {
 		hd = FrameHeader(0, FrameType.HEADERS, flags, stream_id);
 		padlen = 0;
-		nva = _nva;
+		hfa = _hfa;
 		cat = _cat;
 		
 		if (pri_spec) {
@@ -204,7 +208,7 @@ struct Headers
 	}
 
 	void free() {
-		Mem.free(nva);
+		Mem.free(hfa);
 	}
 
 	/*
@@ -225,26 +229,26 @@ struct Headers
 	 */
 	ErrorCode pack(Buffers bufs, ref Deflater deflater) 
 	{
-		size_t nv_offset;
+		size_t hf_offset;
 		int rv;
 		Buffer* buf;
 		
 		assert(bufs.head == bufs.cur);
 		
-		nv_offset = blockOffset();
+		hf_offset = blockOffset();
 		
 		buf = &bufs.cur.buf;
 		
-		buf.pos += nv_offset;
+		buf.pos += hf_offset;
 		buf.last = buf.pos;
 		
 		/* This call will adjust buf.last to the correct position */
-		rv = deflater.deflate(bufs, nva);
+		rv = deflater.deflate(bufs, hfa);
 		
 		if (rv == ErrorCode.BUFFER_ERROR)
 			rv = ErrorCode.HEADER_COMP;
 
-		buf.pos -= nv_offset;
+		buf.pos -= hf_offset;
 		
 		if (rv != 0)
 			return rv;
@@ -261,7 +265,7 @@ struct Headers
 
 	/*
 	 * Unpacks HEADERS frame byte sequence into this.  This function
-	 * only unpacks bytes that come before name/value header block and
+	 * only unpacks bytes that come before header field and
 	 * after possible Pad Length field.
 	 */
 	void unpack(in ubyte[] payload) {
@@ -563,8 +567,8 @@ struct PushPromise {
 	/// The length of the padding in this frame.  This includes PAD_HIGH and PAD_LOW.
 	size_t padlen;
 	
-	/// The name/value pairs.
-	NVPair[] nva;
+	/// The header fields.
+	HeaderField[] hfa;
 	
 	/// The promised stream ID
 	int promised_stream_id;
@@ -574,15 +578,15 @@ struct PushPromise {
 	
 	/*
 	 * Initializes PUSH_PROMISE frame with given values.  PushPromise
-	 * takes ownership of |nva|, so caller must not free it.
+	 * takes ownership of |hfa|, so caller must not free it.
 	 */
-	this(FrameFlags flags, int stream_id, int _promised_stream_id, NVPair[] _nva) {
+	this(FrameFlags flags, int stream_id, int _promised_stream_id, HeaderField[] _hfa) {
 		hd = FrameHeader(0, FrameType.PUSH_PROMISE, flags, stream_id);
-		nva = _nva;
+		hfa = _hfa;
 		promised_stream_id = _promised_stream_id;
 	}
 	
-	void free() { Mem.free(nva); }
+	void free() { Mem.free(hfa); }
 
 	/*
 	 * Packs PUSH_PROMISE frame in wire format and store it in
@@ -604,7 +608,7 @@ struct PushPromise {
 	 */
 	ErrorCode pack(Buffers bufs, ref Deflater deflater) 
 	{
-		size_t nv_offset = 4;
+		size_t hf_offset = 4;
 		int rv;
 		Buffer* buf;
 		
@@ -612,16 +616,16 @@ struct PushPromise {
 		
 		buf = &bufs.cur.buf;
 		
-		buf.pos += nv_offset;
+		buf.pos += hf_offset;
 		buf.last = buf.pos;
 		
 		/* This call will adjust buf.last to the correct position */
-		rv = deflater.deflate(bufs, nva);
+		rv = deflater.deflate(bufs, hfa);
 		
 		if (rv == ErrorCode.BUFFER_ERROR)
 			rv = ErrorCode.HEADER_COMP;
 		
-		buf.pos -= nv_offset;
+		buf.pos -= hf_offset;
 		
 		if (rv != 0)
 			return rv;
@@ -643,7 +647,7 @@ struct PushPromise {
 	 */
 	void unpack(in ubyte[] payload) {
 		promised_stream_id = read!uint(payload) & STREAM_ID_MASK;
-		nva = null;
+		hfa = null;
 	}
 }
 

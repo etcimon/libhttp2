@@ -96,7 +96,7 @@ struct InboundFrame {
     Buffer lbuf;
 
     /// Large buffer, malloced on demand
-    ubyte *raw_lbuf;
+    ubyte[] raw_lbuf;
 
     /* The number of entry filled in |iv| */
     size_t niv;
@@ -294,9 +294,6 @@ class Session {
 
 	this(bool server, in Options options, in Policy callbacks)
 	{
-		ErrorCode rv;
-
-
 		if (server) {
 			is_server = true;
 			next_stream_id = 2; // server IDs always pair
@@ -515,7 +512,7 @@ class Session {
 	 *
 	 *    1. $(D Policy.read) is invoked one or more times to receive the DATA payload. 
 	 * 
-	 * 	  2. $(D Policy.onDataChunkRecv) is invoked alternatively with $(D Policy.read) 
+	 * 	  2. $(D Policy.onDataChunk) is invoked alternatively with $(D Policy.read) 
 	 *       for each chunk of data.
 	 *
 	 *    2. $(D Policy.onFrame) may be invoked if one DATA frame is completely received.
@@ -531,8 +528,8 @@ class Session {
 	 *       taken.  
 	 * 		- If the frame is either HEADERS or PUSH_PROMISE:
 	 *      	- $(D Policy.onHeaders) is invoked first.
-	 * 			- $(D Policy.onHeader) is invoked for each header name/value pair.
-	 * 			- $(D Policy.onFrame) is invoked after all name/value pairs.
+	 * 			- $(D Policy.onHeaderField) is invoked for each header fields.
+	 * 			- $(D Policy.onFrame) is invoked after all header fields.
 	 * 		- For other frames:
 	 *       	- $(D Policy.onFrame) is invoked.  
 	 *          - $(D Policy.onStreamExit) may be invoked if the reception of the frame 
@@ -576,8 +573,6 @@ class Session {
 	}
 
 	/**
-	 * @function
-	 *
 	 * Processes data |input| as an input from the remote endpoint.  The
 	 * |inlen| indicates the number of bytes in the |in|.
 	 *
@@ -589,8 +584,8 @@ class Session {
 	 *
 	 * In the current implementation, this function always tries to
 	 * process all input data unless either an error occurs or
-	 * $(D ErrorCode.PAUSE) is returned from $(D Policy.onHeader) or
-	 * $(D Policy.onDataChunkRecv).  If $(D ErrorCode.PAUSE) is used, 
+	 * $(D ErrorCode.PAUSE) is returned from $(D Policy.onHeaderField) or
+	 * $(D Policy.onDataChunk).  If $(D ErrorCode.PAUSE) is used, 
 	 * the return value includes the number of bytes which was used to 
 	 * produce the data or frame for the callback.
 	 *
@@ -604,24 +599,20 @@ class Session {
 	 *     when $(D Session) was configured as server and
 	 *     `http2_option_set_recv_client_preface()` is used.
 	 */
-	int memRecv(Session session, in ubyte[] input) 
+	int memRecv(in ubyte[] input) 
 	{
-		ubyte *pos = input.ptr;
-		const ubyte *first = input.ptr;
-		const ubyte *last = input.ptr + input.length;
-		InboundFrame *iframe = &session.iframe;
+		ubyte* pos = input.ptr;
+		const ubyte* first = input.ptr;
+		const ubyte* last = input.ptr + input.length;
 		size_t readlen;
 		int padlen;
 		ErrorCode rv;
-		int busy = 0;
-		http2_frame_hd cont_hd;
+		bool busy;
+		FrameHeader cont_hd;
 		Stream stream;
 		size_t pri_fieldlen;
-		http2_mem *mem;
 		
-		DEBUGF(fprintf(stderr, "recv: connection recv_window_size=%d, local_window=%d\n", session.recv_window_size, session.local_window_size));
-		
-		mem = &session.mem;
+		DEBUGF(fprintf(stderr, "recv: connection recv_window_size=%d, local_window=%d\n", recv_window_size, local_window_size));
 		
 		for (;;) {
 			with(InboundState) switch (iframe.state) {
@@ -648,7 +639,7 @@ class Session {
 					readlen = iframe.read(pos, last);
 					pos += readlen;
 					
-					if (http2_buf_mark_avail(&iframe.sbuf)) {
+					if (iframe.sbuf.markAvailable) {
 						return pos - first;
 					}
 					
@@ -670,14 +661,14 @@ class Session {
 					
 					/* Fall through */
 				case READ_HEAD: {
-					int on_begin_frame_called = 0;
+					bool on_frame_header_called;
 					
 					DEBUGF(fprintf(stderr, "recv: [READ_HEAD]\n"));
 					
 					readlen = iframe.read(pos, last);
 					pos += readlen;
 					
-					if (http2_buf_mark_avail(&iframe.sbuf)) {
+					if (iframe.sbuf.markAvailable) {
 						return pos - first;
 					}
 					
@@ -688,12 +679,12 @@ class Session {
 							iframe.frame.hd.length, iframe.frame.hd.type,
 							iframe.frame.hd.flags, iframe.frame.hd.stream_id));
 					
-					if (iframe.frame.hd.length > session.local_settings.max_frame_size) {
+					if (iframe.frame.hd.length > local_settings.max_frame_size) {
 						DEBUGF(fprintf(stderr, "recv: length is too large %zu > %u\n",
 								iframe.frame.hd.length,
-								session.local_settings.max_frame_size));
+								local_settings.max_frame_size));
 						
-						busy = 1;
+						busy = true;
 						
 						iframe.state = IGN_PAYLOAD;
 						
@@ -710,11 +701,9 @@ class Session {
 						case FrameType.DATA: {
 							DEBUGF(fprintf(stderr, "recv: DATA\n"));
 							
-							iframe.frame.hd.flags &=
-								(FrameFlags.END_STREAM | FrameFlags.PADDED);
-							/* Check stream is open. If it is not open or closing,
-                           ignore payload. */
-							busy = 1;
+							iframe.frame.hd.flags &= (FrameFlags.END_STREAM | FrameFlags.PADDED);
+							/* Check stream is open. If it is not open or closing, ignore payload. */
+							busy = true;
 							
 							rv = session_on_data_received_fail_fast(session);
 							if (rv == ErrorCode.IGN_PAYLOAD) {
@@ -754,7 +743,7 @@ class Session {
 							
 							rv = iframe.handlePad();
 							if (rv < 0) {
-								busy = 1;
+								busy = true;
 								
 								iframe.state = IGN_PAYLOAD;
 								
@@ -774,7 +763,7 @@ class Session {
 							
 							if (pri_fieldlen > 0) {
 								if (iframe.payloadleft < pri_fieldlen) {
-									busy = 1;
+									busy = true;
 									iframe.state = FRAME_SIZE_ERROR;
 									break;
 								}
@@ -786,23 +775,21 @@ class Session {
 								break;
 							}
 							
-							/* Call on_begin_frame_callback here because
-                           session_process_headers_frame() may call
-                           on_begin_headers_callback */
-							rv = session_call_on_begin_frame(session, &iframe.frame.hd);
+							/* Call onFrameHeader here because session_process_headers_frame() may call onHeaders callback */
+							bool ok = callOnFrameHeader(iframe.frame.hd);
 							
-							if (isFatal(rv)) {
-								return rv;
+							if (!ok) {
+								return ErrorCode.CALLBACK_FAILURE;
 							}
 							
-							on_begin_frame_called = 1;
+							on_frame_header_called = true;
 							
 							rv = session_process_headers_frame(session);
 							if (isFatal(rv)) {
 								return rv;
 							}
 							
-							busy = 1;
+							busy = true;
 							
 							if (rv == ErrorCode.IGN_HEADER_BLOCK) {
 								iframe.state = IGN_HEADER_BLOCK;
@@ -818,7 +805,7 @@ class Session {
 							iframe.frame.hd.flags = FrameFlags.NONE;
 							
 							if (iframe.payloadleft != PRIORITY_SPECLEN) {
-								busy = 1;
+								busy = true;
 								
 								iframe.state = FRAME_SIZE_ERROR;
 								
@@ -846,7 +833,7 @@ class Session {
 							iframe.frame.hd.flags = FrameFlags.NONE;
 							
 							if (iframe.payloadleft != 4) {
-								busy = 1;
+								busy = true;
 								iframe.state = FRAME_SIZE_ERROR;
 								break;
 							}
@@ -863,7 +850,7 @@ class Session {
 							
 							if ((iframe.frame.hd.length % FRAME_SETTINGS_ENTRY_LENGTH) ||
 								((iframe.frame.hd.flags & FrameFlags.ACK) && iframe.payloadleft > 0)) {
-								busy = 1;
+								busy = true;
 								iframe.state = FRAME_SIZE_ERROR;
 								break;
 							}
@@ -875,7 +862,7 @@ class Session {
 								break;
 							}
 							
-							busy = 1;
+							busy = true;
 							
 							iframe.setMark(0);
 							
@@ -883,12 +870,11 @@ class Session {
 						case FrameType.PUSH_PROMISE:
 							DEBUGF(fprintf(stderr, "recv: PUSH_PROMISE\n"));
 							
-							iframe.frame.hd.flags &=
-								(FrameFlags.END_HEADERS | FrameFlags.PADDED);
+							iframe.frame.hd.flags &= (FrameFlags.END_HEADERS | FrameFlags.PADDED);
 							
 							rv = iframe.handlePad();
 							if (rv < 0) {
-								busy = 1;
+								busy = true;
 								iframe.state = IGN_PAYLOAD;
 								rv = terminateSessionWithReason(FrameError.PROTOCOL_ERROR, "PUSH_PROMISE: insufficient padding space");
 								if (isFatal(rv)) {
@@ -903,7 +889,7 @@ class Session {
 							}
 							
 							if (iframe.payloadleft < 4) {
-								busy = 1;
+								busy = true;
 								iframe.state = FRAME_SIZE_ERROR;
 								break;
 							}
@@ -919,7 +905,7 @@ class Session {
 							iframe.frame.hd.flags &= FrameFlags.ACK;
 							
 							if (iframe.payloadleft != 8) {
-								busy = 1;
+								busy = true;
 								iframe.state = FRAME_SIZE_ERROR;
 								break;
 							}
@@ -934,7 +920,7 @@ class Session {
 							iframe.frame.hd.flags = FrameFlags.NONE;
 							
 							if (iframe.payloadleft < 8) {
-								busy = 1;
+								busy = true;
 								iframe.state = FRAME_SIZE_ERROR;
 								break;
 							}
@@ -953,7 +939,7 @@ class Session {
 								return rv;
 							}
 							
-							busy = 1;
+							busy = true;
 							
 							iframe.state = IGN_PAYLOAD;
 							
@@ -963,14 +949,14 @@ class Session {
 							
 							/* Silently ignore unknown frame type. */
 							
-							busy = 1;
+							busy = true;
 							
 							iframe.state = IGN_PAYLOAD;
 							
 							break;
 					}
 					
-					if (!on_begin_frame_called) {
+					if (!on_frame_header_called) {
 						switch (iframe.state) {
 							case IGN_HEADER_BLOCK:
 							case IGN_PAYLOAD:
@@ -978,10 +964,10 @@ class Session {
 							case IGN_DATA:
 								break;
 							default:
-								rv = session_call_on_begin_frame(session, &iframe.frame.hd);
+								bool ok = callOnFrameHeader(iframe.frame.hd);
 								
-								if (isFatal(rv)) {
-									return rv;
+								if (!ok) {
+									return ErrorCode.CALLBACK_FAILURE;
 								}
 						}
 					}
@@ -997,7 +983,7 @@ class Session {
 					
 					DEBUGF(fprintf(stderr, "recv: readlen=%zu, payloadleft=%zu, left=%zd\n", readlen, iframe.payloadleft, iframe.sbuf.markAvailable));
 					
-					if (http2_buf_mark_avail(&iframe.sbuf)) {
+					if (iframe.sbuf.markAvailable) {
 						return pos - first;
 					}
 					
@@ -1007,7 +993,7 @@ class Session {
 								(iframe.frame.hd.flags & FrameFlags.PADDED)) {
 								padlen = iframe.computePad();
 								if (padlen < 0) {
-									busy = 1;
+									busy = true;
 									rv = terminateSessionWithReason(FrameError.PROTOCOL_ERROR, "HEADERS: invalid padding");
 									if (isFatal(rv)) {
 										return rv;
@@ -1021,7 +1007,7 @@ class Session {
 								
 								if (pri_fieldlen > 0) {
 									if (iframe.payloadleft < pri_fieldlen) {
-										busy = 1;
+										busy = true;
 										iframe.state = FRAME_SIZE_ERROR;
 										break;
 									}
@@ -1039,7 +1025,7 @@ class Session {
 								return rv;
 							}
 							
-							busy = 1;
+							busy = true;
 							
 							if (rv == ErrorCode.IGN_HEADER_BLOCK) {
 								iframe.state = IGN_HEADER_BLOCK;
@@ -1071,7 +1057,7 @@ class Session {
 							if (iframe.padlen == 0 && (iframe.frame.hd.flags & FrameFlags.PADDED)) {
 								padlen = iframe.computePad();
 								if (padlen < 0) {
-									busy = 1;
+									busy = true;
 									rv = terminateSessionWithReason(FrameError.PROTOCOL_ERROR, "PUSH_PROMISE: invalid padding");
 									if (isFatal(rv)) {
 										return rv;
@@ -1083,7 +1069,7 @@ class Session {
 								iframe.frame.push_promise.padlen = padlen;
 								
 								if (iframe.payloadleft < 4) {
-									busy = 1;
+									busy = true;
 									iframe.state = FRAME_SIZE_ERROR;
 									break;
 								}
@@ -1100,7 +1086,7 @@ class Session {
 								return rv;
 							}
 							
-							busy = 1;
+							busy = true;
 							
 							if (rv == ErrorCode.IGN_HEADER_BLOCK) {
 								iframe.state = IGN_HEADER_BLOCK;
@@ -1126,16 +1112,11 @@ class Session {
 							debuglen = iframe.frame.hd.length - 8;
 							
 							if (debuglen > 0) {
-								iframe.raw_lbuf = http2_mem_malloc(mem, debuglen);
-								
-								if (iframe.raw_lbuf == null) {
-									return ErrorCode.NOMEM;
-								}
-								
-								http2_buf_wrap_init(&iframe.lbuf, iframe.raw_lbuf, debuglen);
+								iframe.raw_lbuf = Mem.alloc!(ubyte[])(debuglen);
+								iframe.lbuf(iframe.raw_lbuf);
 							}
 							
-							busy = 1;
+							busy = true;
 							
 							iframe.state = READ_GOAWAY_DEBUG;
 							
@@ -1205,7 +1186,7 @@ class Session {
 							iframe.payloadleft -= hd_proclen;
 							
 							addReset(iframe.frame.hd.stream_id, FrameError.INTERNAL_ERROR);
-							busy = 1;
+							busy = true;
 							iframe.state = IGN_HEADER_BLOCK;
 							break;
 						}
@@ -1218,7 +1199,7 @@ class Session {
 							if (iframe.payloadleft == 0) {
 								inboundFrameReset();
 							} else {
-								busy = 1;
+								busy = true;
 								iframe.state = IGN_PAYLOAD;
 							}
 							break;
@@ -1273,7 +1254,7 @@ class Session {
 						case FrameType.PUSH_PROMISE:
 						case FrameType.CONTINUATION:
 							/* Mark inflater bad so that we won't perform further decoding */
-							session.hd_inflater.ctx.bad = 1;
+							hd_inflater.ctx.bad = 1;
 							break;
 						default:
 							break;
@@ -1290,7 +1271,7 @@ class Session {
 						return rv;
 					}
 					
-					busy = 1;
+					busy = true;
 					
 					iframe.state = IGN_PAYLOAD;
 					
@@ -1305,7 +1286,7 @@ class Session {
 					DEBUGF(fprintf(stderr, "recv: readlen=%zu, payloadleft=%zu\n", readlen,
 							iframe.payloadleft));
 					
-					if (http2_buf_mark_avail(&iframe.sbuf)) {
+					if (iframe.sbuf.markAvailable) {
 						break;
 					}
 					
@@ -1330,8 +1311,8 @@ class Session {
 					DEBUGF(fprintf(stderr, "recv: [READ_GOAWAY_DEBUG]\n"));
 					
 					readlen = iframe.readLength(pos, last);
-					
-					iframe.lbuf.last = http2_cpymem(iframe.lbuf.last, pos, readlen);
+
+					iframe.lbuf.last[0 .. readlen] = pos[0 .. readlen];
 					
 					iframe.payloadleft -= readlen;
 					pos += readlen;
@@ -1340,7 +1321,7 @@ class Session {
 							iframe.payloadleft));
 					
 					if (iframe.payloadleft) {
-						assert(http2_buf_avail(&iframe.lbuf) > 0);
+						assert(iframe.lbuf.available > 0);
 						
 						break;
 					}
@@ -1367,15 +1348,14 @@ class Session {
 					readlen = iframe.read(pos, last);
 					pos += readlen;
 					
-					if (http2_buf_mark_avail(&iframe.sbuf)) {
+					if (iframe.sbuf.markAvailable) {
 						return pos - first;
 					}
 					
-					http2_frame_unpack_frame_hd(&cont_hd, iframe.sbuf.pos);
+					cont_hd.unpack(iframe.sbuf.pos);
 					iframe.payloadleft = cont_hd.length;
 					
-					DEBUGF(fprintf(stderr, "recv: payloadlen=%zu, type=%u, flags=0x%02x, "
-							"stream_id=%d\n",
+					DEBUGF(fprintf(stderr, "recv: payloadlen=%zu, type=%u, flags=0x%02x, stream_id=%d\n",
 							cont_hd.length, cont_hd.type, cont_hd.flags,
 							cont_hd.stream_id));
 					
@@ -1390,7 +1370,7 @@ class Session {
 							return rv;
 						}
 						
-						busy = 1;
+						busy = true;
 						
 						iframe.state = IGN_PAYLOAD;
 						
@@ -1401,15 +1381,15 @@ class Session {
 					iframe.frame.hd.flags |= cont_hd.flags & FrameFlags.END_HEADERS;
 					iframe.frame.hd.length += cont_hd.length;
 					
-					busy = 1;
+					busy = true;
 					
 					if (iframe.state == EXPECT_CONTINUATION) {
 						iframe.state = READ_HEADER_BLOCK;
-						
-						rv = session_call_on_begin_frame(session, &cont_hd);
-						
-						if (isFatal(rv)) {
-							return rv;
+
+						bool ok = callOnFrameHeader(cont_hd);
+
+						if (!ok) {
+							return ErrorCode.CALLBACK_FAILURE;
 						}
 					} else {
 						iframe.state = IGN_HEADER_BLOCK;
@@ -1425,9 +1405,9 @@ class Session {
 					
 					DEBUGF(fprintf(stderr, "recv: readlen=%zu, payloadleft=%zu, left=%zu\n",
 							readlen, iframe.payloadleft,
-							http2_buf_mark_avail(&iframe.sbuf)));
+							iframe.sbuf.markAvailable));
 					
-					if (http2_buf_mark_avail(&iframe.sbuf)) {
+					if (iframe.sbuf.markAvailable) {
 						return pos - first;
 					}
 					
@@ -1455,7 +1435,7 @@ class Session {
 						}
 					}
 					
-					busy = 1;
+					busy = true;
 					
 					padlen = iframe.computePad();
 					if (padlen < 0) {
@@ -1521,23 +1501,26 @@ class Session {
 							if (session_enforce_http_messaging(session)) {
 								if (http2_http_on_data_chunk(stream, data_readlen) != 0) {
 									addReset(iframe.frame.hd.stream_id, FrameError.PROTOCOL_ERROR);
-									busy = 1;
+									busy = true;
 									iframe.state = IGN_DATA;
 									break;
 								}
 							}
-							if (session.policy.on_data_chunk_recv_callback) {
-								rv = session.policy.on_data_chunk_recv_callback(
-									session, iframe.frame.hd.flags, iframe.frame.hd.stream_id,
-									pos - readlen, data_readlen);
-								if (rv == ErrorCode.PAUSE) {
-									return pos - first;
-								}
-								
-								if (isFatal(rv)) {
-									return ErrorCode.CALLBACK_FAILURE;
-								}
+
+							ubyte[] data_nopad = (pos - readlen)[0 .. data_readlen];
+							FrameFlags flags = iframe.frame.hd.flags;
+							int stream_id = iframe.frame.hd.stream_id;
+							bool pause;
+							book ok = policy.onDataChunk(flags, stream_id, data_nopad, pause);
+
+							if (pause) {
+								return pos - first;
 							}
+							
+							if (!ok) {
+								return ErrorCode.CALLBACK_FAILURE;
+							}
+
 						}
 					}
 					
@@ -1596,7 +1579,7 @@ class Session {
 				break;
 			}
 			
-			busy = 0;
+			busy = false;
 		}
 		
 		assert(pos == last);
@@ -2977,10 +2960,10 @@ private:
 		
 		iframe.sbuf = Buffer(iframe.raw_sbuf.ptr[0 .. iframe.raw_sbuf.sizeof]);
 		iframe.sbuf.mark += FRAME_HDLEN;
-		
+
 		iframe.lbuf.free();
 		iframe.lbuf = Buffer();
-		
+		if (iframe.raw_lbuf) Mem.free(iframe.raw_lbuf);
 		destroy(iframe.iv);
 		iframe.payloadleft = 0;
 		iframe.padlen = 0;
@@ -3447,22 +3430,19 @@ private:
 		return rv;
 	}	
 	
-	ErrorCode callOnFrameReady(Frame frame) {
-		ErrorCode rv;
-		rv = policy.onFrameReady(frame);
-		if (rv != 0) {
-			return ErrorCode.CALLBACK_FAILURE;
-		}
-		return 0;
+	bool callOnFrameReady(in Frame frame)
+	{
+		return policy.onFrameReady(frame);
 	}
 
-	ErrorCode callOnFrameSent(Frame frame) {
-		ErrorCode rv;
-		rv = policy.onFrameSent(frame);
-		if (rv != 0) {
-			return ErrorCode.CALLBACK_FAILURE;
-		}
-		return 0;
+	bool callOnFrameSent(in Frame frame)
+	{
+		return policy.onFrameSent(frame);
+	}
+
+	bool callOnFrameHeader(in FrameHeader hd) 
+	{
+		return policy.onFrameHeader(hd);
 	}
 
 	int callRead(out ubyte[] buf)
@@ -3476,6 +3456,19 @@ private:
 			return ErrorCode.CALLBACK_FAILURE;
 		
 		return len;
+	}
+
+	int session_call_on_frame_received(Session session, Frame frame) 
+	{
+		ErrorCode rv;
+		if (session.policy.on_frame_recv_callback) {
+			rv = session.policy.on_frame_recv_callback(session, frame,
+				session.user_data);
+			if (rv != 0) {
+				return ErrorCode.CALLBACK_FAILURE;
+			}
+		}
+		return 0;
 	}
 
 	/* Add padding to HEADERS or PUSH_PROMISE. We use frame.headers.padlen in this function 
@@ -3511,9 +3504,9 @@ private:
 		return 0;
 	}
 
-	size_t estimateHeadersPayload(in NVPair[] nva, size_t additional) 
+	size_t estimateHeadersPayload(in HeaderField[] hfa, size_t additional) 
 	{
-		return hd_deflater.upperBound(nva) + additional;
+		return hd_deflater.upperBound(hfa) + additional;
 	}
 	
 	
@@ -3574,7 +3567,7 @@ private:
 					
 					aux_data = &item.aux_data.headers;
 					
-					estimated_payloadlen = estimateHeadersPayload(frame.headers.nva, PRIORITY_SPECLEN);
+					estimated_payloadlen = estimateHeadersPayload(frame.headers.hfa, PRIORITY_SPECLEN);
 					
 					if (estimated_payloadlen > MAX_HEADERSLEN) {
 						return ErrorCode.FRAME_SIZE_ERROR;
@@ -3630,7 +3623,7 @@ private:
 					}
 					
 					DEBUGF(fprintf(stderr, "send: HEADERS finally serialized in %zd bytes\n",
-							http2_bufs_len(&session.aob.framebufs)));
+							aob.framebufs.length));
 					
 					break;
 				}
@@ -3676,7 +3669,7 @@ private:
 					
 					openStream(frame.push_promise.promised_stream_id, StreamFlags.NONE, pri_spec, StreamState.RESERVED, aux_data.stream_user_data);
 					
-					estimated_payloadlen = estimateHeadersPayload(frame.push_promise.nva, 0);
+					estimated_payloadlen = estimateHeadersPayload(frame.push_promise.hfa, 0);
 					
 					if (estimated_payloadlen > MAX_HEADERSLEN)
 						return ErrorCode.FRAME_SIZE_ERROR;
@@ -3801,9 +3794,9 @@ private:
 					return 0;
 				}
 			}
-			rv = callOnFrameSent(frame);
-			if (isFatal(rv)) {
-				return rv;
+			bool ok = callOnFrameSent(frame);
+			if (!ok) {
+				return ErrorCode.CALLBACK_FAILURE;
 			}
 			with(FrameType) switch (frame.hd.type) {
 				case HEADERS: {
@@ -3932,9 +3925,9 @@ private:
 			stream.detachItem(this);
 			
 			/* Call onFrameSent after detachItem(), so that application can issue http2_submit_data() in the callback. */
-			rv = callOnFrameSent(frame);
-			if (isFatal(rv)) {
-				return rv;
+			bool ok = callOnFrameSent(frame);
+			if (!ok) {
+				return ErrorCode.CALLBACK_FAILURE;
 			}
 			
 			if (frame.hd.flags & FrameFlags.END_STREAM) {
@@ -3955,10 +3948,10 @@ private:
 			return 0;
 		}
 		
-		rv = callOnFrameSent(frame);
+		bool ok = callOnFrameSent(frame);
 		
-		if (isFatal(rv)) {
-			return rv;
+		if (!ok) {
+			return ErrorCode.CALLBACK_FAILURE;
 		}
 		
 		return 0;
@@ -4209,9 +4202,9 @@ private:
 								frame.hd.length, frame.hd.type, frame.hd.flags,
 								frame.hd.stream_id));
 						
-						rv = callOnFrameReady(session, *frame);
-						if (isFatal(rv)) {
-							return rv;
+						bool ok = callOnFrameReady(session, *frame);
+						if (!ok) {
+							return ErrorCode.CALLBACK_FAILURE;
 						}
 					} else {
 						DEBUGF(fprintf(stderr, "send: next frame: DATA\n"));
@@ -4348,9 +4341,6 @@ private:
 	/// Notes: The current implementation only keeps idle streams if session is initialized as server.
 	size_t num_idle_streams;
 	
-	/// The number of bytes allocated for nvbuf
-	size_t nvbuflen;
-	
 	/// Next Stream ID. Made unsigned int to detect >= (1 << 31). 
 	uint next_stream_id;
 
@@ -4459,15 +4449,15 @@ size_t http2_pack_settings_payload(ubyte[] buf, const ref Setting[] iv)
  * $(D HTTP2_MIN_WEIGHT).  If it is strictly greater than
  * $(D HTTP2_MAX_WEIGHT), it becomes $(D HTTP2_MAX_WEIGHT).
  *
- * The |nva| is an array of name/value pair :type:`http2_nv` with
- * |nvlen| elements.  The application is responsible to include
+ * The |hfa| is an array of header fields $(D HeaderField) with
+ * |hfa.length| elements.  The application is responsible to include
  * required pseudo-header fields (header field whose name starts with
- * ":") in |nva| and must place pseudo-headers before regular header
+ * ":") in |hfa| and must place pseudo-headers before regular header
  * fields.
  *
- * This function creates copies of all name/value pairs in |nva|.  It
- * also lower-cases all names in |nva|.  The order of elements in
- * |nva| is preserved.
+ * This function creates copies of all header fields in |hfa|.  It
+ * also lower-cases all names in |hfa|.  The order of elements in
+ * |hfa| is preserved.
  *
  * HTTP/2 specification has requirement about header fields in the
  * request HEADERS.  See the specification for more details.
@@ -4476,7 +4466,7 @@ size_t http2_pack_settings_payload(ubyte[] buf, const ref Setting[] iv)
  * in subsequent DATA frames.  In this case, a method that allows
  * request message bodies
  * (http://www.w3.org/Protocols/rfc2616/rfc2616-sec9.html#sec9) must
- * be specified with `:method` key in |nva| (e.g. `POST`).  This
+ * be specified with `:method` key in |hfa| (e.g. `POST`).  This
  * function does not take ownership of the |data_prd|.  The function
  * copies the members of the |data_prd|.  If |data_prd| is `null`,
  * HEADERS have END_STREAM set.  The |stream_user_data| is data
@@ -4502,7 +4492,7 @@ size_t http2_pack_settings_payload(ubyte[] buf, const ref Setting[] iv)
  *   frame.
  *
  */
-ErrorCode http2_submit_request(Session session, in PrioritySpec pri_spec, in NVPair[] nva, in DataProvider data_prd, void *stream_user_data)
+ErrorCode http2_submit_request(Session session, in PrioritySpec pri_spec, in HeaderField[] hfa, in DataProvider data_prd, void *stream_user_data)
 {
 	ubyte flags;
 	
@@ -4512,8 +4502,7 @@ ErrorCode http2_submit_request(Session session, in PrioritySpec pri_spec, in NVP
 
 	flags = set_request_flags(pri_spec, data_prd);
 	
-	return submit_headers_shared_nva(session, flags, -1, pri_spec, nva, nvlen,
-		data_prd, stream_user_data, 0);
+	return submit_headers_shared_hfa(session, flags, -1, pri_spec, hfa, data_prd, stream_user_data, 0);
 }
 
 /**
@@ -4522,15 +4511,15 @@ ErrorCode http2_submit_request(Session session, in PrioritySpec pri_spec, in NVP
  * Submits response HEADERS frame and optionally one or more DATA
  * frames against the stream |stream_id|.
  *
- * The |nva| is an array of name/value pair :type:`http2_nv` with
+ * The |hfa| is an array of header fields :type:`http2_nv` with
  * |nvlen| elements.  The application is responsible to include
  * required pseudo-header fields (header field whose name starts with
- * ":") in |nva| and must place pseudo-headers before regular header
+ * ":") in |hfa| and must place pseudo-headers before regular header
  * fields.
  *
- * This function creates copies of all name/value pairs in |nva|.  It
- * also lower-cases all names in |nva|.  The order of elements in
- * |nva| is preserved.
+ * This function creates copies of all header fields in |hfa|.  It
+ * also lower-cases all names in |hfa|.  The order of elements in
+ * |hfa| is preserved.
  *
  * HTTP/2 specification has requirement about header fields in the
  * response HEADERS.  See the specification for more details.
@@ -4565,10 +4554,10 @@ ErrorCode http2_submit_request(Session session, in PrioritySpec pri_spec, in NVP
  *   program crash.  It is generally considered to a programming error
  *   to commit response twice.
  */
-ErrorCode http2_submit_response(Session session, int stream_id, in NVPair[] nva, in DataProvider data_prd)
+ErrorCode http2_submit_response(Session session, int stream_id, in HeaderField[] hfa, in DataProvider data_prd)
 {
 	ubyte flags = set_response_flags(data_prd);
-	return submit_headers_shared_nva(session, flags, stream_id, null, nva, data_prd, null, 1);
+	return submit_headers_shared_hfa(session, flags, stream_id, null, hfa, data_prd, null, 1);
 }
 
 /**
@@ -4603,15 +4592,15 @@ ErrorCode http2_submit_response(Session session, int stream_id, in NVPair[] nva,
  * $(D HTTP2_MIN_WEIGHT).  If it is strictly greater than
  * $(D HTTP2_MAX_WEIGHT), it becomes $(D HTTP2_MAX_WEIGHT).
  *
- * The |nva| is an array of name/value pair :type:`http2_nv` with
+ * The |hfa| is an array of header fields :type:`http2_nv` with
  * |nvlen| elements.  The application is responsible to include
  * required pseudo-header fields (header field whose name starts with
- * ":") in |nva| and must place pseudo-headers before regular header
+ * ":") in |hfa| and must place pseudo-headers before regular header
  * fields.
  *
- * This function creates copies of all name/value pairs in |nva|.  It
- * also lower-cases all names in |nva|.  The order of elements in
- * |nva| is preserved.
+ * This function creates copies of all header fields in |hfa|.  It
+ * also lower-cases all names in |hfa|.  The order of elements in
+ * |hfa| is preserved.
  *
  * The |stream_user_data| is a pointer to an arbitrary data which is
  * associated to the stream this frame will open.  Therefore it is
@@ -4643,7 +4632,7 @@ ErrorCode http2_submit_response(Session session, int stream_id, in NVPair[] nva,
  *   frame.
  *
  */
-ErrorCode http2_submit_headers(Session session, FrameFlags flags, int stream_id, const PrioritySpec pri_spec, in NVPair[] nva, void *stream_user_data)
+ErrorCode http2_submit_headers(Session session, FrameFlags flags, int stream_id, const PrioritySpec pri_spec, in HeaderField[] hfa, void *stream_user_data)
 {
 	flags &= FrameFlags.END_STREAM;
 	
@@ -4653,7 +4642,7 @@ ErrorCode http2_submit_headers(Session session, FrameFlags flags, int stream_id,
 		pri_spec = null;
 	}
 	
-	return submit_headers_shared_nva(session, flags, stream_id, pri_spec, nva, nvlen, null, stream_user_data, 0);
+	return submit_headers_shared_hfa(session, flags, stream_id, pri_spec, hfa, nvlen, null, stream_user_data, 0);
 }
 
 /**
@@ -4858,15 +4847,15 @@ ErrorCode http2_submit_settings(Session session, in Setting[] iv)
  *
  * The |stream_id| must be client initiated stream ID.
  *
- * The |nva| is an array of name/value pair :type:`http2_nv` with
+ * The |hfa| is an array of header fields :type:`http2_nv` with
  * |nvlen| elements.  The application is responsible to include
  * required pseudo-header fields (header field whose name starts with
- * ":") in |nva| and must place pseudo-headers before regular header
+ * ":") in |hfa| and must place pseudo-headers before regular header
  * fields.
  *
- * This function creates copies of all name/value pairs in |nva|.  It
- * also lower-cases all names in |nva|.  The order of elements in
- * |nva| is preserved.
+ * This function creates copies of all header fieldss in |hfa|.  It
+ * also lower-cases all names in |hfa|.  The order of elements in
+ * |hfa| is preserved.
  *
  * The |promised_stream_user_data| is a pointer to an arbitrary data
  * which is associated to the promised stream this frame will open and
@@ -4904,11 +4893,11 @@ ErrorCode http2_submit_settings(Session session, in Setting[] iv)
  *   frame.
  *
  */
-ErrorCode http2_submit_push_promise(Session session, int stream_id, in NVPair[] nva, void *promised_stream_user_data)
+ErrorCode http2_submit_push_promise(Session session, int stream_id, in HeaderField[] hfa, void *promised_stream_user_data)
 {
 	http2_outbound_item *item;
 	http2_frame *frame;
-	NVPair nva_copy;
+	HeaderField hfa_copy;
 	ubyte flags_copy;
 	int promised_stream_id;
 	int rv;
@@ -4935,7 +4924,7 @@ ErrorCode http2_submit_push_promise(Session session, int stream_id, in NVPair[] 
 	
 	frame = &item.frame;
 	
-	rv = http2_nv_array_copy(&nva_copy, nva, nvlen, mem);
+	hfa_copy = hfa.copy();
 	if (rv < 0) {
 		http2_mem_free(mem, item);
 		return rv;
@@ -4947,7 +4936,7 @@ ErrorCode http2_submit_push_promise(Session session, int stream_id, in NVPair[] 
 	session.next_stream_id += 2;
 	
 	http2_frame_push_promise_init(&frame.push_promise, flags_copy, stream_id,
-		promised_stream_id, nva_copy, nvlen);
+		promised_stream_id, hfa_copy);
 	
 	rv = http2_session_add_item(session, item);
 	
@@ -5188,11 +5177,11 @@ ubyte set_request_flags(const http2_priority_spec *pri_spec,
 	return flags;
 }
 
-/* This function takes ownership of |nva_copy|. Regardless of the
-   return value, the caller must not free |nva_copy| after this
+/* This function takes ownership of |hfa_copy|. Regardless of the
+   return value, the caller must not free |hfa_copy| after this
    function returns. */
 int submit_headers_shared(Session session, FrameFlags flags, int stream_id, 
-						  const ref PrioritySpec pri_spec, NVPair[] nva_copy,
+						  const ref PrioritySpec pri_spec, HeaderField[] hfa_copy,
 						  in DataProvider data_prd, void *stream_user_data, ubyte attach_stream)
 {
 	int rv;
@@ -5234,7 +5223,7 @@ int submit_headers_shared(Session session, FrameFlags flags, int stream_id,
 	
 	frame = &item.frame;
 	
-	http2_frame_headers_init(&frame.headers, flags_copy, stream_id, hcat, pri_spec, nva_copy, nvlen);
+	http2_frame_headers_init(&frame.headers, flags_copy, stream_id, hcat, pri_spec, hfa_copy);
 	
 	rv = http2_session_add_item(session, item);
 	
@@ -5250,8 +5239,8 @@ int submit_headers_shared(Session session, FrameFlags flags, int stream_id,
 	return 0;
 	
 fail:
-	/* http2_frame_headers_init() takes ownership of nva_copy. */
-	http2_nv_array_del(nva_copy, mem);
+	/* http2_frame_headers_init() takes ownership of hfa_copy. */
+	hfa_copy.free();
 fail2:
 	http2_mem_free(mem, item);
 	
@@ -5266,10 +5255,10 @@ void adjust_priority_spec_weight(ref PrioritySpec pri_spec) {
 	}
 }
 
-int submit_headers_shared_nva(Session session, FrameFlags flags, int stream_id, in PrioritySpec pri_spec,
-							  in NVPair[] nva, in DataProvider data_prd, void *stream_user_data, ubyte attach_stream) {
+int submit_headers_shared_hfa(Session session, FrameFlags flags, int stream_id, in PrioritySpec pri_spec,
+							  in HeaderField[] hfa, in DataProvider data_prd, void *stream_user_data, ubyte attach_stream) {
 	int rv;
-	NVPair nva_copy;
+	HeaderField hfa_copy;
 	PrioritySpec copy_pri_spec;
 
 	if (pri_spec) {
@@ -5279,12 +5268,12 @@ int submit_headers_shared_nva(Session session, FrameFlags flags, int stream_id, 
 		http2_priority_spec_default_init(&copy_pri_spec);
 	}
 
-	rv = http2_nv_array_copy(&nva_copy, nva, nvlen, mem);
+	hfa_copy = hfa.copy();
 	if (rv < 0) {
 		return rv;
 	}
 	
-	return submit_headers_shared(session, flags, stream_id, &copy_pri_spec, nva_copy, nvlen, data_prd, stream_user_data, attach_stream);
+	return submit_headers_shared(session, flags, stream_id, &copy_pri_spec, hfa_copy, data_prd, stream_user_data, attach_stream);
 }
 
 /**

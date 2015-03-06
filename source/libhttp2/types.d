@@ -211,15 +211,14 @@ string toString(ErrorCode error_code) {
 	}
 }
 
-//http2_nv_flag
-/// The flags for header field name/value pair.
-enum NVFlags : ubyte 
+/// The flag for a header field.
+enum HeaderFlag : ubyte 
 {
 	/// No flag set.
 	NONE = 0,
 
 	/**
-    * Indicates that this name/value pair must not be indexed ("Literal
+    * Indicates that this header field must not be indexed ("Literal
     * Header Field never Indexed" representation must be used in HPACK
     * encoding).  Other implementation calls this bit as "sensitive".
     */
@@ -227,14 +226,14 @@ enum NVFlags : ubyte
 }
 
 //http2_nv
-/// The name/value pair, which mainly used to represent header fields.
-struct NVPair 
+/// The header field, which mainly used to represent HTTP headers.
+struct HeaderField 
 {
 	string name;
 	string value;
-	NVFlags flags;
+	HeaderFlag flag;
 
-	bool opEquals(ref NVPair other) {
+	bool opEquals(ref HeaderField other) {
 		return name == other.name && value == other.value;
 	}
 }
