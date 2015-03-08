@@ -236,6 +236,217 @@ struct HeaderField
 	bool opEquals(ref HeaderField other) {
 		return name == other.name && value == other.value;
 	}
+
+	/**
+	* Returns true if HTTP header field name |name| of length |len| is
+	* valid according to http://tools.ietf.org/html/rfc7230#section-3.2
+	*
+	* Because this is a header field name in HTTP2, the upper cased alphabet
+	* is treated as error.
+	*/
+	bool validateName() {
+		ubyte* pos = name.ptr;
+		size_t len = name.length;
+		if (len == 0)
+			return false;
+
+		if (*pos == ':') {
+			if (name.length == 1)
+				return false;
+			++pos;
+			--len;
+		}
+
+		for (const ubyte* last = pos + len; pos != last; ++pos) {
+			if (!VALID_HD_NAME_CHARS[*pos]) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	/*
+	 * Returns true if HTTP header field value |value| of length |len|
+	 * is valid according to http://tools.ietf.org/html/rfc7230#section-3.2
+	 */
+	bool validateValue() {
+		ubyte* pos = value.ptr;
+		size_t len = value.length;
+
+		for (const ubyte* last = pos + len; pos != last; ++pos) {
+			if (!VALID_HD_VALUE_CHARS[*pos]) {
+				return false;
+			}
+		}
+		return true;
+	}
+
+	import libhttp2.stream : Stream;
+	/// Validate a request header
+	bool validateRequestHeader(Stream stream, bool trailer) {
+		int token;
+		
+		if (name[0] == ':') 
+			if (trailer || (stream.http_flags & HTTPFlags.PSEUDO_HEADER_DISALLOWED)) 
+				return false;
+		
+		token = parseToken(hf.name, hf.namelen);
+		
+		with(Token) switch (token) {
+			case _AUTHORITY:
+				if (!validatePseudoHeader(stream, HTTPFlags._AUTHORITY)) {
+					return false;
+				}
+				break;
+			case _METHOD:
+				if (!validatePseudoHeader(stream, HTTPFlags._METHOD)) {
+					return false;
+				}
+				if (value == "HEAD") {
+					stream.http_flags |= HTTPFlags.METH_HEAD;
+				} else if (value == "CONNECT") {
+					if (stream.stream_id % 2 == 0) {
+						/* we won't allow CONNECT for push */
+						return false;
+					}
+					stream.http_flags |= HTTPFlags.METH_CONNECT;
+					if (stream.http_flags & (HTTPFlags._PATH | HTTPFlags._SCHEME)) 
+						return false;
+					
+				}
+				break;
+			case _PATH:
+				if (stream.http_flags & HTTPFlags.METH_CONNECT) {
+					return false;
+				}
+				if (!validatePseudoHeader(stream, HTTPFlags._PATH)) {
+					return false;
+				}
+				break;
+			case _SCHEME:
+				if (stream.http_flags & HTTPFlags.METH_CONNECT) {
+					return false;
+				}
+				if (!validatePseudoHeader(stream, HTTPFlags._SCHEME)) {
+					return false;
+				}
+				break;
+			case HOST:
+				if (!validatePseudoHeader(stream, HTTPFlags.HOST)) {
+					return false;
+				}
+				break;
+			case CONTENT_LENGTH: {
+				if (stream.content_length != -1) 
+					return false;
+				import std.conv : parse;
+				stream.content_length = parse!uint(value);
+				if (stream.content_length == -1) 
+					return false;
+				break;
+			}
+				/* disallowed header fields */
+			case CONNECTION:
+			case KEEP_ALIVE:
+			case PROXY_CONNECTION:
+			case TRANSFER_ENCODING:
+			case UPGRADE:
+				return -1;
+			case TE:
+				import std.string : icmp;
+				if (icmp(value, "trailers") != 0)
+					return false;
+				break;
+			default:
+				if (name[0] == ':')
+					return false;
+		}
+		if (name[0] != ':')
+			stream.http_flags |= HTTPFlags.PSEUDO_HEADER_DISALLOWED;		
+		
+		return true;
+	}
+
+	bool validateResponseHeader(Stream stream, int trailer) 
+	{
+		import std.conv : parse;
+		int token;
+		
+		if (name[0] == ':') {
+			if (trailer || (stream.http_flags & HTTPFlags.PSEUDO_HEADER_DISALLOWED)) {
+				return false;
+			}
+		}
+		
+		token = parseToken(name);
+		
+		with(Token) switch (token) {
+			case _STATUS: {
+				if (!validatePseudoHeader(stream, HTTPFlags._STATUS)) {
+					return false;
+				}
+				if (value.length != 3) {
+					return false;
+				}
+				stream.status_code = parse!uint(value);
+				if (stream.status_code == -1)
+					return false;
+				break;
+			}
+			case CONTENT_LENGTH: {
+				if (stream.content_length != -1) {
+					return false;
+				}
+				stream.content_length = parse!uint(value);
+				if (stream.content_length == -1) {
+					return false;
+				}
+				break;
+			}
+				/* disallowed header fields */
+			case CONNECTION:
+			case KEEP_ALIVE:
+			case PROXY_CONNECTION:
+			case TRANSFER_ENCODING:
+			case UPGRADE:
+				return false;
+			case TE:
+				import std.string : icmp;
+				if (icmp("trailers", value) != 0) {
+					return false;
+				}
+				break;
+			default:
+				if (name[0] == ':') {
+					return false;
+				}
+		}
+		
+		if (name[0] != ':') {
+			stream.http_flags |= HTTPFlags.PSEUDO_HEADER_DISALLOWED;
+		}
+		
+		return 0;
+	}
+private:	
+	bool validatePseudoHeader(Stream stream, HTTPFlags flag) {
+		if (stream.http_flags & flag) {
+			return false;
+		}
+		if (lws(value)) {
+			return false;
+		}
+		stream.http_flags |= flag;
+		return true;
+	}
+
+	bool lws(in ubyte[] s) {
+		size_t i;
+		for (i = 0; i < s.length; ++i)
+			if (s.ptr[i] != ' ' && s.ptr[i] != '\t')
+				return false;
+		return true;
+	}
 }
 
 
@@ -483,6 +694,25 @@ enum StreamDPRI {
 	NO_ITEM = 0x01,
 	TOP = 0x02,
 	REST = 0x04
+}
+
+/// HTTP Tokens
+enum Token : int {
+	ERROR = -1,
+	_AUTHORITY = 0,
+	_METHOD,
+	_PATH,
+	_SCHEME,
+	_STATUS,
+	CONNECTION,
+	CONTENT_LENGTH,
+	HOST,
+	KEEP_ALIVE,
+	PROXY_CONNECTION,
+	TE,
+	TRANSFER_ENCODING,
+	UPGRADE,
+	MAXIDX,
 }
 
 

@@ -128,10 +128,11 @@ abstract class Policy
 
 	/**
      * Callback function invoked when a header header field is received
-     * for the |frame|.  The |name| of length |namelen| is header name.
-     * The |value| of length |valuelen| is header value.  The |flags| is a $(D HeaderFlag).
+     * for the |frame|.  The |hf.name| of length |hf.name.length| is header name.
+     * The |hf.value| of length |hf.value.length| is header value.  The |hf.flags| 
+     * is a $(D HeaderFlag).
      *
-     * If $(D HeaderFlag.NO_INDEX) is set in |flags|, the receiver
+     * If $(D HeaderFlag.NO_INDEX) is set in |hf.flags|, the receiver
      * must not index this header field when forwarding it to the next
      * hop.  More specifically, "Literal Header Field never Indexed"
      * representation must be used in HPACK encoding.
@@ -146,36 +147,32 @@ abstract class Policy
      * The |value| may be null if the |value.length| is 0.
      *
      * Please note that unless `http2_option_set_no_http_messaging()` is
-     * used, nghttp2 library does perform validation against the |name|
-     * and the |value| using `http2_check_header_name()` and
-     * `http2_check_header_value()`.  In addition to this, libhttp2
+     * used, nghttp2 library does perform validation against |hf.name|
+     * and |hf.value| using `hf.validateName()` and
+     * `hf.validateValue()`.  In addition to this, libhttp2
      * performs vaidation based on HTTP Messaging rule, which is briefly
      * explained in `HTTP Messaging`_ section.
      *
-     * If the application uses $(D Session.memRecv), it can return
-     * $(D ErrorCode.PAUSE) to make $(D Session.memRecv)
-     * return without processing further input bytes.  The memory pointed
-     * by |frame|, |name| and |value| parameters are retained until
-     * $(D Session.memRecv) or $(D Session.recv) is called.
+     * If the application uses $(D Session.memRecv), it can enable
+     * $(D pause) to make $(D Session.memRecv) return without processing 
+     * further input bytes.  The memory pointed by |frame|, |name| and |value|
+     * parameters are retained until $(D Session.memRecv) or $(D Session.recv) is called.
      * The application must retain the input bytes which was used to
      * produce these parameters, because it may refer to the memory region
      * included in the input bytes.
      *
-     * Returning $(D ErrorCode.TEMPORAL_CALLBACK_FAILURE) will close
-     * the stream by issuing RST_STREAM with $(D FrameError.INTERNAL_ERROR). 
-     * In this case, $(D Policy.onFrame) will not be invoked.  If a
-     * different error code is desirable, use
+     * Enabling $(D rst_stream) will close  the stream by issuing RST_STREAM with 
+     * $(D FrameError.INTERNAL_ERROR).  In this case, $(D Policy.onFrame) will 
+     * not be invoked.  If a different error code is desirable, use
      * `http2_submit_rst_stream()` with a desired error code and then
-     * return $(D ErrorCode.TEMPORAL_CALLBACK_FAILURE).
+     * set $(D rst_stream) to true.
      *
-     * The implementation of this function must return 0 if it succeeds.
-     * It may return $(D ErrorCode.PAUSE) or $(D ErrorCode.TEMPORAL_CALLBACK_FAILURE).  
-     * For other critical failures, it must return $(D ErrorCode.CALLBACK_FAILURE). 
-     * If any other nonzero value is returned, it is treated as $(D ErrorCode.CALLBACK_FAILURE).
-     * If $(D ErrorCode.CALLBACK_FAILURE) is returned, $(D Session.recv) and 
-     * $(D Session.memRecv) functions immediately return $(D ErrorCode.CALLBACK_FAILURE).
+     * The implementation of this function must return true if it succeeds.
+     * If false is returned, it is treated as $(D ErrorCode.CALLBACK_FAILURE) and
+     * in this case, $(D Session.recv) or $(D Session.memRecv) functions immediately 
+     * return $(D ErrorCode.CALLBACK_FAILURE).
      */
-	ErrorCode onHeaderField(in Frame frame, in ubyte[] name, in ubyte[] value, HeaderFlag flag);
+	bool onHeaderField(in Frame frame, HeaderField hf, ref bool pause, ref bool rst_stream);
 
 	/**
      * Callback function invoked when a chunk of data in DATA frame is

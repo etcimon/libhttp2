@@ -404,7 +404,7 @@ struct Priority {
 
 //http2_rst_stream
 /// The RST_STREAM frame.  It has the following members:
-struct Reset {	
+struct RstStream {	
 	FrameHeader hd;
 	FrameError error_code;
 
@@ -444,7 +444,7 @@ struct Reset {
 	/*
 	 * Unpacks RST_STREAM frame byte sequence into |frame|.
 	 */
-	void unpack(in ubyte* payload) {
+	void unpack(in ubyte[] payload) {
 		error_code = read!uint(payload);
 	}
 }
@@ -452,7 +452,7 @@ struct Reset {
 /// The SETTINGS frame
 struct Settings {
 	FrameHeader hd;
-	Setting[] iv;
+	Setting[] iva;
 
 	/*
 	 * Initializes SETTINGS frame |frame| with given values. |frame| takes
@@ -495,49 +495,49 @@ struct Settings {
 		
 		frame.hd.pack(buf.pos);
 		
-		buf.last += pack(buf.last, iv);
+		buf.last += pack(buf.last, iva);
 		
 		return 0;
 	}
 
 	
 	/*
-	 * Makes a copy of |iv| in frame.settings.iv.
+	 * Makes a copy of |_iva| in |iva|.
 	 */
-	void unpack(out Setting[] _iv) 
+	void unpack(out Setting[] _iva) 
 	{
-		if (iv) free();
-		
-		if (_iv.length == 0) {
-			iv = null;
+		if (iva) free();
+
+		if (_iva.length == 0) {
+			iva = null;
 			return;
 		}
-		iv = Mem.alloc!(Setting[])(_iv.length);
-		memcpy(iv, _iv, _iv.length * Setting.sizeof);
+		iva = Mem.alloc!(Setting[])(_iva.length);
+		memcpy(iva.ptr, _iva.ptr, _iva.length * Setting.sizeof);
 		
 	}
 
 	/*
-	 * Unpacks SETTINGS payload into |iv|. The number of entries are
-	 * assigned to the |iv.length|. This function allocates enough memory
-	 * to store the result in |iv|. The caller is responsible to free
-	 * |iv| after its use.
+	 * Unpacks SETTINGS payload into |iva|. The number of entries are
+	 * assigned to the |niv|. This function allocates enough memory
+	 * to store the result in |iva|. The caller is responsible to free
+	 * |iva| after its use.
 	 */
-	static void unpack(out Setting[] iv, in ubyte[] payload) {
+	static void unpack(out Setting[] iva, in ubyte[] payload) {
 		size_t i;
 		
 		size_t len = payload.length / FRAME_SETTINGS_ENTRY_LENGTH;
 		
 		if (len == 0) {
-			iv = null;
+			iva = null;
 			return;
 		}
 		
-		iv = Mem.alloc!(Setting[])(len);
+		iva = Mem.alloc!(Setting[])(len);
 
-		for (i = 0; i < len; ++i) {
+		foreach(ref iv; iva) {
 			size_t off = i * FRAME_SETTINGS_ENTRY_LENGTH;
-			iv[i].unpack(&payload[off]);
+			iv.unpack(&payload[off]);
 		}
 	}
 
@@ -547,14 +547,14 @@ struct Settings {
 	 *
 	 * Returns the number of bytes written into the |buf|.
 	 */
-	private static size_t pack(out ubyte* buf, in Setting[] iv)
+	private static size_t pack(out ubyte* buf, in Setting[] _iva)
 	{
 		size_t i;
-		for (i = 0; i < niv; ++i, buf += FRAME_SETTINGS_ENTRY_LENGTH) {
-			write!ushort(buf, iv[i].id);
-			write!uint(buf + 2, iv[i].value);
+		for (i = 0; i < _iva.length; ++i, buf += FRAME_SETTINGS_ENTRY_LENGTH) {
+			write!ushort(buf, _iva[i].id);
+			write!uint(buf + 2, _iva[i].value);
 		}
-		return FRAME_SETTINGS_ENTRY_LENGTH * niv;
+		return FRAME_SETTINGS_ENTRY_LENGTH * _iva.length;
 	}
 
 }
@@ -903,7 +903,7 @@ union Frame
 	Data data;
 	Headers headers;
 	Priority priority;
-	Reset rst_stream;
+	RstStream rst_stream;
 	Settings settings;
 	PushPromise push_promise;
 	Ping ping;
@@ -1037,10 +1037,9 @@ int bytes_compar(const ubyte* a, size_t alen, const ubyte* b, size_t blen) {
 }
 
 // true if everything is fine, false otherwise
-bool check(in Setting[] iv) 
+bool check(in Setting[] iva) 
 {
-	size_t i;
-	foreach (entry; iv) {
+	foreach (entry; iva) {
 		switch (entry.id) {
 			case SETTINGS_HEADER_TABLE_SIZE:
 				if (entry.value > MAX_HEADER_TABLE_SIZE) {

@@ -1098,49 +1098,147 @@ private:
 	}
 
 package:
-
-
-	/*
-	 * This function is called when request header is received.  
-	 * This function performs validation and returns 0 if it succeeds, or -1.
- 	 */
-	int validateRequestHeaders(in Frame frame);
-	
-	/*
- 	 * This function is called when response header is received.  This
- 	 * function performs validation and returns 0 if it succeeds, or -1.
- 	 */
-	int validateResponseHeaders();
-	
 	/*
 	 * This function is called when trailer header (for both request and
 	 * response) is received.  This function performs validation and
-	 * returns 0 if it succeeds, or -1.
+	 * returns true if it succeeds, or false.
 	 */
-	int validateTrailerHeaders(in Frame frame);
+	bool validateTrailerHeaders(in Frame frame) const
+	{
+		if ((frame.hd.flags & FrameFlags.END_STREAM) == 0)
+			return false;
+		
+		return true;
+	}
 	
 	/*
 	 * This function is called when END_STREAM flag is seen in incoming
-	 * frame.  This function performs validation and returns 0 if it
-	 * succeeds, or -1.
+	 * frame.  This function performs validation and returns true if it
+	 * succeeds, or false.
 	 */
-	int validateRemoteEndStream(nghttp2_stream *stream);
+	bool validateRemoteEndStream() const
+	{
+		if (http_flags & HTTPFlags.EXPECT_FINAL_RESPONSE) 
+			return false;
+		
+		if (content_length != -1 && content_length != recv_content_length)
+			return false;
+
+		return 0;
+	}
 	
 	/*
 	 * This function is called when chunk of data is received.  This
-	 * function performs validation and returns 0 if it succeeds, or -1.
+	 * function also performs validation and returns true if it succeeds, or false.
 	 */
-	int validateDataChunk(nghttp2_stream *stream, size_t n);
+	bool onDataChunk(size_t n)
+	{
+		recv_content_length += n;
+
+		if ((http_flags & HTTPFlags.EXPECT_FINAL_RESPONSE) ||
+			(content_length != -1 && recv_content_length > content_length))
+		{
+			return false;
+		}
+		
+		return true;
+	}
 	
 	/*
 	 * This function inspects header field in |frame| and records its
-	 * method in stream->http_flags.  If frame->hd.type is neither
-	 * NGHTTP2_HEADERS nor NGHTTP2_PUSH_PROMISE, this function does
+	 * method in stream.http_flags.  If frame.hd.type is neither
+	 * FrameType.HEADERS nor FrameType.PUSH_PROMISE, this function does
 	 * nothing.
 	 */
-	void setRequestMethod(in Frame frame);
+	void setRequestMethod(in Frame frame)
+	{
+		HeaderField[] hfa;
+		size_t i;
+		
+		with(FrameType) switch (frame->hd.type) {
+			case HEADERS:
+				hfa = frame.headers.hfa;
+				break;
+			case PUSH_PROMISE:
+				hfa = frame.push_promise.hfa;
+				break;
+			default:
+				return;
+		}
+		
+		/* TODO we should do this strictly. */
+		foreach(ref hf; hfa) {
+			if (parseToken(hf.name) != Token._METHOD) {
+				continue;
+			}
+			if (hf.value == "CONNECT") {
+				http_flags |= HTTPFlags.METH_CONNECT;
+				return;
+			}
+			if (hf.value == "HEAD") {
+				http_flags |= HTTPFlags.METH_HEAD;
+				return;
+			}
+			return;
+		}
+	}
 
+	/*
+	 * This function is called when request header is received.  
+	 * This function performs validation and returns true if it succeeds, or false.
+ 	 */
+	bool onRequestHeaders(Frame frame) 
+	{
+		if (http_flags & HTTPFlags.METH_CONNECT) 
+		{
+			if ((http_flags & HTTPFlags._AUTHORITY) == 0) 
+				return false;
+			
+			content_length = -1;
+
+		} else if ((http_flags & HTTPFlags.REQ_HEADERS) != HTTPFlags.REQ_HEADERS ||
+				   (http_flags & (HTTPFlags._AUTHORITY | HTTPFlags.HOST)) == 0) 
+		{
+			return false;
+		}
+		
+		if (frame.hd.type == FrameType.PUSH_PROMISE) {
+			/* we are going to reuse data fields for upcoming response. Clear them now, except for method flags. */
+			http_flags &= HTTPFlags.METH_ALL;
+			content_length = -1;
+		}
+		
+		return true;
+	}
+
+	/*
+ 	 * This function is called when response header is received.  This
+ 	 * function performs validation and returns true if it succeeds, or false.
+ 	 */
+	bool onResponseHeaders() {
+		if ((http_flags & HTTPFlags._STATUS) == 0)
+			return false;
+		
+		if (status_code / 100 == 1)
+		{
+			/* non-final response */
+			http_flags = (http_flags & HTTPFlags.METH_ALL) | HTTPFlags.EXPECT_FINAL_RESPONSE;
+			content_length = -1;
+			status_code = -1;
+			return true;
+		}
+		
+		http_flags &= ~HTTPFlags.EXPECT_FINAL_RESPONSE;
+		bool has_response_body = (http_flags & HTTPFlags.METH_HEAD) == 0 && status_code / 100 != 1 && status_code != 304 && status_code != 204;
+		if (!has_response_body)
+			content_length = 0;
+		else if (http_flags & HTTPFlags.METH_CONNECT)
+			content_length = -1;
+		return true;
+	}
 private:
+
+
     /// Stream ID
     int m_id;
 

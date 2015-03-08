@@ -105,7 +105,7 @@ struct Inflater
 	 *
 	 * Example follows::
 	 *
-	 *     void inflate_header_block(ref Inflater hd_inflater, ubyte[] input, bool final)
+	 *     void inflateHeaderBlock(ref Inflater hd_inflater, ubyte[] input, bool final)
 	 *     {
 	 *         size_t rv;
 	 *
