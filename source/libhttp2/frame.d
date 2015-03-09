@@ -360,7 +360,7 @@ struct Priority {
 	FrameHeader hd;
 	PrioritySpec pri_spec;
 
-	this(int stream_id, in PrioritySpec _pri_spec) 
+	this(int stream_id, in PrioritySpec _pri_spec = PrioritySpec.init) 
 	{
 		hd = FrameHeader(PRIORITY_SPECLEN, FrameType.PRIORITY, FrameFlags.NONE, stream_id);
 		pri_spec = _pri_spec;

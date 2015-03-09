@@ -26,18 +26,13 @@
 #define GET_TABLE_ENT(context, index) http2_hd_table_get(context, index)
 
 void test_http2_hd_deflate(void) {
-  http2_hd_deflater deflater;
-  http2_hd_inflater inflater;
-  http2_nv nva1[] = {MAKE_NV(":path", "/my-example/index.html"),
-                       MAKE_NV(":scheme", "https"), MAKE_NV("hello", "world")};
-  http2_nv nva2[] = {MAKE_NV(":path", "/script.js"),
-                       MAKE_NV(":scheme", "https")};
-  http2_nv nva3[] = {MAKE_NV("cookie", "k1=v1"), MAKE_NV("cookie", "k2=v2"),
-                       MAKE_NV("via", "proxy")};
-  http2_nv nva4[] = {MAKE_NV(":path", "/style.css"),
-                       MAKE_NV("cookie", "k1=v1"), MAKE_NV("cookie", "k1=v1")};
-  http2_nv nva5[] = {MAKE_NV(":path", "/style.css"),
-                       MAKE_NV("x-nghttp2", "")};
+  Deflater deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
+  Inflater inflater = Inflater(true);
+  HeaderField[] hfa1 = [HeaderField(":path", "/my-example/index.html"), HeaderField(":scheme", "https"), HeaderField("hello", "world")];
+  HeaderField[] hfa2 = [HeaderField(":path", "/script.js"), HeaderField(":scheme", "https")];
+  HeaderField[] hfa3 = [HeaderField("cookie", "k1=v1"), HeaderField("cookie", "k2=v2"), HeaderField("via", "proxy")];
+  HeaderField[] hfa4 = [HeaderField(":path", "/style.css"), HeaderField("cookie", "k1=v1"), HeaderField("cookie", "k1=v1")];
+  HeaderField[] hfa5 = [HeaderField(":path", "/style.css"), HeaderField("x-nghttp2", "")];
   http2_bufs bufs;
   size_t blocklen;
   nva_out out;
@@ -128,11 +123,11 @@ void test_http2_hd_deflate(void) {
 }
 
 void test_http2_hd_deflate_same_indexed_repr(void) {
-  http2_hd_deflater deflater;
-  http2_hd_inflater inflater;
-  http2_nv nva1[] = {MAKE_NV("cookie", "alpha"), MAKE_NV("cookie", "alpha")};
-  http2_nv nva2[] = {MAKE_NV("cookie", "alpha"), MAKE_NV("cookie", "alpha"),
-                       MAKE_NV("cookie", "alpha")};
+  Deflater deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
+  Inflater inflater = Inflater(true);
+  HeaderField hfa1[] = [HeaderField("cookie", "alpha"), HeaderField("cookie", "alpha")];
+  HeaderField hfa2[] = [HeaderField("cookie", "alpha"), HeaderField("cookie", "alpha"),
+                       HeaderField("cookie", "alpha")];
   http2_bufs bufs;
   size_t blocklen;
   nva_out out;
@@ -181,10 +176,10 @@ void test_http2_hd_deflate_same_indexed_repr(void) {
 }
 
 void test_http2_hd_inflate_indexed(void) {
-  http2_hd_inflater inflater;
+  Inflater inflater = Inflater(true);
   http2_bufs bufs;
   size_t blocklen;
-  http2_nv nv = MAKE_NV(":path", "/");
+  HeaderField hf = HeaderField(":path", "/");
   nva_out out;
   http2_mem *mem;
 
@@ -221,13 +216,13 @@ void test_http2_hd_inflate_indexed(void) {
 }
 
 void test_http2_hd_inflate_indname_noinc(void) {
-  http2_hd_inflater inflater;
+  Inflater inflater = Inflater(true);
   http2_bufs bufs;
   size_t blocklen;
-  http2_nv nv[] = {/* Huffman */
-                     MAKE_NV("user-agent", "nghttp2"),
+  HeaderField hf[] = [/* Huffman */
+                     HeaderField("user-agent", "nghttp2"),
                      /* Expecting no huffman */
-                     MAKE_NV("user-agent", "x")};
+                     HeaderField("user-agent", "x")];
   size_t i;
   nva_out out;
   http2_mem *mem;
@@ -259,10 +254,10 @@ void test_http2_hd_inflate_indname_noinc(void) {
 }
 
 void test_http2_hd_inflate_indname_inc(void) {
-  http2_hd_inflater inflater;
+  Inflater inflater = Inflater(true);
   http2_bufs bufs;
   size_t blocklen;
-  http2_nv nv = MAKE_NV("user-agent", "nghttp2");
+  HeaderField hf = HeaderField("user-agent", "nghttp2");
   nva_out out;
   http2_mem *mem;
 
@@ -293,12 +288,12 @@ void test_http2_hd_inflate_indname_inc(void) {
 }
 
 void test_http2_hd_inflate_indname_inc_eviction(void) {
-  http2_hd_inflater inflater;
+  Inflater inflater = Inflater(true);
   http2_bufs bufs;
   size_t blocklen;
   ubyte value[1024];
   nva_out out;
-  http2_nv nv;
+  HeaderField hf;
   http2_mem *mem;
 
   mem = http2_mem_default();
@@ -339,17 +334,17 @@ void test_http2_hd_inflate_indname_inc_eviction(void) {
 }
 
 void test_http2_hd_inflate_newname_noinc(void) {
-  http2_hd_inflater inflater;
+  Inflater inflater = Inflater(true);
   http2_bufs bufs;
   size_t blocklen;
-  http2_nv nv[] = {/* Expecting huffman for both */
-                     MAKE_NV("my-long-content-length", "nghttp2"),
+  HeaderField hf[] = [/* Expecting huffman for both */
+                     HeaderField("my-long-content-length", "nghttp2"),
                      /* Expecting no huffman for both */
-                     MAKE_NV("x", "y"),
+                     HeaderField("x", "y"),
                      /* Huffman for key only */
-                     MAKE_NV("my-long-content-length", "y"),
+                     HeaderField("my-long-content-length", "y"),
                      /* Huffman for value only */
-                     MAKE_NV("x", "nghttp2")};
+                     HeaderField("x", "nghttp2")];
   size_t i;
   nva_out out;
   http2_mem *mem;
@@ -380,10 +375,10 @@ void test_http2_hd_inflate_newname_noinc(void) {
 }
 
 void test_http2_hd_inflate_newname_inc(void) {
-  http2_hd_inflater inflater;
+  Inflater inflater = Inflater(true);
   http2_bufs bufs;
   size_t blocklen;
-  http2_nv nv = MAKE_NV("x-rel", "nghttp2");
+  HeaderField hf = HeaderField("x-rel", "nghttp2");
   nva_out out;
   http2_mem *mem;
 
@@ -414,10 +409,10 @@ void test_http2_hd_inflate_newname_inc(void) {
 }
 
 void test_http2_hd_inflate_clearall_inc(void) {
-  http2_hd_inflater inflater;
+  Inflater inflater = Inflater(true);
   http2_bufs bufs;
   size_t blocklen;
-  http2_nv nv;
+  HeaderField hf;
   ubyte value[4060];
   nva_out out;
   http2_mem *mem;
@@ -483,10 +478,10 @@ void test_http2_hd_inflate_clearall_inc(void) {
 }
 
 void test_http2_hd_inflate_zero_length_huffman(void) {
-  http2_hd_inflater inflater;
+  Inflater inflater = Inflater(true);
   http2_bufs bufs;
   /* Literal header without indexing - new name */
-  ubyte data[] = {0x40, 0x01, 0x78 /* 'x' */, 0x80};
+  ubyte data[] = [0x40, 0x01, 0x78 /* 'x' */, 0x80];
   nva_out out;
   http2_mem *mem;
 
@@ -518,9 +513,9 @@ void test_http2_hd_inflate_zero_length_huffman(void) {
 }
 
 void test_http2_hd_ringbuf_reserve(void) {
-  http2_hd_deflater deflater;
-  http2_hd_inflater inflater;
-  http2_nv nv;
+  Deflater deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
+  Inflater inflater = Inflater(true);
+  HeaderField hf;
   http2_bufs bufs;
   nva_out out;
   int i;
@@ -570,10 +565,10 @@ void test_http2_hd_ringbuf_reserve(void) {
 }
 
 void test_http2_hd_change_table_size(void) {
-  http2_hd_deflater deflater;
-  http2_hd_inflater inflater;
-  http2_nv nva[] = {MAKE_NV("alpha", "bravo"), MAKE_NV("charlie", "delta")};
-  http2_nv nva2[] = {MAKE_NV(":path", "/")};
+  Deflater deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
+  Inflater inflater = Inflater(true);
+  HeaderField hfa[] = [HeaderField("alpha", "bravo"), HeaderField("charlie", "delta")];
+  HeaderField hfa2[] = [HeaderField(":path", "/")];
   http2_bufs bufs;
   size_t rv;
   nva_out out;
@@ -847,141 +842,141 @@ static void check_deflate_inflate(http2_hd_deflater *deflater,
 }
 
 void test_http2_hd_deflate_inflate(void) {
-  http2_hd_deflater deflater;
-  http2_hd_inflater inflater;
-  http2_nv nv1[] = {
-      MAKE_NV(":status", "200 OK"),
-      MAKE_NV("access-control-allow-origin", "*"),
-      MAKE_NV("cache-control", "private, max-age=0, must-revalidate"),
-      MAKE_NV("content-length", "76073"),
-      MAKE_NV("content-type", "text/html"),
-      MAKE_NV("date", "Sat, 27 Jul 2013 06:22:12 GMT"),
-      MAKE_NV("expires", "Sat, 27 Jul 2013 06:22:12 GMT"),
-      MAKE_NV("server", "Apache"),
-      MAKE_NV("vary", "foobar"),
-      MAKE_NV("via", "1.1 alphabravo (squid/3.x.x), 1.1 nghttpx"),
-      MAKE_NV("x-cache", "MISS from alphabravo"),
-      MAKE_NV("x-cache-action", "MISS"),
-      MAKE_NV("x-cache-age", "0"),
-      MAKE_NV("x-cache-lookup", "MISS from alphabravo:3128"),
-      MAKE_NV("x-lb-nocache", "true"),
-  };
-  http2_nv nv2[] = {
-      MAKE_NV(":status", "304 Not Modified"),
-      MAKE_NV("age", "0"),
-      MAKE_NV("cache-control", "max-age=56682045"),
-      MAKE_NV("content-type", "text/css"),
-      MAKE_NV("date", "Sat, 27 Jul 2013 06:22:12 GMT"),
-      MAKE_NV("expires", "Thu, 14 May 2015 07:22:57 GMT"),
-      MAKE_NV("last-modified", "Tue, 14 May 2013 07:22:15 GMT"),
-      MAKE_NV("vary", "Accept-Encoding"),
-      MAKE_NV("via", "1.1 alphabravo (squid/3.x.x), 1.1 nghttpx"),
-      MAKE_NV("x-cache", "HIT from alphabravo"),
-      MAKE_NV("x-cache-lookup", "HIT from alphabravo:3128")};
-  http2_nv nv3[] = {
-      MAKE_NV(":status", "304 Not Modified"),
-      MAKE_NV("age", "0"),
-      MAKE_NV("cache-control", "max-age=56682072"),
-      MAKE_NV("content-type", "text/css"),
-      MAKE_NV("date", "Sat, 27 Jul 2013 06:22:12 GMT"),
-      MAKE_NV("expires", "Thu, 14 May 2015 07:23:24 GMT"),
-      MAKE_NV("last-modified", "Tue, 14 May 2013 07:22:13 GMT"),
-      MAKE_NV("vary", "Accept-Encoding"),
-      MAKE_NV("via", "1.1 alphabravo (squid/3.x.x), 1.1 nghttpx"),
-      MAKE_NV("x-cache", "HIT from alphabravo"),
-      MAKE_NV("x-cache-lookup", "HIT from alphabravo:3128"),
-  };
-  http2_nv nv4[] = {
-      MAKE_NV(":status", "304 Not Modified"),
-      MAKE_NV("age", "0"),
-      MAKE_NV("cache-control", "max-age=56682022"),
-      MAKE_NV("content-type", "text/css"),
-      MAKE_NV("date", "Sat, 27 Jul 2013 06:22:12 GMT"),
-      MAKE_NV("expires", "Thu, 14 May 2015 07:22:34 GMT"),
-      MAKE_NV("last-modified", "Tue, 14 May 2013 07:22:14 GMT"),
-      MAKE_NV("vary", "Accept-Encoding"),
-      MAKE_NV("via", "1.1 alphabravo (squid/3.x.x), 1.1 nghttpx"),
-      MAKE_NV("x-cache", "HIT from alphabravo"),
-      MAKE_NV("x-cache-lookup", "HIT from alphabravo:3128"),
-  };
-  http2_nv nv5[] = {
-      MAKE_NV(":status", "304 Not Modified"),
-      MAKE_NV("age", "0"),
-      MAKE_NV("cache-control", "max-age=4461139"),
-      MAKE_NV("content-type", "application/x-javascript"),
-      MAKE_NV("date", "Sat, 27 Jul 2013 06:22:12 GMT"),
-      MAKE_NV("expires", "Mon, 16 Sep 2013 21:34:31 GMT"),
-      MAKE_NV("last-modified", "Thu, 05 May 2011 09:15:59 GMT"),
-      MAKE_NV("vary", "Accept-Encoding"),
-      MAKE_NV("via", "1.1 alphabravo (squid/3.x.x), 1.1 nghttpx"),
-      MAKE_NV("x-cache", "HIT from alphabravo"),
-      MAKE_NV("x-cache-lookup", "HIT from alphabravo:3128"),
-  };
-  http2_nv nv6[] = {
-      MAKE_NV(":status", "304 Not Modified"),
-      MAKE_NV("age", "0"),
-      MAKE_NV("cache-control", "max-age=18645951"),
-      MAKE_NV("content-type", "application/x-javascript"),
-      MAKE_NV("date", "Sat, 27 Jul 2013 06:22:12 GMT"),
-      MAKE_NV("expires", "Fri, 28 Feb 2014 01:48:03 GMT"),
-      MAKE_NV("last-modified", "Tue, 12 Jul 2011 16:02:59 GMT"),
-      MAKE_NV("vary", "Accept-Encoding"),
-      MAKE_NV("via", "1.1 alphabravo (squid/3.x.x), 1.1 nghttpx"),
-      MAKE_NV("x-cache", "HIT from alphabravo"),
-      MAKE_NV("x-cache-lookup", "HIT from alphabravo:3128"),
-  };
-  http2_nv nv7[] = {
-      MAKE_NV(":status", "304 Not Modified"),
-      MAKE_NV("age", "0"),
-      MAKE_NV("cache-control", "max-age=31536000"),
-      MAKE_NV("content-type", "application/javascript"),
-      MAKE_NV("date", "Sat, 27 Jul 2013 06:22:12 GMT"),
-      MAKE_NV("etag", "\"6807-4dc5b54e0dcc0\""),
-      MAKE_NV("expires", "Wed, 21 May 2014 08:32:17 GMT"),
-      MAKE_NV("last-modified", "Fri, 10 May 2013 11:18:51 GMT"),
-      MAKE_NV("via", "1.1 alphabravo (squid/3.x.x), 1.1 nghttpx"),
-      MAKE_NV("x-cache", "HIT from alphabravo"),
-      MAKE_NV("x-cache-lookup", "HIT from alphabravo:3128"),
-  };
-  http2_nv nv8[] = {
-      MAKE_NV(":status", "304 Not Modified"),
-      MAKE_NV("age", "0"),
-      MAKE_NV("cache-control", "max-age=31536000"),
-      MAKE_NV("content-type", "application/javascript"),
-      MAKE_NV("date", "Sat, 27 Jul 2013 06:22:12 GMT"),
-      MAKE_NV("etag", "\"41c6-4de7d28585b00\""),
-      MAKE_NV("expires", "Thu, 12 Jun 2014 10:00:58 GMT"),
-      MAKE_NV("last-modified", "Thu, 06 Jun 2013 14:30:36 GMT"),
-      MAKE_NV("via", "1.1 alphabravo (squid/3.x.x), 1.1 nghttpx"),
-      MAKE_NV("x-cache", "HIT from alphabravo"),
-      MAKE_NV("x-cache-lookup", "HIT from alphabravo:3128"),
-  };
-  http2_nv nv9[] = {
-      MAKE_NV(":status", "304 Not Modified"),
-      MAKE_NV("age", "0"),
-      MAKE_NV("cache-control", "max-age=31536000"),
-      MAKE_NV("content-type", "application/javascript"),
-      MAKE_NV("date", "Sat, 27 Jul 2013 06:22:12 GMT"),
-      MAKE_NV("etag", "\"19d6e-4dc5b35a541c0\""),
-      MAKE_NV("expires", "Wed, 21 May 2014 08:32:18 GMT"),
-      MAKE_NV("last-modified", "Fri, 10 May 2013 11:10:07 GMT"),
-      MAKE_NV("via", "1.1 alphabravo (squid/3.x.x), 1.1 nghttpx"),
-      MAKE_NV("x-cache", "HIT from alphabravo"),
-      MAKE_NV("x-cache-lookup", "HIT from alphabravo:3128"),
-  };
-  http2_nv nv10[] = {
-      MAKE_NV(":status", "304 Not Modified"),
-      MAKE_NV("age", "0"),
-      MAKE_NV("cache-control", "max-age=56682045"),
-      MAKE_NV("content-type", "text/css"),
-      MAKE_NV("date", "Sat, 27 Jul 2013 06:22:12 GMT"),
-      MAKE_NV("expires", "Thu, 14 May 2015 07:22:57 GMT"),
-      MAKE_NV("last-modified", "Tue, 14 May 2013 07:21:53 GMT"),
-      MAKE_NV("vary", "Accept-Encoding"),
-      MAKE_NV("via", "1.1 alphabravo (squid/3.x.x), 1.1 nghttpx"),
-      MAKE_NV("x-cache", "HIT from alphabravo"),
-      MAKE_NV("x-cache-lookup", "HIT from alphabravo:3128"),
-  };
+  Deflater deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
+  Inflater inflater = Inflater(true);
+  HeaderField hf1[] = [
+      HeaderField(":status", "200 OK"),
+      HeaderField("access-control-allow-origin", "*"),
+      HeaderField("cache-control", "private, max-age=0, must-revalidate"),
+      HeaderField("content-length", "76073"),
+      HeaderField("content-type", "text/html"),
+      HeaderField("date", "Sat, 27 Jul 2013 06:22:12 GMT"),
+      HeaderField("expires", "Sat, 27 Jul 2013 06:22:12 GMT"),
+      HeaderField("server", "Apache"),
+      HeaderField("vary", "foobar"),
+      HeaderField("via", "1.1 alphabravo (squid/3.x.x), 1.1 nghttpx"),
+      HeaderField("x-cache", "MISS from alphabravo"),
+      HeaderField("x-cache-action", "MISS"),
+      HeaderField("x-cache-age", "0"),
+      HeaderField("x-cache-lookup", "MISS from alphabravo:3128"),
+      HeaderField("x-lb-nocache", "true"),
+  ];
+  HeaderField hf2[] = [
+      HeaderField(":status", "304 Not Modified"),
+      HeaderField("age", "0"),
+      HeaderField("cache-control", "max-age=56682045"),
+      HeaderField("content-type", "text/css"),
+      HeaderField("date", "Sat, 27 Jul 2013 06:22:12 GMT"),
+      HeaderField("expires", "Thu, 14 May 2015 07:22:57 GMT"),
+      HeaderField("last-modified", "Tue, 14 May 2013 07:22:15 GMT"),
+      HeaderField("vary", "Accept-Encoding"),
+      HeaderField("via", "1.1 alphabravo (squid/3.x.x), 1.1 nghttpx"),
+      HeaderField("x-cache", "HIT from alphabravo"),
+      HeaderField("x-cache-lookup", "HIT from alphabravo:3128")];
+  HeaderField hf3[] = [
+      HeaderField(":status", "304 Not Modified"),
+      HeaderField("age", "0"),
+      HeaderField("cache-control", "max-age=56682072"),
+      HeaderField("content-type", "text/css"),
+      HeaderField("date", "Sat, 27 Jul 2013 06:22:12 GMT"),
+      HeaderField("expires", "Thu, 14 May 2015 07:23:24 GMT"),
+      HeaderField("last-modified", "Tue, 14 May 2013 07:22:13 GMT"),
+      HeaderField("vary", "Accept-Encoding"),
+      HeaderField("via", "1.1 alphabravo (squid/3.x.x), 1.1 nghttpx"),
+      HeaderField("x-cache", "HIT from alphabravo"),
+      HeaderField("x-cache-lookup", "HIT from alphabravo:3128"),
+  ];
+  HeaderField hf4[] = [
+      HeaderField(":status", "304 Not Modified"),
+      HeaderField("age", "0"),
+      HeaderField("cache-control", "max-age=56682022"),
+      HeaderField("content-type", "text/css"),
+      HeaderField("date", "Sat, 27 Jul 2013 06:22:12 GMT"),
+      HeaderField("expires", "Thu, 14 May 2015 07:22:34 GMT"),
+      HeaderField("last-modified", "Tue, 14 May 2013 07:22:14 GMT"),
+      HeaderField("vary", "Accept-Encoding"),
+      HeaderField("via", "1.1 alphabravo (squid/3.x.x), 1.1 nghttpx"),
+      HeaderField("x-cache", "HIT from alphabravo"),
+      HeaderField("x-cache-lookup", "HIT from alphabravo:3128"),
+  ];
+  HeaderField hf5[] = [
+      HeaderField(":status", "304 Not Modified"),
+      HeaderField("age", "0"),
+      HeaderField("cache-control", "max-age=4461139"),
+      HeaderField("content-type", "application/x-javascript"),
+      HeaderField("date", "Sat, 27 Jul 2013 06:22:12 GMT"),
+      HeaderField("expires", "Mon, 16 Sep 2013 21:34:31 GMT"),
+      HeaderField("last-modified", "Thu, 05 May 2011 09:15:59 GMT"),
+      HeaderField("vary", "Accept-Encoding"),
+      HeaderField("via", "1.1 alphabravo (squid/3.x.x), 1.1 nghttpx"),
+      HeaderField("x-cache", "HIT from alphabravo"),
+      HeaderField("x-cache-lookup", "HIT from alphabravo:3128"),
+  ];
+  HeaderField hf6[] = [
+      HeaderField(":status", "304 Not Modified"),
+      HeaderField("age", "0"),
+      HeaderField("cache-control", "max-age=18645951"),
+      HeaderField("content-type", "application/x-javascript"),
+      HeaderField("date", "Sat, 27 Jul 2013 06:22:12 GMT"),
+      HeaderField("expires", "Fri, 28 Feb 2014 01:48:03 GMT"),
+      HeaderField("last-modified", "Tue, 12 Jul 2011 16:02:59 GMT"),
+      HeaderField("vary", "Accept-Encoding"),
+      HeaderField("via", "1.1 alphabravo (squid/3.x.x), 1.1 nghttpx"),
+      HeaderField("x-cache", "HIT from alphabravo"),
+      HeaderField("x-cache-lookup", "HIT from alphabravo:3128"),
+  ];
+  HeaderField hf7[] = [
+      HeaderField(":status", "304 Not Modified"),
+      HeaderField("age", "0"),
+      HeaderField("cache-control", "max-age=31536000"),
+      HeaderField("content-type", "application/javascript"),
+      HeaderField("date", "Sat, 27 Jul 2013 06:22:12 GMT"),
+      HeaderField("etag", "\"6807-4dc5b54e0dcc0\""),
+      HeaderField("expires", "Wed, 21 May 2014 08:32:17 GMT"),
+      HeaderField("last-modified", "Fri, 10 May 2013 11:18:51 GMT"),
+      HeaderField("via", "1.1 alphabravo (squid/3.x.x), 1.1 nghttpx"),
+      HeaderField("x-cache", "HIT from alphabravo"),
+      HeaderField("x-cache-lookup", "HIT from alphabravo:3128"),
+  ];
+  HeaderField hf8[] = [
+      HeaderField(":status", "304 Not Modified"),
+      HeaderField("age", "0"),
+      HeaderField("cache-control", "max-age=31536000"),
+      HeaderField("content-type", "application/javascript"),
+      HeaderField("date", "Sat, 27 Jul 2013 06:22:12 GMT"),
+      HeaderField("etag", "\"41c6-4de7d28585b00\""),
+      HeaderField("expires", "Thu, 12 Jun 2014 10:00:58 GMT"),
+      HeaderField("last-modified", "Thu, 06 Jun 2013 14:30:36 GMT"),
+      HeaderField("via", "1.1 alphabravo (squid/3.x.x), 1.1 nghttpx"),
+      HeaderField("x-cache", "HIT from alphabravo"),
+      HeaderField("x-cache-lookup", "HIT from alphabravo:3128"),
+  ];
+  HeaderField hf9[] = [
+      HeaderField(":status", "304 Not Modified"),
+      HeaderField("age", "0"),
+      HeaderField("cache-control", "max-age=31536000"),
+      HeaderField("content-type", "application/javascript"),
+      HeaderField("date", "Sat, 27 Jul 2013 06:22:12 GMT"),
+      HeaderField("etag", "\"19d6e-4dc5b35a541c0\""),
+      HeaderField("expires", "Wed, 21 May 2014 08:32:18 GMT"),
+      HeaderField("last-modified", "Fri, 10 May 2013 11:10:07 GMT"),
+      HeaderField("via", "1.1 alphabravo (squid/3.x.x), 1.1 nghttpx"),
+      HeaderField("x-cache", "HIT from alphabravo"),
+      HeaderField("x-cache-lookup", "HIT from alphabravo:3128"),
+  ];
+  HeaderField hf10[] = [
+      HeaderField(":status", "304 Not Modified"),
+      HeaderField("age", "0"),
+      HeaderField("cache-control", "max-age=56682045"),
+      HeaderField("content-type", "text/css"),
+      HeaderField("date", "Sat, 27 Jul 2013 06:22:12 GMT"),
+      HeaderField("expires", "Thu, 14 May 2015 07:22:57 GMT"),
+      HeaderField("last-modified", "Tue, 14 May 2013 07:21:53 GMT"),
+      HeaderField("vary", "Accept-Encoding"),
+      HeaderField("via", "1.1 alphabravo (squid/3.x.x), 1.1 nghttpx"),
+      HeaderField("x-cache", "HIT from alphabravo"),
+      HeaderField("x-cache-lookup", "HIT from alphabravo:3128"),
+  ];
   http2_mem *mem;
 
   mem = http2_mem_default();
@@ -1005,15 +1000,15 @@ void test_http2_hd_deflate_inflate(void) {
 }
 
 void test_http2_hd_no_index(void) {
-  http2_hd_deflater deflater;
-  http2_hd_inflater inflater;
+  Deflater deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
+  Inflater inflater = Inflater(true);
   http2_bufs bufs;
   size_t blocklen;
-  http2_nv nva[] = {
-      MAKE_NV(":method", "GET"), MAKE_NV(":method", "POST"),
-      MAKE_NV(":path", "/foo"),  MAKE_NV("version", "HTTP/1.1"),
-      MAKE_NV(":method", "GET"),
-  };
+  HeaderField hfa[] = [
+      HeaderField(":method", "GET"), HeaderField(":method", "POST"),
+      HeaderField(":path", "/foo"),  HeaderField("version", "HTTP/1.1"),
+      HeaderField(":method", "GET"),
+  ];
   size_t i;
   nva_out out;
   int rv;
@@ -1056,8 +1051,8 @@ void test_http2_hd_no_index(void) {
 }
 
 void test_http2_hd_deflate_bound(void) {
-  http2_hd_deflater deflater;
-  http2_nv nva[] = {MAKE_NV(":method", "GET"), MAKE_NV("alpha", "bravo")};
+  Deflater deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
+  HeaderField hfa[] = [HeaderField(":method", "GET"), HeaderField("alpha", "bravo")];
   http2_bufs bufs;
   size_t bound, bound2;
   http2_mem *mem;
@@ -1088,7 +1083,7 @@ void test_http2_hd_deflate_bound(void) {
 void test_http2_hd_public_api(void) {
   http2_hd_deflater *deflater;
   http2_hd_inflater *inflater;
-  http2_nv nva[] = {MAKE_NV("alpha", "bravo"), MAKE_NV("charlie", "delta")};
+  HeaderField hfa[] = [HeaderField("alpha", "bravo"), HeaderField("charlie", "delta")];
   ubyte buf[4096];
   size_t buflen;
   size_t blocklen;
@@ -1207,8 +1202,8 @@ void test_http2_hd_huff_encode(void) {
   size_t len;
   http2_bufs bufs, outbufs;
   http2_hd_huff_decode_context ctx;
-  const ubyte t1[] = {22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11,
-                        10, 9,  8,  7,  6,  5,  4,  3,  2,  1,  0};
+  const ubyte t1[] = [22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11,
+                        10, 9,  8,  7,  6,  5,  4,  3,  2,  1,  0];
 
   frame_pack_bufs_init(&bufs);
   frame_pack_bufs_init(&outbufs);

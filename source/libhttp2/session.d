@@ -288,9 +288,14 @@ struct CloseStreamOnGoAwayArgs {
     int incoming;
 }
 
+enum {
+	CLIENT = false,
+	SERVER = true
+}
+
 class Session {
 
-	this(bool server, in Options options, in Policy callbacks)
+	this(bool server, in Policy callbacks, in Options options = null)
 	{
 		if (server) {
 			is_server = true;
@@ -5544,22 +5549,20 @@ ErrorCode http2_submit_data(Session session, FrameFlags flags, int stream_id, in
 }
 
 /**
- * @function
- *
  * Submits PRIORITY frame to change the priority of stream |stream_id|
  * to the priority specification |pri_spec|.
  *
  *
  * The |pri_spec| is priority specification of this request.  `null`
  * is not allowed for this function. To specify the priority, use
- * `http2_priority_spec_init()`.  This function will copy its data
+ * `PrioritySpec.init`.  This function will copy its data
  * members.
  *
- * The `pri_spec.weight` must be in [$(D HTTP2_MIN_WEIGHT),
- * $(D HTTP2_MAX_WEIGHT)], inclusive.  If `pri_spec.weight` is
- * strictly less than $(D HTTP2_MIN_WEIGHT), it becomes
- * $(D HTTP2_MIN_WEIGHT).  If it is strictly greater than
- * $(D HTTP2_MAX_WEIGHT), it becomes $(D HTTP2_MAX_WEIGHT).
+ * The `pri_spec.weight` must be in [$(D MIN_WEIGHT),
+ * $(D MAX_WEIGHT)], inclusive.  If `pri_spec.weight` is
+ * strictly less than $(D MIN_WEIGHT), it becomes
+ * $(D MIN_WEIGHT).  If it is strictly greater than
+ * $(D MAX_WEIGHT), it becomes $(D MAX_WEIGHT).
  *
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:

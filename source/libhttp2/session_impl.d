@@ -27,8 +27,7 @@ int http2_session_on_push_promise_received(Session session, Frame frame)
         return handleInflateInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "PUSH_PROMISE: push disabled");
     }
     if (session.goaway_flags) {
-        /* We just dicard PUSH_PROMISE after GOAWAY is sent or
-       received. */
+        /* We just dicard PUSH_PROMISE after GOAWAY is sent or received. */
         return ErrorCode.IGN_HEADER_BLOCK;
     }
     
@@ -65,7 +64,7 @@ int http2_session_on_push_promise_received(Session session, Frame frame)
     }
     
     /* TODO: It is unclear reserved stream depends on associated stream with or without exclusive flag set */
-    http2_priority_spec_init(&pri_spec, stream.id, DEFAULT_WEIGHT, 0);
+    pri_spec = PrioritySpec(stream.id, DEFAULT_WEIGHT, 0);
     
     promised_stream = openStream(frame.push_promise.promised_stream_id, StreamFlags.NONE, &pri_spec, StreamState.RESERVED, null);
     

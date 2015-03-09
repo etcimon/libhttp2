@@ -231,7 +231,7 @@ struct HeaderField
 {
 	string name;
 	string value;
-	HeaderFlag flag;
+	HeaderFlag flag = HeaderFlag.NONE;
 
 	bool opEquals(ref HeaderField other) {
 		return name == other.name && value == other.value;
@@ -548,7 +548,7 @@ alias ReadCallback = size_t delegate(Session session, int stream_id, ubyte[] buf
 
 //DataProvider
 /// This struct represents the data source and the way to read a chunk of data from it.
-class DataProvider {
+struct DataProvider {
     DataSource source;
     ReadCallback read_callback;
 }
