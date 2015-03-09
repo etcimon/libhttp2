@@ -217,11 +217,11 @@ struct Deflater
 	 * in the dynamic table.
 	 *
 	 * The |settings_hd_table_bufsize_max| should be the value received in
-	 * SETTINGS_HEADER_TABLE_SIZE.
+	 * SettingsID.HEADER_TABLE_SIZE.
 	 *
 	 * The deflater never uses more memory than ``hd_table_bufsize_max`` bytes 
 	 * specified in the constructor.  Therefore, if |settings_hd_table_bufsize_max| > 
-	 * ``hd_table_bufsize_max``, resulting maximum table size becomes``hd_table_bufsize_max``.
+	 * ``hd_table_bufsize_max``, resulting maximum table size becomes ``hd_table_bufsize_max``.
 	 */
 	void changeTableSize(size_t settings_hd_table_bufsize_max) {
 		import std.algorithm : min;

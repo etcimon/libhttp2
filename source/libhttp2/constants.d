@@ -33,6 +33,8 @@ int ENABLE_FIRST_SETTING_CHECK = 1;
 */
 const PROTOCOL_ALPN = "\x5h2-14";
 
+const HTTP_1_1_ALPN = "\x8http/1.1";
+
 /// The protocol version identification string of this library supports. 
 /// This identifier is used if HTTP/2 is used over cleartext TCP.
 const CLEARTEXT_PROTOCOL_VERSION_ID = "h2c-14";

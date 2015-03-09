@@ -146,7 +146,7 @@ abstract class Policy
      *
      * The |value| may be null if the |value.length| is 0.
      *
-     * Please note that unless `http2_option_set_no_http_messaging()` is
+     * Please note that unless `setNoHTTPMessaging()` is
      * used, nghttp2 library does perform validation against |hf.name|
      * and |hf.value| using `hf.validateName()` and
      * `hf.validateValue()`.  In addition to this, libhttp2

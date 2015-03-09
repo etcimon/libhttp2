@@ -17,6 +17,7 @@ import libhttp2.deflater;
 import libhttp2.inflater;
 import libhttp2.buffers;
 import libhttp2.priority_queue;
+import core.exception : RangeError;
 
 import memutils.circularbuffer;
 import memutils.vector;
@@ -551,7 +552,7 @@ class Session {
 	 * $(D ErrorCode.BAD_PREFACE)
 	 *     Invalid client preface was detected.  This error only returns
 	 *     when $(D Session) was configured as server and
-	 *     `http2_option_set_recv_client_preface()` is used.
+	 *     `setRecvClientPreface()` is used.
 	 */
 	ErrorCode recv() {
 		ubyte[INBOUND_BUFFER_LENGTH] buf;
@@ -600,7 +601,7 @@ class Session {
 	 * $(D ErrorCode.BAD_PREFACE)
 	 *     Invalid client preface was detected.  This error only returns
 	 *     when $(D Session) was configured as server and
-	 *     `http2_option_set_recv_client_preface()` is used.
+	 *     `setRecvClientPreface()` is used.
 	 */
 	int memRecv(in ubyte[] input) 
 	{
@@ -708,7 +709,7 @@ class Session {
 							/* Check stream is open. If it is not open or closing, ignore payload. */
 							busy = true;
 							
-							rv = session_on_data_received_fail_fast(session);
+							rv = onDataFailFast();
 							if (rv == ErrorCode.IGN_PAYLOAD) {
 								DEBUGF(fprintf(stderr, "recv: DATA not allowed stream_id=%d\n", iframe.frame.hd.stream_id));
 								iframe.state = IGN_DATA;
@@ -1084,7 +1085,7 @@ class Session {
 								break;
 							}
 							
-							rv = session_process_push_promise_frame(session);
+							rv = processPushPromiseFrame();
 							if (isFatal(rv)) {
 								return rv;
 							}
@@ -1126,7 +1127,7 @@ class Session {
 							break;
 						}
 						case FrameType.WINDOW_UPDATE:
-							rv = session_process_window_update_frame(session);
+							rv = processWindowUpdateFrame();
 							if (isFatal(rv)) {
 								return rv;
 							}
@@ -1415,13 +1416,13 @@ class Session {
 					}
 					
 					/* Pad Length field is subject to flow control */
-					rv = session_update_recv_connection_window_size(session, readlen);
+					rv = updateRecvConnectionWindowSize(readlen);
 					if (isFatal(rv)) {
 						return rv;
 					}
 					
 					/* Pad Length field is consumed immediately */
-					rv = http2_session_consume(session, iframe.frame.hd.stream_id, readlen);
+					rv = consume(iframe.frame.hd.stream_id, readlen);
 					
 					if (isFatal(rv)) {
 						return rv;
@@ -1429,10 +1430,7 @@ class Session {
 					
 					stream = getStream(iframe.frame.hd.stream_id);
 					if (stream) {
-						rv = session_update_recv_stream_window_size(
-							session, stream, readlen,
-							iframe.payloadleft ||
-							(iframe.frame.hd.flags & FrameFlags.END_STREAM) == 0);
+						rv = updateRecvStreamWindowSize(stream, readlen, iframe.payloadleft || (iframe.frame.hd.flags & FrameFlags.END_STREAM) == 0);
 						if (isFatal(rv)) {
 							return rv;
 						}
@@ -1468,17 +1466,14 @@ class Session {
 					if (readlen > 0) {
 						int data_readlen;
 						
-						rv = session_update_recv_connection_window_size(session, readlen);
+						rv = updateRecvConnectionWindowSize(readlen);
 						if (isFatal(rv)) {
 							return rv;
 						}
 						
 						stream = getStream(iframe.frame.hd.stream_id);
 						if (stream) {
-							rv = session_update_recv_stream_window_size(
-								session, stream, readlen,
-								iframe.payloadleft ||
-								(iframe.frame.hd.flags & FrameFlags.END_STREAM) == 0);
+							rv = updateRecvStreamWindowSize(session, stream, readlen, iframe.payloadleft || (iframe.frame.hd.flags & FrameFlags.END_STREAM) == 0);
 							if (isFatal(rv)) {
 								return rv;
 							}
@@ -1490,8 +1485,7 @@ class Session {
 						
 						if (padlen > 0) {
 							/* Padding is considered as "consumed" immediately */
-							rv = http2_session_consume(session, iframe.frame.hd.stream_id,
-								padlen);
+							rv = consume(iframe.frame.hd.stream_id, padlen);
 							
 							if (isFatal(rv)) {
 								return rv;
@@ -1531,7 +1525,7 @@ class Session {
 						break;
 					}
 					
-					rv = session_process_data_frame(session);
+					rv = processDataFrame();
 					if (isFatal(rv)) {
 						return rv;
 					}
@@ -1551,7 +1545,7 @@ class Session {
 					
 					if (readlen > 0) {
 						/* Update connection-level flow control window for ignored DATA frame too */
-						rv = session_update_recv_connection_window_size(session, readlen);
+						rv = updateRecvConnectionWindowSize(readlen);
 						if (isFatal(rv)) {
 							return rv;
 						}
@@ -1559,7 +1553,7 @@ class Session {
 						if (session.opt_flags & OptionsMask.NO_AUTO_WINDOW_UPDATE) {
 							
 							/* Ignored DATA is considered as "consumed" immediately. */
-							rv = session_update_connection_consumed_size(session, readlen);
+							rv = updateConnectionConsumedSize(readlen);
 							
 							if (isFatal(rv)) {
 								return rv;
@@ -1591,8 +1585,6 @@ class Session {
 	}
 
 	/**
-	 * @function
-	 *
 	 * Puts back previously deferred DATA frame in the stream |stream_id|
 	 * to the outbound queue.
 	 *
@@ -1602,49 +1594,104 @@ class Session {
 	 * $(D ErrorCode.INVALID_ARGUMENT)
 	 *     The stream does not exist; or no deferred data exist.
 	 */
-	ErrorCode http2_session_resume_data(Session session, int stream_id);
+	void resumeData(int stream_id)
+	{
+		Stream stream = getStream(stream_id);
+		
+		if (stream == null || !stream.checkDeferredItem()) 
+			return ErrorCode.INVALID_ARGUMENT;
+		
+		stream.resumeDeferredItem(StreamFlags.DEFERRED_USER, this);
+	}
 
 	/**
-	 * @function
-	 *
 	 * Returns true value if $(D Session) wants to receive data from the
 	 * remote peer.
 	 *
-	 * If both `http2_session_want_read()` and
-	 * `http2_session_want_write()` return 0, the application should
+	 * If both `wantRead()` and `wantWrite()` return false, the application should
 	 * drop the connection.
 	 */
-	bool http2_session_want_read(Session session);
+	bool wantRead() 
+	{
+		size_t num_active_streams;
+		
+		/* If this flag is set, we don't want to read. The application should drop the connection. */
+		if (goaway_flags & GoAwayFlags.TERM_SENT) {
+			return 0;
+		}
+		
+		num_active_streams = getNumActiveStreams();
+		
+		/* Unless termination GOAWAY is sent or received, we always want to read incoming frames. */
+		if (num_active_streams > 0) {
+			return 1;
+		}
+
+		/* If there is no active streams and GOAWAY has been sent or received, we are done with this session. */
+		return (goaway_flags & (GoAwayFlags.SENT | GoAwayFlags.RECV)) == 0;
+	}
 
 	/**
-	 * @function
-	 *
 	 * Returns true value if $(D Session) wants to send data to the remote
 	 * peer.
 	 *
-	 * If both `http2_session_want_read()` and
-	 * `http2_session_want_write()` return 0, the application should
+	 * If both `wantRead()` and `wantWrite()` return false, the application should
 	 * drop the connection.
 	 */
-	bool http2_session_want_write(Session session);
+	bool wantWrite()
+	{
+		size_t num_active_streams;
+		
+		/* If these flag is set, we don't want to write any data. The application should drop the connection. */
+		if (goaway_flags & GoAwayFlags.TERM_SENT)
+		{
+			return false;
+		}
+		
+		num_active_streams = getNumActiveStreams();
+		
+		/*
+		 * Unless termination GOAWAY is sent or received, we want to write
+		 * frames if there is pending ones. If pending frame is request/push
+		 * response HEADERS and concurrent stream limit is reached, we don't
+		 * want to write them.
+		 */
+		
+		if (aob.item == null && ob_pq.empty &&
+			(ob_da_pq.empty || remote_window_size == 0) &&
+			(ob_ss_pq.empty || isOutgoingConcurrentStreamsMax())) 
+		{
+			return false;
+		}
+		
+		if (num_active_streams > 0)
+		{
+			return true;
+		}
+		
+		/* If there is no active streams and GOAWAY has been sent or received, we are done with this session. */
+		return (goaway_flags & (GoAwayFlags.SENT | GoAwayFlags.RECV)) == 0;
+	}
 
 	/**
-	 * @function
-	 *
 	 * Returns stream_user_data for the stream |stream_id|.  The
 	 * stream_user_data is provided by `http2_submit_request()`,
-	 * `http2_submit_headers()` or
-	 * `http2_session_set_stream_user_data()`.  Unless it is set using
-	 * `http2_session_set_stream_user_data()`, if the stream is
+	 * `http2_submit_headers()` or  `setStreamUserData()`. 
+	 * Unless it is set using `setStreamUserData()`, if the stream is
 	 * initiated by the remote endpoint, stream_user_data is always
 	 * `null`.  If the stream does not exist, this function returns
 	 * `null`.
 	 */
-	void *http2_session_get_stream_user_data(Session session, int stream_id);
+	void* getStreamUserData(int stream_id) {
+		Stream stream = getStream(stream_id);
+		if (stream) {
+			return stream.userData;
+		} else {
+			return null;
+		}
+	}
 
 	/**
-	 * @function
-	 *
 	 * Sets the |stream_user_data| to the stream denoted by the
 	 * |stream_id|.  If a stream user data is already set to the stream,
 	 * it is replaced with the |stream_user_data|.  It is valid to specify
@@ -1660,19 +1707,24 @@ class Session {
 	 * $(D ErrorCode.INVALID_ARGUMENT)
 	 *     The stream does not exist
 	 */
-	ErrorCode http2_session_set_stream_user_data(Session session, int stream_id, void *stream_user_data);
+	ErrorCode setStreamUserData(int stream_id, void* stream_user_data){
+		Stream stream = getStream(stream_id);
+		if (!stream)
+			return ErrorCode.INVALID_ARGUMENT;
+		stream.userData = stream_user_data;
+		return 0;
+	}
 
+package:
 	/**
-	 * @function
-	 *
 	 * Returns the number of frames in the outbound queue.  This does not
 	 * include the deferred DATA frames.
 	 */
-	size_t http2_session_get_outbound_queue_size(Session session);
+	size_t getOutboundQueueSize() {
+		return ob_pq.length + ob_ss_pq.length + ob_da_pq.length;
+	}
 
 	/**
-	 * @function
-	 *
 	 * Returns the number of DATA payload in bytes received without
 	 * WINDOW_UPDATE transmission for the stream |stream_id|.  The local
 	 * (receive) window size can be adjusted by
@@ -1684,23 +1736,31 @@ class Session {
 	 *
 	 * This function returns -1 if it fails.
 	 */
-	int http2_session_get_stream_effective_recv_data_length(Session session, int stream_id);
+	int getStreamEffectiveRecvDataLength(int stream_id) 
+	{
+		Stream stream = getStream(stream_id);
+		if (!stream)
+			return -1;
+		return stream.recvWindowSize < 0 ? 0 : stream.recvWindowSize;
+	}
 
 	/**
-	 * @function
-	 *
 	 * Returns the local (receive) window size for the stream |stream_id|.
 	 * The local window size can be adjusted by
 	 * `http2_submit_window_update()`.  This function takes into account
 	 * that and returns effective window size.
 	 *
 	 * This function returns -1 if it fails.
-	 */
-	int http2_session_get_stream_effective_local_window_size(Session session, int stream_id);
+	 */	
+	int getStreamEffectiveLocalWindowSize(int stream_id)
+	{
+		Stream stream = getStream(stream_id);
+		if (!stream)
+			return -1;
+		return stream.localWindowSize;
+	}
 
 	/**
-	 * @function
-	 *
 	 * Returns the number of DATA payload in bytes received without
 	 * WINDOW_UPDATE transmission for a connection.  The local (receive)
 	 * window size can be adjusted by `http2_submit_window_update()`.
@@ -1712,11 +1772,12 @@ class Session {
 	 *
 	 * This function returns -1 if it fails.
 	 */
-	int http2_session_get_effective_recv_data_length(Session session);
+	int getEffectiveRecvDataLength()
+	{
+		return recv_window_size < 0 ? 0 : recv_window_size;
+	}
 
 	/**
-	 * @function
-	 *
 	 * Returns the local (receive) window size for a connection.  The
 	 * local window size can be adjusted by
 	 * `http2_submit_window_update()`.  This function takes into account
@@ -1724,52 +1785,70 @@ class Session {
 	 *
 	 * This function returns -1 if it fails.
 	 */
-	int http2_session_get_effective_local_window_size(Session session);
+	int getEffectiveLocalWindowSize() 
+	{
+		return local_window_size;
+	}
 
 	/**
-	 * @function
-	 *
 	 * Returns the remote window size for a given stream |stream_id|.
 	 *
 	 * This is the amount of flow-controlled payload (e.g., DATA) that the
 	 * local endpoint can send without stream level WINDOW_UPDATE.  There
 	 * is also connection level flow control, so the effective size of
 	 * payload that the local endpoint can actually send is
-	 * min(`http2_session_get_stream_remote_window_size()`,
-	 * `http2_session_get_remote_window_size()`).
+	 * min(`http2_session_get_stream_remote_window_size()`, `getRemoteWindowSize()`).
 	 *
 	 * This function returns -1 if it fails.
 	 */
-	int http2_session_get_stream_remote_window_size(Session session, int stream_id);
+	int getStreamRemoteWindowSize(int stream_id) 
+	{
+		Stream stream = getStream(stream_id);
+		if (!stream)
+			return -1;
+
+		/* stream.remoteWindowSize can be negative when SettingsID.INITIAL_WINDOW_SIZE is changed. */
+		return max(0, stream.remoteWindowSize);
+	}
 
 	/**
-	 * @function
-	 *
 	 * Returns the remote window size for a connection.
 	 *
 	 * This function always succeeds.
 	 */
-	int http2_session_get_remote_window_size(Session session);
+	int getRemoteWindowSize() {
+		return remote_window_size;
+	}
 
 	/**
-	 * @function
-	 *
 	 * Returns 1 if local peer half closed the given stream |stream_id|.
 	 * Returns 0 if it did not.  Returns -1 if no such stream exists.
 	 */
-	bool http2_session_get_stream_local_close(Session session, int stream_id);
+	int getStreamLocalClose(int stream_id)
+	{
+		Stream stream = getStream(stream_id);
+		
+		if (!stream)
+			return -1;
+		
+		return (stream.shutFlags & ShutdownFlag.WR) != 0;
+	}
 
 	/**
-	 * @function
-	 *
 	 * Returns 1 if remote peer half closed the given stream |stream_id|.
 	 * Returns 0 if it did not.  Returns -1 if no such stream exists.
 	 */
-	bool http2_session_get_stream_remote_close(Session session, int stream_id);
+	int getStreamRemoteClose(int stream_id) 
+	{
+		Stream stream = getStream(stream_id);
+		
+		if (!stream)
+			return -1;
+		
+		return (stream.shutFlags & ShutdownFlag.RD) != 0;
+	}
 
 	/**
-	 * @function
-	 *
 	 * Signals the session so that the connection should be terminated.
 	 *
 	 * The last stream ID is the minimum value between the stream ID of a
@@ -1780,12 +1859,12 @@ class Session {
 	 * The |error_code| is the error code of this GOAWAY frame.  The
 	 * pre-defined error code is one of $(D FrameError).
 	 *
-	 * After the transmission, both `http2_session_want_read()` and
-	 * `http2_session_want_write()` return 0.
+	 * After the transmission, both `wantRead()` and
+	 * `wantWrite()` return 0.
 	 *
 	 * This function should be called when the connection should be
 	 * terminated after sending GOAWAY.  If the remaining streams should
-	 * be processed after GOAWAY, use `http2_submit_goaway()` instead.
+	 * be processed after GOAWAY, use `submitGoAway()` instead.
 	 */
 	ErrorCode terminateSession(FrameError error_code)
 	{
@@ -1794,8 +1873,6 @@ class Session {
 
 
 	/**
-	 * @function
-	 *
 	 * Signals the session so that the connection should be terminated.
 	 *
 	 * This function behaves like `http2_session_terminate_session()`,
@@ -1822,41 +1899,60 @@ class Session {
 	}
 
 	/**
-	 * @function
-	 *
 	 * Returns the value of SETTINGS |id| notified by a remote endpoint.
 	 * The |id| must be one of values defined in $(D SettingsID).
 	 */
-	uint http2_session_get_remote_settings(Session session, SettingsID id);
+	uint getRemoteSettings(SettingsID id) {
+		with(Setting) final switch (id) {
+			case HEADER_TABLE_SIZE:
+				return remote_settings.header_table_size;
+			case ENABLE_PUSH:
+				return remote_settings.enable_push;
+			case MAX_CONCURRENT_STREAMS:
+				return remote_settings.max_concurrent_streams;
+			case INITIAL_WINDOW_SIZE:
+				return remote_settings.initial_window_size;
+			case MAX_FRAME_SIZE:
+				return remote_settings.max_frame_size;
+			case MAX_HEADER_LIST_SIZE:
+				return remote_settings.max_header_list_size;
+		}
+	}
 
 	/**
-	 * @function
-	 *
 	 * Tells the $(D Session) that next stream ID is |next_stream_id|.  The
 	 * |next_stream_id| must be equal or greater than the value returned
-	 * by `http2_session_get_next_stream_id()`.
+	 * by `getNextStreamID()`.
 	 *
 	 * This function returns 0 if it succeeds, or one of the following
 	 * negative error codes:
 	 *
 	 * $(D ErrorCode.INVALID_ARGUMENT)
 	 *     The |next_stream_id| is strictly less than the value
-	 *     `http2_session_get_next_stream_id()` returns.
+	 *     `getNextStreamID()` returns.
 	 */
-	ErrorCode http2_session_set_next_stream_id(Session session, int next_stream_id);
+	ErrorCode setNextStreamID(int _next_stream_id)
+	{
+		if (_next_stream_id < 0 || next_stream_id > cast(uint)next_stream_id) {
+			return ErrorCode.INVALID_ARGUMENT;
+		}
+		
+		next_stream_id = _next_stream_id;
+
+		return 0;
+	}
 
 	/**
-	 * @function
-	 *
 	 * Returns the next outgoing stream ID.  Notice that return type is
 	 * uint.  If we run out of stream ID for this session, this
 	 * function returns 1 << 31.
 	 */
-	uint http2_session_get_next_stream_id(Session session);
+	uint getNextStreamID() 
+	{
+		return next_stream_id;
+	}
 
 	/**
-	 * @function
-	 *
 	 * Tells the $(D Session) that |size| bytes for a stream denoted by
 	 * |stream_id| were consumed by application and are ready to
 	 * WINDOW_UPDATE.  This function is intended to be used without
@@ -1871,7 +1967,36 @@ class Session {
 	 * $(D ErrorCode.INVALID_STATE)
 	 *     Automatic WINDOW_UPDATE is not disabled.
 	 */
-	ErrorCode http2_session_consume(Session session, int stream_id, size_t size);
+	ErrorCode consume(int stream_id, size_t size) {
+		ErrorCode rv;
+		Stream stream;
+		
+		if (stream_id == 0) {
+			return ErrorCode.INVALID_ARGUMENT;
+		}
+		
+		if (!(session.opt_flags & OptionsMask.NO_AUTO_WINDOW_UPDATE)) {
+			return ErrorCode.INVALID_STATE;
+		}
+		
+		rv = updateConnectionConsumedSize(size);
+		
+		if (isFatal(rv)) {
+			return rv;
+		}
+		
+		stream = getStream(stream_id);
+		
+		if (stream) {
+			rv = updateStreamConsumedSize(session, stream, size);
+			
+			if (isFatal(rv)) {
+				return rv;
+			}
+		}
+		
+		return 0;
+	}
 
 	/**
 	 * Performs post-process of HTTP Upgrade request.  This function can
@@ -1905,7 +2030,49 @@ class Session {
 	 * $(D ErrorCode.PROTO)
 	 *     The stream ID 1 is already used or closed; or is not available.
 	 */
-	ErrorCode http2_session_upgrade(Session session, const ubyte *settings_payload, size_t settings_payloadlen, void *stream_user_data);
+	ErrorCode upgrade(in ubyte[] settings_payload, void* stream_user_data = null) 
+	{
+		Stream stream;
+		Frame frame;
+		Setting[] iva;
+		ErrorCode rv;
+		PrioritySpec pri_spec;
+		
+		if ((!is_server && next_stream_id != 1) ||
+			(is_server && last_recv_stream_id >= 1)) {
+			return ErrorCode.PROTO;
+		}
+		
+		if (settings_payload.length % FRAME_SETTINGS_ENTRY_LENGTH) {
+			return ErrorCode.INVALID_ARGUMENT;
+		}
+		
+		Settings.unpack(iva, settings_payload);
+		
+		if (is_server) {
+			frame.hd = FrameHeader(settings_payload.length, FrameType.SETTINGS, FrameFlags.NONE, 0);
+			frame.settings.iva = iva;
+			rv = onSettings(frame, 1 /* No ACK */);
+		} else {
+			rv = submitSettings(this, iva);
+		}
+		
+		iva.free();
+		
+		stream = openStream(1, StreamFlags.NONE, pri_spec, StreamState.OPENING, is_server ? null : stream_user_data);
+		
+		if (is_server)
+		{
+			stream.shutdown(ShutdownFlag.RD);
+			last_recv_stream_id = 1;
+			last_proc_stream_id = 1;
+		} else {
+			stream.shutdown(ShutdownFlag.WR);
+			next_stream_id += 2;
+		}
+
+		return 0;
+	}
 
 	/*
 	 * Returns true if |stream_id| is initiated by local endpoint.
@@ -1960,7 +2127,7 @@ class Session {
 			if (frame.hd.type == FrameType.HEADERS) {
 				/* We push request HEADERS and push response HEADERS to
 		         dedicated queue because their transmission is affected by
-		         SETTINGS_MAX_CONCURRENT_STREAMS */
+		         SettingsID.MAX_CONCURRENT_STREAMS */
 				/* TODO: If 2 HEADERS are submitted for reserved stream, then
 		         both of them are queued into ob_ss_pq, which is not
 		         desirable. */
@@ -2062,7 +2229,20 @@ class Session {
 	 * be null. In this case, 8 bytes null is used.
 	 *
 	 */
-	void http2_session_add_ping(Session session, FrameFlags flags, const ubyte *opaque_data);
+	void addPing(FrameFlags flags, in ubyte[] opaque_data) 
+	{
+		ErrorCode rv;
+		OutboundItem item;
+		Frame* frame;
+
+		item = Mem.alloc!OutboundItem(this);
+		
+		frame = &item.frame;
+		
+		frame.ping = Ping(flags, opaque_data);
+		
+		addItem(item);
+	}
 
 	/*
 	 * Adds GOAWAY frame with the last-stream-ID |last_stream_id| and the
@@ -2077,20 +2257,115 @@ class Session {
 	 * ErrorCode.INVALID_ARGUMENT
 	 *     The |opaque_data_len| is too large.
 	 */
-	ErrorCode http2_session_add_goaway(Session session, int last_stream_id, FrameError error_code, const ubyte *opaque_data, size_t opaque_data_len, ubyte aux_flags);
-
+	ErrorCode addGoAway(int last_stream_id, FrameError error_code, in ubyte[] opaque_data, ubyte aux_flags) {
+		ErrorCode rv;
+		OutboundItem item;
+		Frame* frame;
+		ubyte[] opaque_data_copy;
+		GoAwayAuxData* aux_data;
+		
+		if (isMyStreamId(last_stream_id)) {
+			return ErrorCode.INVALID_ARGUMENT;
+		}
+		
+		if (opaque_data) {
+			if (opaque_data.length + 8 > MAX_PAYLOADLEN) {
+				return ErrorCode.INVALID_ARGUMENT;
+			}
+			opaque_data_copy = Mem.copy(opaque_data);
+		}
+		
+		item = Mem.alloc!OutboundItem(this);
+		
+		frame = &item.frame;
+		
+		/* last_stream_id must not be increased from the value previously sent */
+		last_stream_id = min(last_stream_id, local_last_stream_id);
+		
+		frame.goaway = GoAway(last_stream_id, error_code, opaque_data_copy);
+		
+		aux_data = &item.aux_data.goaway;
+		aux_data.flags = aux_flags;
+		
+		addItem(item);
+		return 0;
+	}
 	/*
 	 * Adds WINDOW_UPDATE frame with stream ID |stream_id| and
 	 * window-size-increment |window_size_increment|. This is a convenient
 	 * function built on top of http2_session_add_frame() to add
 	 * WINDOW_UPDATE easily.
 	 */
-	void http2_session_add_window_update(Session session, FrameFlags flags, int stream_id, int window_size_increment);
+	void addWindowUpdate(FrameFlags flags, int stream_id, int window_size_increment) {
+		ErrorCode rv;
+		OutboundItem item;
+		Frame* frame;
+
+		item = Mem.alloc!OutboundItem(this);    
+		frame = &item.frame;
+		
+		frame.window_update = WindowUpdate(flags, stream_id, window_size_increment);
+		
+		addItem(item);
+	}
 
 	/*
 	 * Adds SETTINGS frame.
 	 */
-	void http2_session_add_settings(Session session, FrameFlags flags, const http2_settings_entry *iv, size_t niv);
+	ErrorCode addSettings(FrameFlags flags, in Setting[] iva) 
+	{
+		OutboundItem item;
+		Frame* frame;
+		Setting[] iva_copy;
+		size_t i;
+		
+		if (flags & FrameFlags.ACK) {
+			if (iva.length != 0) {
+				return ErrorCode.INVALID_ARGUMENT;
+			}
+		}
+		else if (inflight_iva.length != 0) 
+			return ErrorCode.TOO_MANY_INFLIGHT_SETTINGS;
+		
+		if (!iva.check())
+			return ErrorCode.INVALID_ARGUMENT;
+		
+		item = Mem.alloc!OutboundItem(this);
+		scope(failure) Mem.free(item);
+		
+		if (iva.length > 0)
+			iva_copy = iva.copy();
+		else
+			iva_copy = null;
+		
+		scope(failure) if(iva_copy) Mem.free(iva_copy);
+		
+		if ((flags & FrameFlags.ACK) == 0) {
+			if (iva.length > 0)
+				inflight_iva = iva.copy();
+			else
+				inflight_iva = null;     
+			
+		}
+		
+		frame = &item.frame;
+		
+		frame.settings = Settings(flags, iva_copy);
+		
+		addItem(item);
+		
+		/* Extract Setting.MAX_CONCURRENT_STREAMS here and use it to refuse the incoming streams with RST_STREAM. */
+		foreach_reverse(ref iv; iva)
+		{
+			if (iv.id == Setting.MAX_CONCURRENT_STREAMS) {
+				pending_local_max_concurrent_stream = iv.value;
+				break;
+			}
+			
+		}
+
+		return 0;
+	}
 
 	/**
 	 * Creates new stream in $(D Session) with stream ID |stream_id|,
@@ -2695,7 +2970,7 @@ class Session {
 	 * ErrorCode.CALLBACK_FAILURE
 	 *     The read_callback failed
 	 */
-	int onPriorityReceived(Frame frame) 
+	ErrorCode onPriorityReceived(Frame frame) 
 	{
 		ErrorCode rv;
 		Stream stream;
@@ -2783,7 +3058,7 @@ class Session {
 	 *     The read_callback failed
 	 */
 
-	int onSettings(Frame frame, bool noack) 
+	ErrorCode onSettings(Frame frame, bool noack) 
 	{
 		ErrorCode rv;
 		size_t i;
@@ -2824,7 +3099,7 @@ class Session {
 				case HEADER_TABLE_SIZE:
 					
 					if (entry.value > MAX_HEADER_TABLE_SIZE) {
-						return handleInvalidConnection(frame, FrameError.COMPRESSION_ERROR, "SETTINGS: too large SETTINGS_HEADER_TABLE_SIZE");
+						return handleInvalidConnection(frame, FrameError.COMPRESSION_ERROR, "SETTINGS: too large SettingsID.HEADER_TABLE_SIZE");
 					}
 					
 					rv = hd_deflater.changeTableSize(entry.value);
@@ -2842,7 +3117,7 @@ class Session {
 				case ENABLE_PUSH:
 					
 					if (entry.value != 0 && entry.value != 1) {
-						return handleInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "SETTINGS: invalid SETTINGS_ENBLE_PUSH");
+						return handleInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "SETTINGS: invalid SettingsID.ENABLE_PUSH");
 					}
 					
 					if (!is_server && entry.value != 0) {
@@ -2861,7 +3136,7 @@ class Session {
 					/* Update the initial window size of the all active streams */
 					/* Check that initial_window_size < (1u << 31) */
 					if (entry.value > MAX_WINDOW_SIZE) {
-						return handleInvalidConnection(frame, FrameError.FLOW_CONTROL_ERROR, "SETTINGS: too large SETTINGS_INITIAL_WINDOW_SIZE");
+						return handleInvalidConnection(frame, FrameError.FLOW_CONTROL_ERROR, "SETTINGS: too large SettingsID.INITIAL_WINDOW_SIZE");
 					}
 					
 					rv = updateRemoteInitialWindowSize(entry.value);
@@ -2881,7 +3156,7 @@ class Session {
 					
 					if (entry.value < MAX_FRAME_SIZE_MIN ||
 						entry.value > MAX_FRAME_SIZE_MAX) {
-						return handleInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "SETTINGS: invalid SETTINGS_MAX_FRAME_SIZE");
+						return handleInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "SETTINGS: invalid SettingsID.MAX_FRAME_SIZE");
 					}
 					
 					remote_settings.max_frame_size = entry.value;
@@ -2896,7 +3171,7 @@ class Session {
 		}
 		
 		if (!noack && !isClosing()) {
-			rv = http2_session_add_settings(session, FrameFlags.ACK, null, 0);
+			rv = addSettings(FrameFlags.ACK, null, 0);
 			
 			if (rv != 0) {
 				if (isFatal(rv)) {
@@ -2924,7 +3199,64 @@ class Session {
 	 * ErrorCode.CALLBACK_FAILURE
 	 *     The read_callback failed
 	 */
-	ErrorCode http2_session_on_push_promise_received(Session session, http2_frame *frame);
+
+	ErrorCode onPushPromise(Frame frame) 
+	{
+		ErrorCode rv;
+		Stream stream;
+		Stream promised_stream;
+		PrioritySpec pri_spec;
+		
+		if (frame.hd.stream_id == 0) {
+			return handleInflateInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "PUSH_PROMISE: stream_id == 0");
+		}
+		if (is_server || local_settings.enable_push == 0) {
+			return handleInflateInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "PUSH_PROMISE: push disabled");
+		}
+		if (goaway_flags) {
+			/* We just dicard PUSH_PROMISE after GOAWAY is sent or received. */
+			return ErrorCode.IGN_HEADER_BLOCK;
+		}
+		
+		if (!isMyStreamId(frame.hd.stream_id)) {
+			return handleInflateInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "PUSH_PROMISE: invalid stream_id");
+		}
+		
+		if (!isNewPeerStreamId(frame.push_promise.promised_stream_id)) {
+			/* The spec says if an endpoint receives a PUSH_PROMISE with
+		       illegal stream ID is subject to a connection error of type
+		       PROTOCOL_ERROR. */
+			return handleInflateInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "PUSH_PROMISE: invalid promised_stream_id");
+		}
+		last_recv_stream_id = frame.push_promise.promised_stream_id;
+		stream = getStream(frame.hd.stream_id);
+		if (!stream || stream.state == StreamState.CLOSING) {
+			if (!stream) {
+				if (idleStreamDetect(frame.hd.stream_id)) {
+					return handleInflateInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "PUSH_PROMISE: stream in idle");
+				}
+			}
+			addRstStream(frame.push_promise.promised_stream_id, FrameError.REFUSED_STREAM);
+			return ErrorCode.IGN_HEADER_BLOCK;
+		}
+		if (stream.shutFlags & ShutdownFlag.RD) {
+			if (!policy.onInvalidFrame(frame, FrameError.PROTOCOL_ERROR)) 
+				return ErrorCode.CALLBACK_FAILURE;
+
+			addRstStream(frame.push_promise.promised_stream_id, FrameError.PROTOCOL_ERROR);
+			return ErrorCode.IGN_HEADER_BLOCK;
+		}
+		
+		/* TODO: It is unclear reserved stream depends on associated stream with or without exclusive flag set */
+		pri_spec = PrioritySpec(stream.id, DEFAULT_WEIGHT, 0);
+		
+		promised_stream = openStream(frame.push_promise.promised_stream_id, StreamFlags.NONE, pri_spec, StreamState.RESERVED, null);
+		
+		last_proc_stream_id = last_recv_stream_id;
+		if (!callOnHeaders(frame))
+			return ErrorCode.CALLBACK_FAILURE;
+		return 0;
+	}
 
 	/*
 	 * Called when PING is received, assuming |frame| is properly
@@ -2936,7 +3268,22 @@ class Session {
 	 * ErrorCode.CALLBACK_FAILURE
 	 *   The callback function failed.
 	 */
-	ErrorCode http2_session_on_ping_received(Session session, http2_frame *frame);
+	ErrorCode onPing(Frame frame) 
+	{
+		int rv = 0;
+		if (frame.hd.stream_id != 0) {
+			return handleInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "PING: stream_id != 0");
+		}
+		if ((frame.hd.flags & FrameFlags.ACK) == 0 && !isClosing()) 
+		{
+			/* Peer sent ping, so ping it back */
+			addPing(FrameFlags.ACK, frame.ping.opaque_data);
+		}
+		bool ok = callOnFrame(frame);
+		if (!ok)
+			return ErrorCode.CALLBACK_FAILURE;
+		return 0;
+	}
 
 	/*
 	 * Called when GOAWAY is received, assuming |frame| is properly
@@ -2948,7 +3295,30 @@ class Session {
 	 * ErrorCode.CALLBACK_FAILURE
 	 *   The callback function failed.
 	 */
-	ErrorCode http2_session_on_goaway_received(Session session, http2_frame *frame);
+	ErrorCode onGoAway(Frame frame) 
+	{		
+		if (frame.hd.stream_id != 0) 
+		{
+			return handleInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "GOAWAY: stream_id != 0");
+		}
+
+		/* Spec says Endpoints MUST NOT increase the value they send in the last stream identifier. */
+		if ((frame.goaway.last_stream_id > 0 && !isMyStreamId(frame.goaway.last_stream_id)) ||
+			 remote_last_stream_id < frame.goaway.last_stream_id) 
+		{
+			return handleInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "GOAWAY: invalid last_stream_id");
+		}
+		
+		goaway_flags |= GoAwayFlags.RECV;
+		
+		remote_last_stream_id = frame.goaway.last_stream_id;
+
+		bool ok = callOnFrame(frame);
+		if (!ok)
+			return ErrorCode.CALLBACK_FAILURE;
+		
+		return closeStreamOnGoAway(frame.goaway.last_stream_id, 0);
+	}
 
 	/*
 	 * Called when WINDOW_UPDATE is recieved, assuming |frame| is properly
@@ -2959,7 +3329,51 @@ class Session {
 	 * ErrorCode.CALLBACK_FAILURE
 	 *   The callback function failed.
 	 */
-	ErrorCode http2_session_on_window_update_received(Session session, http2_frame *frame);
+	ErrorCode onWindowUpdate(Frame frame) 
+	{
+		if (frame.hd.stream_id == 0)
+		{
+			/* Handle connection-level flow control */
+			if (frame.window_update.window_size_increment == 0)		
+				return handleInvalidConnection(frame, FrameError.PROTOCOL_ERROR, null);
+			
+			if (MAX_WINDOW_SIZE - frame.window_update.window_size_increment < remote_window_size)
+				return handleInvalidConnection(frame, FrameError.FLOW_CONTROL_ERROR, null);
+			
+			remote_window_size += frame.window_update.window_size_increment;
+			
+		} else {
+			/* handle stream window update */
+			Stream stream = getStream(frame.hd.stream_id);
+			
+			if (!stream) {
+				if (idleStreamDetect(frame.hd.stream_id))
+					return handleInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "WINDOW_UPDATE to idle stream");
+				return 0;
+			}
+			
+			if (isReservedRemote(stream)) 
+				return handleInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "WINDOW_UPADATE to reserved stream");
+			
+			if (frame.window_update.window_size_increment == 0) 
+				return handleInvalidStream(frame, FrameError.PROTOCOL_ERROR);
+			
+			if (MAX_WINDOW_SIZE - frame.window_update.window_size_increment < stream.remoteWindowSize)
+				return handleInvalidStream(frame, FrameError.FLOW_CONTROL_ERROR);
+			
+			stream.remoteWindowSize += frame.window_update.window_size_increment;
+			
+			if (stream.remoteWindowSize > 0 && stream.isDeferredByFlowControl())        
+				stream.resumeDeferredItem(StreamFlags.DEFERRED_FLOW_CONTROL, session);
+		}
+		
+		bool ok = callOnFrame(frame);
+
+		if (!ok)
+			return ErrorCode.CALLBACK_FAILURE;
+		
+		return 0;
+	}
 
 	/*
 	 * Called when DATA is received, assuming |frame| is properly
@@ -2970,7 +3384,45 @@ class Session {
 	 * ErrorCode.CALLBACK_FAILURE
 	 *   The callback function failed.
 	 */
-	ErrorCode http2_session_on_data_received(Session session, http2_frame *frame);
+	ErrorCode onData(Frame frame) 
+	{
+		int rv = 0;
+		int call_cb = 1;
+		Stream stream = getStream(frame.hd.stream_id);
+		
+		/* We don't call on_frame_recv_callback if stream has been closed already or being closed. */
+		if (!stream || stream.state == StreamState.CLOSING) {
+			/* This should be treated as stream error, but it results in lots
+		       of RST_STREAM. So just ignore frame against nonexistent stream
+		       for now. */
+			return 0;
+		}
+		
+		if (isHTTPMessagingEnabled() && (frame.hd.flags & FrameFlags.END_STREAM)) 
+		{
+			if (http2_http_on_remote_end_stream(stream) != 0) {
+				call_cb = 0;
+				addRstStream(stream.id, FrameError.PROTOCOL_ERROR);
+			}
+		}
+		
+		if (call_cb) {
+			bool ok = callOnFrame(frame);
+			if (!ok) {
+				return ErrorCode.CALLBACK_FAILURE;
+			}
+		}
+		
+		if (frame.hd.flags & FrameFlags.END_STREAM)
+		{
+			stream.shutdown(ShutdownFlag.RD);
+			rv = closeStreamIfShutRdWr(stream);
+			if (isFatal(rv)) {
+				return rv;
+			}
+		}
+		return 0;
+	}
 
 	/*
 	 * Packs DATA frame |frame| in wire frame format and stores it in
@@ -2987,8 +3439,109 @@ class Session {
 	 * ErrorCode.CALLBACK_FAILURE
 	 *     The read_callback failed (session error).
 	 */
-	ErrorCode http2_session_pack_data(Session session, http2_bufs *bufs, size_t datamax, http2_frame *frame, http2_data_aux_data *aux_data);
+	ErrorCode packData(Buffers bufs, size_t datamax, Frame frame, DataAuxData *aux_data) {
+		ErrorCode rv;
+		DataFlags data_flags;
+		int payloadlen;
+		int padded_payloadlen;
+		Buffer* buf;
+		size_t max_payloadlen;
+		
+		assert(bufs.head == bufs.cur);
+		
+		buf = &bufs.cur.buf;
+		
+		Stream stream;
+			
+		stream = getStream(frame.hd.stream_id);
 
+		if (!stream)
+			return ErrorCode.INVALID_ARGUMENT;
+		
+		payloadlen = policy.maxFrameSize(session, frame.hd.type, stream.id, session.remote_window_size, stream.remoteWindowSize, session.remote_settings.max_frame_size);
+		
+		DEBUGF(fprintf(stderr, "send: read_length_callback=%zd\n", payloadlen));
+		
+		payloadlen = enforceFlowControlLimits(stream, payloadlen);
+		
+		DEBUGF(fprintf(stderr,
+				"send: read_length_callback after flow control=%zd\n",
+				payloadlen));
+		
+		if (payloadlen <= 0) {
+			return ErrorCode.CALLBACK_FAILURE;
+		}
+		
+		if (payloadlen > buf.available) {
+			/* Resize the current buffer(s).  The reason why we do +1 for buffer size is for possible padding field. */
+			rv = aob.framebufs.realloc(FRAME_HDLEN + 1 + payloadlen);
+			
+			if (rv != 0) {
+				DEBUGF(fprintf(stderr, "send: realloc buffer failed rv=%d", rv));
+				/* If reallocation failed, old buffers are still in tact.  So use safe limit. */
+				payloadlen = datamax;
+				
+				DEBUGF(fprintf(stderr, "send: use safe limit payloadlen=%zd", payloadlen));
+			} else {
+				assert(&session.aob.framebufs == bufs);
+				
+				buf = &bufs.cur.buf;
+			}
+		}
+
+		datamax = cast(size_t)payloadlen;
+		
+		/* Current max DATA length is less then buffer chunk size */
+		assert(buf.available >= cast(int)datamax);
+		
+		data_flags = DataFlags.NONE;
+		payloadlen = aux_data.data_prd.read_callback(frame.hd.stream_id, buf.pos, datamax, data_flags, aux_data.data_prd.source);
+		
+		if (payloadlen == ErrorCode.DEFERRED ||
+			payloadlen == ErrorCode.TEMPORAL_CALLBACK_FAILURE)
+		{
+			DEBUGF(fprintf(stderr, "send: DATA postponed due to %s\n", toString(cast(ErrorCode)payloadlen)));
+			
+			return cast(int)payloadlen;
+		}
+		
+		if (payloadlen < 0 || datamax < cast(size_t)payloadlen) 
+		{
+			/* This is the error code when callback is failed. */
+			return ErrorCode.CALLBACK_FAILURE;
+		}
+		
+		buf.last = buf.pos + payloadlen;
+		buf.pos -= FRAME_HDLEN;
+		
+		/* Clear flags, because this may contain previous flags of previous DATA */
+		frame.hd.flags = FrameFlags.NONE;
+		
+		if (data_flags & DataFlags.EOF) {
+			aux_data.eof = 1;
+			if (aux_data.flags & FrameFlags.END_STREAM)
+				frame.hd.flags |= FrameFlags.END_STREAM;
+		}
+		
+		frame.hd.length = payloadlen;
+		frame.data.padlen = 0;
+		
+		max_payloadlen = min(datamax, frame.hd.length + MAX_PADLEN);
+		
+		padded_payloadlen = callSelectPadding(frame, max_payloadlen);
+		
+		if (isFatal(cast(int)padded_payloadlen)) {
+			return cast(int)padded_payloadlen;
+		}
+		
+		frame.data.padlen = padded_payloadlen - payloadlen;
+		
+		frame.hd.pack(buf.pos);
+		
+		frame.hd.addPad(bufs, frame.data.padlen);
+		
+		return 0;
+	}
 	/*
 	 * This function is called when HTTP header field |hf| in |frame| is
 	 * received for |stream|.  This function will validate |hf| against
@@ -3118,7 +3671,7 @@ class Session {
 	 * Updates local settings with the |iva|. The number of elements in the
 	 * array pointed by the |iva| is given by the |iva.length|.  This function
 	 * assumes that the all settings_id member in |iva| are in range 1 to
-	 * HTTP2_SETTINGS_MAX, inclusive.
+	 * SettingsID.MAX_HEADER_LIST_SIZE, inclusive.
 	 *
 	 * While updating individual stream's local window size, if the window
 	 * size becomes strictly larger than HTTP2_MAX_WINDOW_SIZE,
@@ -3139,7 +3692,7 @@ class Session {
 		bool header_table_size_seen;
 		/* Use the value last seen. */
 		foreach(iv; iva) {
-			with(Setting) switch (iv.id) {
+			with(SettingsID) switch (iv.id) {
 				case HEADER_TABLE_SIZE:
 					header_table_size_seen = true;
 					header_table_size = iv.value;
@@ -3344,7 +3897,7 @@ private:
 	 */
 	bool isNewPeerStreamId(int stream_id)
 	{
-		return stream_id != 0 && !isMyStreamId(session, stream_id) && session.last_recv_stream_id < stream_id;
+		return stream_id != 0 && !isMyStreamId(stream_id) && last_recv_stream_id < stream_id;
 	}
 	
 
@@ -3352,14 +3905,16 @@ private:
 	 * @function
 	 *
 	 * Returns the last stream ID of a stream for which
-	 * :type:`http2_on_frame_recv_callback` was invoked most recently.
+	 * $(D Policy.onFrame) was invoked most recently.
 	 * The returned value can be used as last_stream_id parameter for
-	 * `http2_submit_goaway()` and
-	 * `http2_session_terminate_session2()`.
+	 * `submitGoAway()` and `terminateSession()`.
 	 *
 	 * This function always succeeds.
 	 */
-	void http2_session_get_last_proc_stream_id(Session session);
+	int getLastProcStreamID() 
+	{
+		return last_proc_stream_id;
+	}
 
 	void inboundFrameReset()
 	{
@@ -3405,7 +3960,7 @@ private:
 		destroy(iframe.iva);
 		iframe.payloadleft = 0;
 		iframe.padlen = 0;
-		iframe.iva[INBOUND_NUM_IV - 1].id = SETTINGS_HEADER_TABLE_SIZE;
+		iframe.iva[INBOUND_NUM_IV - 1].id = SettingsID.HEADER_TABLE_SIZE;
 		iframe.iva[INBOUND_NUM_IV - 1].value = uint.max;
 	}
 
@@ -3468,7 +4023,7 @@ private:
 	}
 
 	// terminates the session
-	ErrorCode terminateSession(int last_stream_id, uint error_code, string reason) 
+	ErrorCode terminateSession(int last_stream_id, FrameError error_code, string reason) 
 	{
 		ErrorCode rv;
 		string debug_data;
@@ -3791,7 +4346,7 @@ private:
 	 * ErrorCode.SESSION_CLOSING
 	 *   This session is closing.
 	 */
-	int predicateDataSend(Session session, Stream stream) 
+	ErrorCode predicateDataSend(Session session, Stream stream) 
 	{
 		ErrorCode rv;
 		rv = predicateForStreamSend(stream);
@@ -3831,6 +4386,113 @@ private:
 		
 		return min(min(min(requested_window_size, stream.remoteWindowSize), remote_window_size), cast(int)remote_settings.max_frame_size);
 	}
+		
+	/*
+	 * Now we have SETTINGS synchronization, flow control error can be
+	 * detected strictly. If DATA frame is received with length > 0 and
+	 * current received window size + delta length is strictly larger than
+	 * local window size, it is subject to FLOW_CONTROL_ERROR, so return
+	 * false. Note that local_window_size is calculated after SETTINGS ACK is
+	 * received from peer, so peer must honor this limit. If the resulting
+	 * recv_window_size is strictly larger than MAX_WINDOW_SIZE,
+	 * return false too.
+	 */
+	bool adjustRecvWindowSize(ref int _recv_window_size, size_t delta, int local_window_size) 
+	{
+		if (_recv_window_size > local_window_size - cast(int)delta ||
+			_recv_window_size > MAX_WINDOW_SIZE - cast(int)delta) 
+		{
+			return false;
+		}
+		_recv_window_size += delta;
+		return true;
+	}
+	/*
+	 * Accumulates received bytes |delta_size| for stream-level flow
+	 * control and decides whether to send WINDOW_UPDATE to that stream.
+	 * If OptionFlags.NO_AUTO_WINDOW_UPDATE is set, WINDOW_UPDATE will not
+	 * be sent.
+	 */
+	ErrorCode updateRecvStreamWindowSize(Stream stream, size_t delta_size, int send_window_update) 
+	{
+		ErrorCode rv;
+		bool ok = adjust_recv_window_size(&stream.recvWindowSize, delta_size, stream.localWindowSize);
+		if (!ok) {
+			addRstStream(stream.id, FrameError.FLOW_CONTROL_ERROR);
+			return;
+		}
+		/* We don't have to send WINDOW_UPDATE if the data received is the last chunk in the incoming stream. */
+		if (send_window_update && !(opt_flags & OptionsMask.NO_AUTO_WINDOW_UPDATE)) {
+			/* We have to use local_settings here because it is the constraint the remote endpoint should honor. */
+			if (http2_should_send_window_update(stream.localWindowSize, stream.recvWindowSize)) {
+				addWindowUpdate(FrameFlags.NONE, stream.id, stream.recvWindowSize);
+				stream.recvWindowSize = 0;
+			}
+		}
+		return 0;
+	}
+	
+	/*
+	 * Accumulates received bytes |delta_size| for connection-level flow
+	 * control and decides whether to send WINDOW_UPDATE to the
+	 * connection.  If OptionFlags.NO_AUTO_WINDOW_UPDATE is set,
+	 * WINDOW_UPDATE will not be sent.
+	 */
+	ErrorCode updateRecvConnectionWindowSize(size_t delta_size) 
+	{
+		ErrorCode rv;
+		bool ok = adjust_recv_window_size(&session.recv_window_size, delta_size, session.local_window_size);
+		if (!ok) {
+			return terminateSession(FrameError.FLOW_CONTROL_ERROR);
+		}
+		if (!(session.opt_flags & OptionsMask.NO_AUTO_WINDOW_UPDATE))
+		{
+			
+			if (http2_should_send_window_update(session.local_window_size, session.recv_window_size)) 
+			{
+				/* Use stream ID 0 to update connection-level flow control window */
+				addWindowUpdate(FrameFlags.NONE, 0, session.recv_window_size);				
+				session.recv_window_size = 0;
+			}
+		}
+		return 0;
+	}
+	
+	ErrorCode updateConsumedSize(ref int consumed_size, ref int recv_window_size, int stream_id, size_t delta_size, int local_window_size) 
+	{
+		int recv_size;
+		ErrorCode rv;
+		
+		if (cast(size_t)consumed_size > MAX_WINDOW_SIZE - delta_size)
+		{
+			return terminateSession(FrameError.FLOW_CONTROL_ERROR);
+		}
+		
+		consumed_size += delta_size;
+		
+		/* recv_window_size may be smaller than consumed_size, because it may be decreased by negative value with http2_submit_window_update(). */
+		recv_size = min(consumed_size, recv_window_size);
+		
+		if (http2_should_send_window_update(local_window_size, recv_size)) 
+		{
+			addWindowUpdate(FrameFlags.NONE, stream_id, recv_size);
+			recv_window_size -= recv_size;
+			consumed_size -= recv_size;
+		}
+		
+		return 0;
+	}
+	
+	ErrorCode updateStreamConsumedSize(Stream stream, size_t delta_size) 
+	{
+		return updateConsumedSize(stream.consumedSize, stream.recvWindowSize, stream.id, delta_size, stream.localWindowSize);
+	}
+	
+	ErrorCode updateConnectionConsumedSize(size_t delta_size) 
+	{
+		return updateConsumedSize(consumed_size, recv_window_size, 0, delta_size, local_window_size);
+	}
+
 
 	/*
 	 * Returns the maximum length of next data read. If the
@@ -3912,6 +4574,81 @@ private:
 	{
 		return policy.onFrame(frame);
 	}
+
+	/*
+	 * Checks that we can receive the DATA frame for stream, which is
+	 * indicated by |session.iframe.frame.hd.stream_id|. If it is a
+	 * connection error situation, GOAWAY frame will be issued by this
+	 * function.
+	 *
+	 * If the DATA frame is allowed, returns 0.
+	 *
+	 * This function returns 0 if it succeeds, or one of the following
+	 * negative error codes:
+	 *
+	 * ErrorCode.IGN_PAYLOAD
+	 *   The reception of DATA frame is connection error; or should be
+	 *   ignored.
+	 */
+	ErrorCode onDataFailFast() 
+	{
+		ErrorCode rv;
+		Stream stream;
+		int stream_id;
+		const char *failure_reason;
+		uint error_code = FrameError.PROTOCOL_ERROR;
+
+		stream_id = iframe.frame.hd.stream_id;
+		
+		if (stream_id == 0) {
+			/* The spec says that if a DATA frame is received whose stream ID
+	       is 0, the recipient MUST respond with a connection error of
+	       type PROTOCOL_ERROR. */
+			failure_reason = "DATA: stream_id == 0";
+			goto fail;
+		}
+		stream = getStream(stream_id);
+		if (!stream) {
+			if (idleStreamDetect(stream_id)) 
+			{
+				failure_reason = "DATA: stream in idle";
+				error_code = StreamState.CLOSED;
+				goto fail;
+			}
+			return ErrorCode.IGN_PAYLOAD;
+		}
+		if (stream.shutFlags & ShutdownFlag.RD) {
+			failure_reason = "DATA: stream in half-closed(remote)";
+			error_code = StreamState.CLOSED;
+			goto fail;
+		}
+		
+		if (isMyStreamId(stream_id)) {
+			if (stream.state == StreamState.CLOSING) {
+				return ErrorCode.IGN_PAYLOAD;
+			}
+			if (stream.state != StreamState.OPENED) {
+				failure_reason = "DATA: stream not opened";
+				goto fail;
+			}
+			return 0;
+		}
+		if (stream.state == StreamState.RESERVED) {
+			failure_reason = "DATA: stream in reserved";
+			goto fail;
+		}
+		if (stream.state == StreamState.CLOSING) {
+			return ErrorCode.IGN_PAYLOAD;
+		}
+		return 0;
+	fail:
+		rv = terminateSessionWithReason(error_code, failure_reason);
+		if (isFatal(rv)) {
+			return rv;
+		}
+		return ErrorCode.IGN_PAYLOAD;
+	}
+
 
 	ErrorCode afterHeaderBlockReceived() 
 	{
@@ -4008,15 +4745,11 @@ private:
 
 	ErrorCode processHeadersFrame() 
 	{
-		ErrorCode rv;
 		Frame frame = &iframe.frame;
 		Stream stream;
 		
-		rv = frame.headers.unpack(iframe.sbuf[], frame.headers.flags);
-		
-		if (rv != 0) {
-			return terminateSessionWithReason(FrameError.PROTOCOL_ERROR, "HEADERS: could not unpack");
-		}
+		frame.headers.unpack(iframe.sbuf[], frame.headers.flags);
+
 		stream = getStream(frame.hd.stream_id);
 		if (!stream) {
 			frame.headers.cat = HeadersCategory.REQUEST;
@@ -4061,7 +4794,6 @@ private:
 	
 	ErrorCode processSettingsFrame() 
 	{
-		ErrorCode rv;
 		Frame* frame = &iframe.frame;
 		size_t i;
 		Setting min_header_size_entry;
@@ -4069,9 +4801,9 @@ private:
 		min_header_size_entry = iframe.iva[INBOUND_NUM_IV - 1];
 		
 		if (min_header_size_entry.value < uint.max) {
-			/* If we have less value, then we must have SETTINGS_HEADER_TABLE_SIZE in i < iframe.niv */
+			/* If we have less value, then we must have SettingsID.HEADER_TABLE_SIZE in i < iframe.niv */
 			for (i = 0; i < iframe.niv; ++i) {
-				if (iframe.iva[i].id == Setting.HEADER_TABLE_SIZE) {
+				if (iframe.iva[i].id == SettingsID.HEADER_TABLE_SIZE) {
 					break;
 				}
 			}
@@ -4086,6 +4818,55 @@ private:
 		
 		frame.settings.unpack(iframe.iva);
 		return onSettings(frame, false /* ACK */);
+	}
+
+	ErrorCode processPushPromiseFrame()
+	{
+		Frame* frame = &iframe.frame;
+		
+		frame.push_promise.unpack(iframe.sbuf[]);
+				
+		return onPushPromise(frame);
+	}
+
+	ErrorCode processPingFrame()
+	{
+		Frame* frame = &iframe.frame;
+		
+		frame.ping.unpack(iframe.sbuf[]);
+		
+		return onPing(frame);
+	}
+	
+	ErrorCode processGoAwayFrame() 
+	{
+		Frame* frame = &iframe.frame;
+		
+		frame.goaway.unpack(iframe.sbuf[], iframe.lbuf[]);
+		
+		iframe.lbuf = Buffer(null);
+		
+		return onGoAway(frame);
+	}
+
+	ErrorCode processWindowUpdateFrame() 
+	{
+		Frame frame = &iframe.frame;
+		
+		frame.window_update.unpack(iframe.sbuf[]);
+		
+		return onWindowUpdate(frame);
+	}
+
+	/* For errors, this function only returns FATAL error. */
+	ErrorCode processDataFrame() 
+	{
+		ErrorCode rv;
+		rv = onData(iframe.frame);
+		if (isFatal(rv)) {
+			return rv;
+		}
+		return 0;
 	}
 
 	ErrorCode handleInvalidStream(Frame frame, FrameError error_code) {
@@ -4110,7 +4891,7 @@ private:
 	/*
 	 * Handles invalid frame which causes connection error.
 	 */
-	int handleInvalidConnection(Frame frame, FrameError error_code, string reason)
+	ErrorCode handleInvalidConnection(Frame frame, FrameError error_code, string reason)
 	{
 		if (!policy.onInvalidFrame(frame, error_code))
 			return ErrorCode.CALLBACK_FAILURE;
@@ -4217,10 +4998,7 @@ private:
 				
 				if (http2_should_send_window_update(stream.localWindowSize, stream.recvWindowSize)) {
 					
-					rv = http2_session_add_window_update(FrameFlags.NONE, stream.id, stream.recvWindowSize);
-					if (rv != 0) {
-						return rv;
-					}
+					addWindowUpdate(FrameFlags.NONE, stream.id, stream.recvWindowSize);
 					stream.recvWindowSize = 0;
 				}
 			}
@@ -4228,6 +5006,13 @@ private:
 		return rv;
 	}
 
+	/*
+	 * Returns the number of active streams, which includes streams in
+	 * reserved state.
+	 */
+	size_t getNumActiveStreams() {
+		return streams.length - num_closed_streams;
+	}
 
 	/* Closes non-idle and non-closed streams whose stream ID > last_stream_id. 
 	 * If incoming is nonzero, we are going to close incoming streams.  
@@ -4355,7 +5140,7 @@ private:
 					
 					/* Peer can send PRIORITY frame against idle stream to create
 				       "anchor" in dependency tree.  Only client can do this in
-				       nghttp2.  In nghttp2, only server retains non-active (closed
+				       libhttp2.  In libhttp2, only server retains non-active (closed
 				       or idle) streams in memory, so we don't open stream here. */
 					break;
 				}
@@ -4467,7 +5252,7 @@ private:
 				return ErrorCode.DEFERRED;
 			}
 			
-			rv = http2_session_pack_data(session, aob.framebufs, next_readmax, frame, &item.aux_data.data);
+			rv = packData(aob.framebufs, next_readmax, frame, &item.aux_data.data);
 			if (rv == ErrorCode.DEFERRED) {
 				stream.deferItem(StreamFlags.DEFERRED_USER, this);
 				aob.item = null;
@@ -4539,13 +5324,12 @@ private:
 							/* We assume aux_data is a pointer to HeadersAuxData */
 							aux_data = &item.aux_data.headers;
 							if (aux_data.data_prd.read_callback) {
-								/* http2_submit_data() makes a copy of aux_data.data_prd */
-								rv = http2_submit_data(session, FrameFlags.END_STREAM,
-									frame.hd.stream_id, &aux_data.data_prd);
+								/* submitData() makes a copy of aux_data.data_prd */
+								rv = submitData(session, FrameFlags.END_STREAM, frame.hd.stream_id, aux_data.data_prd);
 								if (isFatal(rv)) {
 									return rv;
 								}
-								/* TODO: http2_submit_data() may fail if stream has already DATA frame item.  We might have to handle it here. */
+								/* TODO: submitData() may fail if stream has already DATA frame item.  We might have to handle it here. */
 							}
 							break;
 						}
@@ -4567,11 +5351,11 @@ private:
 							/* We assume aux_data is a pointer to HeadersAuxData */
 							aux_data = &item.aux_data.headers;
 							if (aux_data.data_prd.read_callback) {
-								rv = http2_submit_data(session, FrameFlags.END_STREAM, frame.hd.stream_id, &aux_data.data_prd);
+								rv = submitData(session, FrameFlags.END_STREAM, frame.hd.stream_id, aux_data.data_prd);
 								if (isFatal(rv)) {
 									return rv;
 								}
-								/* TODO http2_submit_data() may fail if stream has already DATA frame item. 
+								/* TODO submitData() may fail if stream has already DATA frame item. 
                              * We might have to handle it here. */
 							}
 							break;
@@ -4643,7 +5427,7 @@ private:
 		if (stream && aux_data.eof) {
 			stream.detachItem(this);
 			
-			/* Call onFrameSent after detachItem(), so that application can issue http2_submit_data() in the callback. */
+			/* Call onFrameSent after detachItem(), so that application can issue submitData() in the callback. */
 			bool ok = callOnFrameSent(frame);
 			if (!ok) {
 				return ErrorCode.CALLBACK_FAILURE;
@@ -4781,7 +5565,7 @@ private:
 			
 			framebufs.reset();
 			
-			rv = http2_session_pack_data(session, framebufs, next_readmax, frame, aux_data);
+			rv = packData(framebufs, next_readmax, frame, aux_data);
 			if (isFatal(rv)) {
 				return rv;
 			}
@@ -5223,7 +6007,7 @@ private:
 	/// Option flags. This is bitwise-OR of 0 or more of http2_optmask.
 	OptionsMask opt_flags;
 	
-	/// Unacked local SETTINGS_MAX_CONCURRENT_STREAMS value. We use this to refuse the incoming stream if it exceeds this value. 
+	/// Unacked local SettingsID.MAX_CONCURRENT_STREAMS value. We use this to refuse the incoming stream if it exceeds this value. 
 	uint pending_local_max_concurrent_stream = INITIAL_MAX_CONCURRENT_STREAMS;
 	
 	/// true if the session is server side. 
@@ -5255,35 +6039,30 @@ private:
  * $(D ErrorCode.INSUFF_BUFSIZE)
  *     The provided |buflen| size is too small to hold the output.
  */
-size_t http2_pack_settings_payload(ubyte[] buf, const ref Setting[] iv)
+int packSettingsPayload(ubyte[] buf, const ref Setting[] iva)
 {
-	if (!http2_iv_check(iv, niv)) {
+	if (!iva.check()) {
 		return ErrorCode.INVALID_ARGUMENT;
 	}
 	
-	if (buflen < (niv * FRAME_SETTINGS_ENTRY_LENGTH)) {
+	if (buflen < (iva.length * FRAME_SETTINGS_ENTRY_LENGTH)) {
 		return ErrorCode.INSUFF_BUFSIZE;
 	}
 	
-	return http2_frame_pack_settings_payload(buf, iv, niv);
+	return Settings.pack(buf, iva);
 }
 
 /**
- * @function
- *
  * Submits HEADERS frame and optionally one or more DATA frames.
  *
- * The |pri_spec| is priority specification of this request.  `null`
- * means the default priority (see
- * `http2_priority_spec_default_init()`).  To specify the priority,
- * use `http2_priority_spec_init()`.  If |pri_spec| is not `null`,
- * this function will copy its data members.
+ * The |pri_spec| is priority specification of this request. 
+ * To specify the priority, use `PrioritySpec()`.
  *
- * The `pri_spec.weight` must be in [$(D HTTP2_MIN_WEIGHT),
- * $(D HTTP2_MAX_WEIGHT)], inclusive.  If `pri_spec.weight` is
- * strictly less than $(D HTTP2_MIN_WEIGHT), it becomes
- * $(D HTTP2_MIN_WEIGHT).  If it is strictly greater than
- * $(D HTTP2_MAX_WEIGHT), it becomes $(D HTTP2_MAX_WEIGHT).
+ * The `pri_spec.weight` must be in [$(D MIN_WEIGHT),
+ * $(D MAX_WEIGHT)], inclusive.  If `pri_spec.weight` is
+ * strictly less than $(D MIN_WEIGHT), it becomes
+ * $(D MIN_WEIGHT).  If it is strictly greater than
+ * $(D MAX_WEIGHT), it becomes $(D MAX_WEIGHT).
  *
  * The |hfa| is an array of header fields $(D HeaderField) with
  * |hfa.length| elements.  The application is responsible to include
@@ -5312,9 +6091,7 @@ size_t http2_pack_settings_payload(ubyte[] buf, const ref Setting[] iv)
  *
  * This function returns assigned stream ID if it succeeds, or one of
  * the following negative error codes:
- *
- * $(D ErrorCode.NOMEM)
- *     Out of memory.
+ * 
  * $(D ErrorCode.STREAM_ID_NOT_AVAILABLE)
  *     No stream ID is available because maximum stream ID was
  *     reached.
@@ -5322,23 +6099,16 @@ size_t http2_pack_settings_payload(ubyte[] buf, const ref Setting[] iv)
  * .. warning::
  *
  *   This function returns assigned stream ID if it succeeds.  But
- *   that stream is not opened yet.  The application must not submit
- *   frame to that stream ID before
- *   :type:`http2_before_frame_send_callback` is called for this
+ *   that stream is not opened yet. The application must not submit
+ *   a frame to that stream ID before $(D Policy.onFrameReady) is called for this
  *   frame.
  *
  */
-ErrorCode http2_submit_request(Session session, in PrioritySpec pri_spec, in HeaderField[] hfa, in DataProvider data_prd, void *stream_user_data)
+int submitRequest(in PrioritySpec pri_spec, in HeaderField[] hfa, in DataProvider data_prd, void *stream_user_data = null)
 {
-	ubyte flags;
+	ubyte flags = set_request_flags(pri_spec, data_prd);
 	
-	if (pri_spec && http2_priority_spec_check_default(pri_spec)) {
-		pri_spec = null;
-	}
-
-	flags = set_request_flags(pri_spec, data_prd);
-	
-	return submit_headers_shared_hfa(session, flags, -1, pri_spec, hfa, data_prd, stream_user_data, 0);
+	return submitHeadersSharedHfa(session, flags, -1, pri_spec, hfa, data_prd, stream_user_data, false);
 }
 
 /**
@@ -5347,8 +6117,8 @@ ErrorCode http2_submit_request(Session session, in PrioritySpec pri_spec, in Hea
  * Submits response HEADERS frame and optionally one or more DATA
  * frames against the stream |stream_id|.
  *
- * The |hfa| is an array of header fields :type:`http2_nv` with
- * |nvlen| elements.  The application is responsible to include
+ * The |hfa| is an array of $(D HeaderField) with
+ * |hfa.length| elements.  The application is responsible to include
  * required pseudo-header fields (header field whose name starts with
  * ":") in |hfa| and must place pseudo-headers before regular header
  * fields.
@@ -5393,7 +6163,7 @@ ErrorCode http2_submit_request(Session session, in PrioritySpec pri_spec, in Hea
 ErrorCode http2_submit_response(Session session, int stream_id, in HeaderField[] hfa, in DataProvider data_prd)
 {
 	ubyte flags = set_response_flags(data_prd);
-	return submit_headers_shared_hfa(session, flags, stream_id, null, hfa, data_prd, null, 1);
+	return submitHeadersSharedHfa(session, flags, stream_id, PrioritySpec.init, hfa, data_prd, null, true);
 }
 
 /**
@@ -5422,14 +6192,14 @@ ErrorCode http2_submit_response(Session session, int stream_id, in HeaderField[]
  * use `http2_priority_spec_init()`.  If |pri_spec| is not `null`,
  * this function will copy its data members.
  *
- * The `pri_spec.weight` must be in [$(D HTTP2_MIN_WEIGHT),
- * $(D HTTP2_MAX_WEIGHT)], inclusive.  If `pri_spec.weight` is
- * strictly less than $(D HTTP2_MIN_WEIGHT), it becomes
- * $(D HTTP2_MIN_WEIGHT).  If it is strictly greater than
- * $(D HTTP2_MAX_WEIGHT), it becomes $(D HTTP2_MAX_WEIGHT).
+ * The `pri_spec.weight` must be in [$(D MIN_WEIGHT),
+ * $(D MAX_WEIGHT)], inclusive.  If `pri_spec.weight` is
+ * strictly less than $(D MIN_WEIGHT), it becomes
+ * $(D MIN_WEIGHT).  If it is strictly greater than
+ * $(D MAX_WEIGHT), it becomes $(D MAX_WEIGHT).
  *
- * The |hfa| is an array of header fields :type:`http2_nv` with
- * |nvlen| elements.  The application is responsible to include
+ * The |hfa| is an array of header fields $(D HeaderField) with
+ * |hfa.length| elements.  The application is responsible to include
  * required pseudo-header fields (header field whose name starts with
  * ":") in |hfa| and must place pseudo-headers before regular header
  * fields.
@@ -5450,9 +6220,7 @@ ErrorCode http2_submit_response(Session session, int stream_id, in HeaderField[]
  * This function returns newly assigned stream ID if it succeeds and
  * |stream_id| is -1.  Otherwise, this function returns 0 if it
  * succeeds, or one of the following negative error codes:
- *
- * $(D ErrorCode.NOMEM)
- *     Out of memory.
+ * 
  * $(D ErrorCode.STREAM_ID_NOT_AVAILABLE)
  *     No stream ID is available because maximum stream ID was
  *     reached.
@@ -5468,17 +6236,15 @@ ErrorCode http2_submit_response(Session session, int stream_id, in HeaderField[]
  *   frame.
  *
  */
-ErrorCode http2_submit_headers(Session session, FrameFlags flags, int stream_id, const PrioritySpec pri_spec, in HeaderField[] hfa, void *stream_user_data)
+ErrorCode submitHeaders(Session session, FrameFlags flags, int stream_id, const PrioritySpec pri_spec, in HeaderField[] hfa, void *stream_user_data)
 {
 	flags &= FrameFlags.END_STREAM;
 	
-	if (pri_spec && !http2_priority_spec_check_default(pri_spec)) {
+	if (pri_spec != PrioritySpec.init) {
 		flags |= FrameFlags.PRIORITY;
-	} else {
-		pri_spec = null;
 	}
 	
-	return submit_headers_shared_hfa(session, flags, stream_id, pri_spec, hfa, nvlen, null, stream_user_data, 0);
+	return submitHeadersSharedHfa(session, flags, stream_id, pri_spec, hfa, DataProvider.init, stream_user_data, false);
 }
 
 /**
@@ -5492,9 +6258,7 @@ ErrorCode http2_submit_headers(Session session, FrameFlags flags, int stream_id,
  *
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
- *
- * $(D ErrorCode.NOMEM)
- *     Out of memory.
+ * 
  * $(D ErrorCode.DATA_EXIST)
  *     DATA has been already submitted and not fully processed yet.
  * $(D ErrorCode.INVALID_ARGUMENT)
@@ -5513,22 +6277,20 @@ ErrorCode http2_submit_headers(Session session, FrameFlags flags, int stream_id,
  *   course, all data except for last one must not have
  *   $(D FrameFlags.END_STREAM) flag set in |flags|.
  */
-ErrorCode http2_submit_data(Session session, FrameFlags flags, int stream_id, in DataProvider data_prd)
+ErrorCode submitData(Session session, FrameFlags flags, int stream_id, in DataProvider data_prd)
 {
 	int rv;
-	http2_outbound_item *item;
-	http2_frame *frame;
-	http2_data_aux_data *aux_data;
+	OutboundItem item;
+	Frame* frame;
+	DataAuxData* aux_data;
 	ubyte nflags = flags & FrameFlags.END_STREAM;
-	http2_mem *mem;
-	
-	mem = &session.mem;
 	
 	if (stream_id == 0) {
 		return ErrorCode.INVALID_ARGUMENT;
 	}
 	
 	item = Mem.alloc!OutboundItem(session);
+	scope(failure) Mem.free(item);
 	
 	frame = &item.frame;
 	aux_data = &item.aux_data.data;
@@ -5537,14 +6299,9 @@ ErrorCode http2_submit_data(Session session, FrameFlags flags, int stream_id, in
 	aux_data.flags = nflags;
 	
 	/* flags are sent on transmission */
-	http2_frame_data_init(&frame.data, FrameFlags.NONE, stream_id);
-	
-	rv = http2_session_add_item(session, item);
-	if (rv != 0) {
-		http2_frame_data_free(&frame.data);
-		http2_mem_free(mem, item);
-		return rv;
-	}
+	frame.data = Data(FrameFlags.NONE, stream_id);
+	scope(failure) frame.data.free();
+	session.addItem(item);
 	return 0;
 }
 
@@ -5576,13 +6333,10 @@ ErrorCode http2_submit_data(Session session, FrameFlags flags, int stream_id, in
 ErrorCode http2_submit_priority(Session session, int stream_id, const ref PrioritySpec pri_spec)
 {
 	int rv;
-	http2_outbound_item *item;
-	http2_frame *frame;
+	OutboundItem item;
+	Frame* frame;
 	http2_priority_spec copy_pri_spec;
-	http2_mem *mem;
-	
-	mem = &session.mem;
-	
+
 	if (stream_id == 0 || !pri_spec) {
 		return ErrorCode.INVALID_ARGUMENT;
 	}
@@ -5669,9 +6423,9 @@ ErrorCode http2_submit_rst_stream(Session session, int stream_id, FrameError err
  * $(D ErrorCode.NOMEM)
  *     Out of memory.
  */
-ErrorCode http2_submit_settings(Session session, in Setting[] iv)
+ErrorCode submitSettings(Session session, in Setting[] iva)
 {
-	return http2_session_add_settings(session, FrameFlags.NONE, iv, niv);
+	return session.addSettings(FrameFlags.NONE, iva);
 }
 
 /**
@@ -5681,8 +6435,8 @@ ErrorCode http2_submit_settings(Session session, in Setting[] iv)
  *
  * The |stream_id| must be client initiated stream ID.
  *
- * The |hfa| is an array of header fields :type:`http2_nv` with
- * |nvlen| elements.  The application is responsible to include
+ * The |hfa| is an array of $(D HeaderField) with
+ * |hfa.length| elements.  The application is responsible to include
  * required pseudo-header fields (header field whose name starts with
  * ":") in |hfa| and must place pseudo-headers before regular header
  * fields.
@@ -5693,9 +6447,8 @@ ErrorCode http2_submit_settings(Session session, in Setting[] iv)
  *
  * The |promised_stream_user_data| is a pointer to an arbitrary data
  * which is associated to the promised stream this frame will open and
- * make it in reserved state.  It is available using
- * `http2_session_get_stream_user_data()`.  The application can
- * access it in :type:`http2_before_frame_send_callback` and
+ * make it in reserved state.  It is available using `getStreamUserData()`.  
+ * The application can access it in :type:`http2_before_frame_send_callback` and
  * :type:`http2_on_frame_send_callback` of this frame.
  *
  * The client side is not allowed to use this function.
@@ -5729,16 +6482,13 @@ ErrorCode http2_submit_settings(Session session, in Setting[] iv)
  */
 ErrorCode http2_submit_push_promise(Session session, int stream_id, in HeaderField[] hfa, void *promised_stream_user_data)
 {
-	http2_outbound_item *item;
-	http2_frame *frame;
+	OutboundItem item;
+	Frame* frame;
 	HeaderField hfa_copy;
 	ubyte flags_copy;
 	int promised_stream_id;
 	int rv;
-	http2_mem *mem;
-	
-	mem = &session.mem;
-	
+
 	if (stream_id == 0 || isMyStreamId(stream_id)) {
 		return ErrorCode.INVALID_ARGUMENT;
 	}
@@ -5798,18 +6548,11 @@ ErrorCode http2_submit_push_promise(Session session, int stream_id, in HeaderFie
  * bytes array of memory to specify opaque data to send with PING
  * frame.  If the |opaque_data| is `null`, zero-cleared 8 bytes will
  * be sent as opaque data.
- *
- * This function returns 0 if it succeeds, or one of the following
- * negative error codes:
- *
- * $(D ErrorCode.NOMEM)
- *     Out of memory.
  */
-ErrorCode http2_submit_ping(Session session, const ubyte *opaque_data)
+void submitPing(Session session, in ubyte[] opaque_data)
 {
-	return http2_session_add_ping(session, FrameFlags.NONE, opaque_data);
+	return session.addPing(FrameFlags.NONE, opaque_data);
 }
-
 
 /**
  * @function
@@ -5844,26 +6587,20 @@ ErrorCode http2_submit_ping(Session session, const ubyte *opaque_data)
  * All incoming streams having strictly more than |last_stream_id| are
  * closed.  All incoming HEADERS which starts new stream are simply
  * ignored.  After all active streams are handled, both
- * `http2_session_want_read()` and `http2_session_want_write()`
- * return 0 and the application can close session.
+ * `wantRead()` and `wantWrite()` return 0 and the application can close session.
  *
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
- *
- * $(D ErrorCode.NOMEM)
- *     Out of memory.
+ * 
  * $(D ErrorCode.INVALID_ARGUMENT)
- *     The |opaque_data_len| is too large; the |last_stream_id| is
- *     invalid.
+ *     The |opaque_data.length| is too large; the |last_stream_id| is invalid.
  */
-ErrorCode http2_submit_goaway(Session session, int last_stream_id, FrameError error_code, const ubyte *opaque_data, size_t opaque_data_len)
+ErrorCode submitGoAway(Session session, int last_stream_id, FrameError error_code, in ubyte[] opaque_data)
 {
 	if (session.goaway_flags & GoAwayFlags.TERM_ON_SEND) {
 		return 0;
 	}
-	return http2_session_add_goaway(session, last_stream_id, error_code,
-		opaque_data, opaque_data_len,
-		GoAwayAuxFlags.NONE);
+	return session.addGoAway(last_stream_id, error_code, opaque_data, GoAwayAuxFlags.NONE);
 }
 
 /**
@@ -5936,8 +6673,7 @@ ErrorCode http2_submit_window_update(Session session, int stream_id, int window_
 				http2_max(0, stream.consumed_size - window_size_increment);
 		}
 		
-		return http2_session_add_window_update(session, flags, stream_id,
-			window_size_increment);
+		addWindowUpdate(flags, stream_id, window_size_increment);
 	}
 	return 0;
 }
@@ -5955,18 +6691,16 @@ ErrorCode http2_submit_window_update(Session session, int stream_id, int window_
  * function to send GOAWAY with last_stream_id (1u << 31) - 1.  And
  * after some delay (e.g., 1 RTT), send another GOAWAY with the stream
  * ID that the server has some processing using
- * `http2_submit_goaway()`.  See also
- * `http2_session_get_last_proc_stream_id()`.
+ * `submitGoAway()`.  See also `getLastProcStreamID()`.
  *
- * Unlike `http2_submit_goaway()`, this function just sends GOAWAY
+ * Unlike `submitGoAway()`, this function just sends GOAWAY
  * and does nothing more.  This is a mere indication to the client
  * that session shutdown is imminent.  The application should call
- * `http2_submit_goaway()` with appropriate last_stream_id after
+ * `submitGoAway()` with appropriate last_stream_id after
  * this call.
  *
  * If one or more GOAWAY frame have been already sent by either
- * `http2_submit_goaway()` or `http2_session_terminate_session()`,
- * this function has no effect.
+ * `submitGoAway()` or `terminateSession()`, this function has no effect.
  *
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
@@ -6014,15 +6748,17 @@ ubyte set_request_flags(const http2_priority_spec *pri_spec,
 /* This function takes ownership of |hfa_copy|. Regardless of the
    return value, the caller must not free |hfa_copy| after this
    function returns. */
-int submit_headers_shared(Session session, FrameFlags flags, int stream_id, 
-						  const ref PrioritySpec pri_spec, HeaderField[] hfa_copy,
-						  in DataProvider data_prd, void *stream_user_data, ubyte attach_stream)
+int submitHeadersShared(Session session, FrameFlags flags, int stream_id, 
+						const ref PrioritySpec pri_spec, HeaderField[] hfa_copy,
+						in DataProvider data_prd, void *stream_user_data, bool attach_stream)
 {
-	int rv;
-	ubyte flags_copy;
+	ErrorCode rv;
+	FrameFlags flags_copy;
 	OutboundItem item;
-	Frame frame;
+	Frame* frame;
 	HeadersCategory hcat;
+	bool owns_hfa = true;
+	scope(failure) if (owns_hfa) hfa_copy.free();
 		
 	if (stream_id == 0) {
 		rv = ErrorCode.INVALID_ARGUMENT;
@@ -6030,9 +6766,10 @@ int submit_headers_shared(Session session, FrameFlags flags, int stream_id,
 	}
 
 	item = Mem.alloc!OutboundItem(session);
+	scope(failure) Mem.free(item);
 
 	if (data_prd != null && data_prd.read_callback != null) {
-		item.aux_data.headers.data_prd = *data_prd;
+		item.aux_data.headers.data_prd = data_prd;
 	}
 	
 	item.aux_data.headers.stream_user_data = stream_user_data;
@@ -6056,19 +6793,18 @@ int submit_headers_shared(Session session, FrameFlags flags, int stream_id,
 	}
 	
 	frame = &item.frame;
-	
-	http2_frame_headers_init(&frame.headers, flags_copy, stream_id, hcat, pri_spec, hfa_copy);
-	
-	rv = http2_session_add_item(session, item);
+
+	owns_hfa = false;
+	frame.headers = Headers(flags_copy, stream_id, hcat, pri_spec, hfa_copy);
+	session.addItem(item);
 	
 	if (rv != 0) {
-		http2_frame_headers_free(&frame.headers, mem);
+		frame.headers.free();
 		goto fail2;
 	}
 	
-	if (hcat == HeadersCategory.REQUEST) {
+	if (hcat == HeadersCategory.REQUEST)
 		return stream_id;
-	}
 	
 	return 0;
 	
@@ -6076,48 +6812,29 @@ fail:
 	/* http2_frame_headers_init() takes ownership of hfa_copy. */
 	hfa_copy.free();
 fail2:
-	http2_mem_free(mem, item);
+	Mem.free(item);
 	
 	return rv;
 }
 
-void adjust_priority_spec_weight(ref PrioritySpec pri_spec) {
-	if (pri_spec.weight < MIN_WEIGHT) {
-		pri_spec.weight = MIN_WEIGHT;
-	} else if (pri_spec.weight > MAX_WEIGHT) {
-		pri_spec.weight = MAX_WEIGHT;
-	}
-}
 
-int submit_headers_shared_hfa(Session session, FrameFlags flags, int stream_id, in PrioritySpec pri_spec,
-							  in HeaderField[] hfa, in DataProvider data_prd, void *stream_user_data, ubyte attach_stream) {
-	int rv;
-	HeaderField hfa_copy;
-	PrioritySpec copy_pri_spec;
 
-	if (pri_spec) {
-		copy_pri_spec = *pri_spec;
-		adjust_priority_spec_weight(&copy_pri_spec);
-	} else {
-		http2_priority_spec_default_init(&copy_pri_spec);
-	}
+int submitHeadersSharedHfa(Session session, FrameFlags flags, int stream_id, in PrioritySpec pri_spec, in HeaderField[] hfa, 
+						   in DataProvider data_prd, void *stream_user_data, bool attach_stream) 
+{
+	HeaderField hfa_copy = hfa.copy();
+	PrioritySpec copy_pri_spec = pri_spec;
+	copy_pri_spec.adjustWeight();
 
-	hfa_copy = hfa.copy();
-	if (rv < 0) {
-		return rv;
-	}
-	
-	return submit_headers_shared(session, flags, stream_id, &copy_pri_spec, hfa_copy, data_prd, stream_user_data, attach_stream);
+	return submitHeadersShared(session, flags, stream_id, copy_pri_spec, hfa_copy, data_prd, stream_user_data, attach_stream);
 }
 
 /**
- * @function
- *
  * A helper function for dealing with NPN in client side or ALPN in
- * server side.  The |in| contains peer's protocol list in preferable
- * order.  The format of |in| is length-prefixed and not
+ * server side.  The |input| contains peer's protocol list in preferable
+ * order.  The format of |input| is length-prefixed and not
  * null-terminated.  For example, `HTTP-draft-04/2.0` and
- * `http/1.1` stored in |in| like this::
+ * `http/1.1` stored in |input| like this::
  *
  *     in[0] = 17
  *     in[1..17] = "HTTP-draft-04/2.0"
@@ -6134,7 +6851,7 @@ int submit_headers_shared_hfa(Session session, FrameFlags flags, int stream_id, 
  *    `http/1.1` and returns 0.  The following step is not taken.
  *
  * 3. This function selects nothing and returns -1 (So called
- *    non-overlap case).  In this case, |out| and |outlen| are left
+ *    non-overlap case).  In this case, |output| is left
  *    untouched.
  *
  * Selecting `HTTP-draft-04/2.0` means that `HTTP-draft-04/2.0` is
@@ -6157,9 +6874,9 @@ int submit_headers_shared_hfa(Session session, FrameFlags flags, int stream_id, 
  *                                     void *arg)
  *     {
  *         int rv;
- *         rv = http2_select_next_protocol(out, outlen, in, inlen);
+ *         rv = selectNextProtocol(out, outlen, in, inlen);
  *         if(rv == 1) {
- *             ((MyType*)arg).http2_selected = 1;
+ *             (cast(MyType*)arg).http2_selected = 1;
  *         }
  *         return SSL_TLSEXT_ERR_OK;
  *     }
@@ -6167,39 +6884,29 @@ int submit_headers_shared_hfa(Session session, FrameFlags flags, int stream_id, 
  *     SSL_CTX_set_next_proto_select_cb(ssl_ctx, select_next_proto_cb, my_obj);
  *
  */
-int http2_select_next_protocol(ref char[] output, in char[] input);
+int selectNextProtocol(ref ubyte[] output, in ubyte[] input)
+{
+	size_t i;
+	size_t len;
+	while (i < input.length)
+	{
+		len = input[i];
+		++i;
+		ubyte[] proto = input[i .. i+len];
+		i += len;
+		if (proto == PROTOCOL_ALPN) {
+			output = proto;
+			return 1;
+		}
+		if (proto == HTTP_1_1_ALPN) {
+			output = proto;
+			return 0;
+		}
+	}
+	return -1;
+}
 
-/**
- * @function
- *
- * Returns a pointer to a http2_info struct with version information
- * about the run-time library in use.  The |least_version| argument
- * can be set to a 24 bit numerical value for the least accepted
- * version number and if the condition is not met, this function will
- * return a `null`.  Pass in 0 to skip the version checking.
- */
-http2_info *http2_version(int least_version);
 
-
-/**
- * @function
- *
- * Returns true if HTTP header field name |name| of length |len| is
- * valid according to http://tools.ietf.org/html/rfc7230#section-3.2
- *
- * Because this is a header field name in HTTP2, the upper cased alphabet
- * is treated as error.
- */
-bool http2_check_header_name(const ubyte *name, size_t len);
-
-/**
- * @function
- *
- * Returns true if HTTP header field value |value| of length |len|
- * is valid according to
- * http://tools.ietf.org/html/rfc7230#section-3.2
- */
-bool http2_check_header_value(const ubyte *value, size_t len);
 
 /**
  * Returns true if the $(D RV) library error code
@@ -6214,22 +6921,22 @@ enum OptionFlags {
    * This option prevents the library from sending WINDOW_UPDATE for a
    * connection automatically.  If this option is set to nonzero, the
    * library won't send WINDOW_UPDATE for DATA until application calls
-   * http2_session_consume() to indicate the amount of consumed
+   * $(D Session.consume) to indicate the amount of consumed
    * DATA.  By default, this option is set to zero.
    */
 	NO_AUTO_WINDOW_UPDATE = 1,
 	/**
-   * This option sets the SETTINGS_MAX_CONCURRENT_STREAMS value of
+   * This option sets the SettingsID.MAX_CONCURRENT_STREAMS value of
    * remote endpoint as if it is received in SETTINGS frame. Without
    * specifying this option, before the local endpoint receives
-   * SETTINGS_MAX_CONCURRENT_STREAMS in SETTINGS frame from remote
-   * endpoint, SETTINGS_MAX_CONCURRENT_STREAMS is unlimited. This may
+   * SettingsID.MAX_CONCURRENT_STREAMS in SETTINGS frame from remote
+   * endpoint, SettingsID.MAX_CONCURRENT_STREAMS is unlimited. This may
    * cause problem if local endpoint submits lots of requests
    * initially and sending them at once to the remote peer may lead to
    * the rejection of some requests. Specifying this option to the
    * sensible value, say 100, may avoid this kind of issue. This value
    * will be overwritten if the local endpoint receives
-   * SETTINGS_MAX_CONCURRENT_STREAMS from the remote endpoint.
+   * SettingsID.MAX_CONCURRENT_STREAMS from the remote endpoint.
    */
 	PEER_MAX_CONCURRENT_STREAMS = 1 << 1,
 	RECV_CLIENT_PREFACE = 1 << 2,
@@ -6239,120 +6946,89 @@ enum OptionFlags {
 //http2_option
 /// Struct to store option values for http2_session.
 struct Options {
+private:
 	/// Bitwise OR of http2_option_flag to determine which fields are specified.
-	uint opt_set_mask;
+	uint m_opt_set_mask;
 
-	uint peer_max_concurrent_streams;
+	uint m_peer_max_concurrent_streams;
 
-	bool no_auto_window_update;
+	bool m_no_auto_window_update;
 
-	bool recv_client_preface;
+	bool m_recv_client_preface;
 
-	bool no_http_messaging;
-
-
-	/**
-	 * @function
-	 *
-	 * Initializes |*option_ptr| with default values.
-	 *
-	 * When the application finished using this object, it can use
-	 * `http2_option_del()` to free its memory.
-	 *
-	 * This function returns 0 if it succeeds, or one of the following
-	 * negative error codes:
-	 *
-	 * $(D ErrorCode.NOMEM)
-	 *     Out of memory.
-	 */
-	ErrorCode http2_option_new(http2_option **option_ptr);
+	bool m_no_http_messaging;
+public:
+	@property uint peer_max_concurrent_streams() const { return m_peer_max_concurrent_streams; }
+	@property uint opt_set_mask() const { return m_opt_set_mask; }
+	@property bool no_auto_window_update() const { return m_no_auto_window_update; }
+	@property bool recv_client_preface() const { return m_recv_client_preface; }
+	@property bool no_http_messaging() const { return m_no_http_messaging; }
 
 	/**
-	 * @function
-	 *
-	 * Frees any resources allocated for |option|.  If |option| is
-	 * `null`, this function does nothing.
-	 */
-	void http2_option_del(http2_option *option);
-
-	/**
-	 * @function
-	 *
 	 * This option prevents the library from sending WINDOW_UPDATE for a
 	 * connection automatically.  If this option is set to nonzero, the
 	 * library won't send WINDOW_UPDATE for DATA until application calls
-	 * `http2_session_consume()` to indicate the consumed amount of
+	 * `consume()` to indicate the consumed amount of
 	 * data.  Don't use `http2_submit_window_update()` for this purpose.
 	 * By default, this option is set to zero.
 	 */
-	void http2_option_set_no_auto_window_update(http2_option *option, int val);
+	@property void setNoAutoWindowUpdate(bool val)
+	{
+		m_opt_set_mask |= OptionFlags.NO_AUTO_WINDOW_UPDATE;
+		m_no_auto_window_update = val;
+	}
 
 	/**
-	 * @function
-	 *
-	 * This option sets the SETTINGS_MAX_CONCURRENT_STREAMS value of
+	 * This option sets the SettingsID.MAX_CONCURRENT_STREAMS value of
 	 * remote endpoint as if it is received in SETTINGS frame.  Without
 	 * specifying this option, before the local endpoint receives
-	 * SETTINGS_MAX_CONCURRENT_STREAMS in SETTINGS frame from remote
-	 * endpoint, SETTINGS_MAX_CONCURRENT_STREAMS is unlimited.  This may
+	 * SettingsID.MAX_CONCURRENT_STREAMS in SETTINGS frame from remote
+	 * endpoint, SettingsID.MAX_CONCURRENT_STREAMS is unlimited.  This may
 	 * cause problem if local endpoint submits lots of requests initially
 	 * and sending them at once to the remote peer may lead to the
 	 * rejection of some requests.  Specifying this option to the sensible
 	 * value, say 100, may avoid this kind of issue. This value will be
 	 * overwritten if the local endpoint receives
-	 * SETTINGS_MAX_CONCURRENT_STREAMS from the remote endpoint.
+	 * SettingsID.MAX_CONCURRENT_STREAMS from the remote endpoint.
 	 */
-	void http2_option_set_peer_max_concurrent_streams(http2_option *option, uint val);
+	void setPeerMaxConcurrentStreams(uint val)
+	{
+		m_opt_set_mask |= OptionFlags.PEER_MAX_CONCURRENT_STREAMS;
+		m_peer_max_concurrent_streams = val;
+	}
 
 	/**
-	 * @function
-	 *
-	 * By default, nghttp2 library only handles HTTP/2 frames and does not
+	 * By default, libhttp2 library only handles HTTP/2 frames and does not
 	 * recognize first 24 bytes of client connection preface.  This design
 	 * choice is done due to the fact that server may want to detect the
 	 * application protocol based on first few bytes on clear text
 	 * communication.  But for simple servers which only speak HTTP/2, it
-	 * is easier for developers if nghttp2 library takes care of client
+	 * is easier for developers if libhttp2 library takes care of client
 	 * connection preface.
 	 *
-	 * If this option is used with nonzero |val|, nghttp2 library checks
+	 * If this option is used with nonzero |val|, libhttp2 library checks
 	 * first 24 bytes client connection preface.  If it is not a valid
 	 * one, $(D Session.recv) and $(D Session.memRecv) will
 	 * return error $(D ErrorCode.BAD_PREFACE), which is fatal error.
 	 */
-	void http2_option_set_recv_client_preface(http2_option *option, int val);
+	void setRecvClientPreface(bool val)
+	{
+		m_opt_set_mask |= OptionFlags.RECV_CLIENT_PREFACE;
+		m_recv_client_preface = val;
+	}
 
 	/**
-	 * @function
-	 *
-	 * By default, nghttp2 library enforces subset of HTTP Messaging rules
+	 * By default, libhttp2 library enforces subset of HTTP Messaging rules
 	 * described in `HTTP/2 specification, section 8
 	 * <https://tools.ietf.org/html/draft-ietf-httpbis-http2-17#section-8>`_.
 	 * See `HTTP Messaging`_ section for details.  For those applications
-	 * who use nghttp2 library as non-HTTP use, give nonzero to |val| to
+	 * who use libhttp2 library as non-HTTP use, give nonzero to |val| to
 	 * disable this enforcement.
 	 */
-	void http2_option_set_no_http_messaging(http2_option *option, int val);
-
-	void http2_option_set_no_auto_window_update(http2_option *option, int val) {
-		option.opt_set_mask |= OptionFlags.NO_AUTO_WINDOW_UPDATE;
-		option.no_auto_window_update = val;
-	}
-
-	void http2_option_set_peer_max_concurrent_streams(http2_option *option,
-		uint val) {
-		option.opt_set_mask |= OptionFlags.PEER_MAX_CONCURRENT_STREAMS;
-		option.peer_max_concurrent_streams = val;
-	}
-
-	void http2_option_set_recv_client_preface(http2_option *option, int val) {
-		option.opt_set_mask |= OptionFlags.RECV_CLIENT_PREFACE;
-		option.recv_client_preface = val;
-	}
-
-	void http2_option_set_no_http_messaging(http2_option *option, int val) {
-		option.opt_set_mask |= OptionFlags.NO_HTTP_MESSAGING;
-		option.no_http_messaging = val;
+	void setNoHTTPMessaging(bool val)
+	{
+		m_opt_set_mask |= OptionFlags.NO_HTTP_MESSAGING;
+		m_no_http_messaging = val;
 	}
 
 }

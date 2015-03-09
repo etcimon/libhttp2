@@ -5,8 +5,15 @@ import std.bitmanip : bigEndianToNative, nativeToBigEndian;
 import libhttp2.types : HeaderField, Setting, Mem;
 import std.c.string : memcpy;
 import std.string : toLowerInPlace;
+import core.exception : onRangeError;
 
 void write(T)(out ubyte* buf, T n) {
+	auto x = nativeToBigEndian(n);
+	memcpy(buf.ptr, x.ptr, T.sizeof);
+}
+
+void write(T)(out ubyte[] buf, T n) {
+	if (buf.length < n) onRangeError();
 	auto x = nativeToBigEndian(n);
 	memcpy(buf.ptr, x.ptr, T.sizeof);
 }
@@ -15,6 +22,10 @@ T read(T = uint)(in ubyte* buf) {
 	return bigEndianToNative(buf[0 .. T.sizeof]);
 }
 
+T read(T = uint)(in ubyte[] buf) {
+	if (buf.length < T.sizeof) onRangeError();
+	return bigEndianToNative(buf);
+}
 
 HeaderField[] copy(ref HeaderField[] hfa) {
 	if (hfa.length == 0)

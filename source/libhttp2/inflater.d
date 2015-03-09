@@ -28,7 +28,7 @@ struct Inflater
 	/// The length of new name encoded in literal.  For huffman encoded string, this is the length after it is decoded.
 	size_t newnamelen;
 	
-	/// The maximum header table size the inflater supports. This is the same value transmitted in SETTINGS_HEADER_TABLE_SIZE
+	/// The maximum header table size the inflater supports. This is the same value transmitted in SettingsID.HEADER_TABLE_SIZE
 	size_t settings_hd_table_bufsize_max = HD_DEFAULT_MAX_BUFFER_SIZE;
 	
 	/// The number of next shift to decode integer 
@@ -64,7 +64,7 @@ struct Inflater
 	 * eviction in the dynamic table.
 	 *
 	 * The |settings_hd_table_bufsize_max| should be the value transmitted
-	 * in SETTINGS_HEADER_TABLE_SIZE.
+	 * in SettingsID.HEADER_TABLE_SIZE.
 	 */
 	void changeTableSize(size_t settings_hd_table_bufsize_max) 
 	{

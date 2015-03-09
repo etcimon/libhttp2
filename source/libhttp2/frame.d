@@ -313,7 +313,8 @@ struct PrioritySpec
 	int parent;
 	int weight = DEFAULT_WEIGHT;
 	bool exclusive;
-	
+
+
 	/**
 	 * Packs the PrioritySpec in |buf|.  This function assumes |buf| has
 	 * enough space for serialization.
@@ -347,9 +348,15 @@ struct PrioritySpec
 		stream_id = _stream_id;
 		weight = _weight;
 		exclusive = _exclusive != 0;
-	}
-	
+	}	
 
+	void adjustWeight(ref PrioritySpec pri_spec) {
+		if (weight < MIN_WEIGHT) {
+			weight = MIN_WEIGHT;
+		} else if (weight > MAX_WEIGHT) {
+			weight = MAX_WEIGHT;
+		}
+	}
 }
 
 
@@ -542,19 +549,19 @@ struct Settings {
 	}
 
 	/*
-	 * Packs the |iv|, which includes |iv.length| entries, in the |buf|,
-	 * assuming the |buf| has at least 8 * |iv.length| bytes.
+	 * Packs the |_iva|, which includes |_iva.length| entries, in the |buf|,
+	 * assuming the |buf| has at least 8 * |_iva.length| bytes.
 	 *
 	 * Returns the number of bytes written into the |buf|.
 	 */
-	private static size_t pack(out ubyte* buf, in Setting[] _iva)
+	private static int pack(out ubyte* buf, in Setting[] _iva)
 	{
 		size_t i;
 		for (i = 0; i < _iva.length; ++i, buf += FRAME_SETTINGS_ENTRY_LENGTH) {
 			write!ushort(buf, _iva[i].id);
 			write!uint(buf + 2, _iva[i].value);
 		}
-		return FRAME_SETTINGS_ENTRY_LENGTH * _iva.length;
+		return cast(int) FRAME_SETTINGS_ENTRY_LENGTH * _iva.length;
 	}
 
 }
@@ -781,21 +788,19 @@ struct GoAway {
 	 * buffer is gifted to the function and then
 	 * |frame|.  The |var_gift_payload| must be freed by GoAway.free().
 	 */
-	void unpack(in ubyte* payload, ubyte[] var_gift_payload)
+	void unpack(in ubyte[] payload, ubyte[] var_gift_payload)
 	{
-		last_stream_id = read!uint(payload.ptr) & STREAM_ID_MASK;
-		error_code = read!uint(payload.ptr + 4);
+		last_stream_id = read!uint(payload) & STREAM_ID_MASK;
+		error_code = read!uint(payload[4 .. $]);
 		opaque_data = var_gift_payload;
 	}
-
-
-	
+		
 	/*
 	 * Unpacks GOAWAY wire format.  This function only exists
 	 * for unit test.  After allocating buffer for debug data, this
 	 * function internally calls http2_frame_unpack_goaway_payload().
 	 */
-	void http2_frame_unpack_goaway_payload2(in ubyte[] payload) 
+	void unpack(in ubyte[] payload) 
 	{
 		ubyte[] var_gift_payload;
 		size_t var_gift_payloadlen;
@@ -814,7 +819,7 @@ struct GoAway {
 			memcpy(var_gift_payload.ptr, payload.ptr + 8, var_gift_payloadlen);
 		}
 		
-		unpack(payload.ptr,	var_gift_payload);
+		unpack(payload,	var_gift_payload);
 	}
 
 }
@@ -861,7 +866,7 @@ struct WindowUpdate {
 	/*
 	 * Unpacks WINDOW_UPDATE frame byte sequence.
 	 */
-	void unpack(in ubyte* payload) {
+	void unpack(in ubyte[] payload) {
 		window_size_increment = read!uint(payload) & WINDOW_SIZE_INCREMENT_MASK;
 	}
 
@@ -941,10 +946,10 @@ struct HeadersAuxData {
 	FrameError error_code;
 	
 	/// nonzero if request HEADERS is canceled.  The error code is stored in |error_code|.
-	ubyte canceled;
+	bool canceled;
 	
 	/// nonzero if this item should be attached to stream object to make it under priority control
-	ubyte attach_stream;
+	bool attach_stream;
 }
 
 //http2_data_aux_data
@@ -1040,31 +1045,31 @@ int bytes_compar(const ubyte* a, size_t alen, const ubyte* b, size_t blen) {
 bool check(in Setting[] iva) 
 {
 	foreach (entry; iva) {
-		switch (entry.id) {
-			case SETTINGS_HEADER_TABLE_SIZE:
+		with (SettingsID) switch (entry.id) {
+			case HEADER_TABLE_SIZE:
 				if (entry.value > MAX_HEADER_TABLE_SIZE) {
 					return true;
 				}
 				break;
-			case SETTINGS_MAX_CONCURRENT_STREAMS:
+			case MAX_CONCURRENT_STREAMS:
 				break;
-			case SETTINGS_ENABLE_PUSH:
+			case ENABLE_PUSH:
 				if (entry.value != 0 && entry.value != 1) {
 					return true;
 				}
 				break;
-			case SETTINGS_INITIAL_WINDOW_SIZE:
+			case INITIAL_WINDOW_SIZE:
 				if (entry.value > cast(uint)MAX_WINDOW_SIZE) {
 					return true;
 				}
 				break;
-			case SETTINGS_MAX_FRAME_SIZE:
+			case MAX_FRAME_SIZE:
 				if (entry.value < MAX_FRAME_SIZE_MIN ||
 					entry.value > MAX_FRAME_SIZE_MAX) {
 					return true;
 				}
 				break;
-			case SETTINGS_MAX_HEADER_LIST_SIZE:
+			case MAX_HEADER_LIST_SIZE:
 				break;
 		}
 	}

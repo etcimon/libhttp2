@@ -531,20 +531,20 @@ union DataSource
  *
  * If the application wants to postpone DATA frames (e.g.,
  * asynchronous I/O, or reading data blocks for long time), it is
- * achieved by returning $(D Error.DEFERRED) without reading
+ * achieved by setting $(D pause) without reading
  * any data in this invocation.  The library removes DATA frame from
  * the outgoing queue temporarily.  To move back deferred DATA frame
- * to outgoing queue, call `http2_session_resume_data()`.  In case
- * of error, there are 2 choices. Returning
- * $(D Error.TEMPORAL_CALLBACK_FAILURE) will close the stream
- * by issuing RST_STREAM with $(D FrameError.INTERNAL_ERROR).  If a
- * different error code is desirable, use
- * `http2_submit_rst_stream()` with a desired error code and then
- * return $(D Error.TEMPORAL_CALLBACK_FAILURE).  Returning
- * $(D Error.CALLBACK_FAILURE) will signal the entire session
- * failure.
+ * to outgoing queue, call `resumeData()`.  
+ * 
+ * In case of error, there are 2 choices.
+ * Setting $(D rst_stream=true) will close the stream by issuing RST_STREAM with 
+ * $(D FrameError.INTERNAL_ERROR).  If a different error code is desirable, 
+ * use `http2_submit_rst_stream()`  with a desired error code and then
+ * set $(D rst_stream) to true. 
+ * 
+ * Returning false will signal $(D Error.CALLBACK_FAILURE), aborting the entire session.
  */
-alias ReadCallback = size_t delegate(Session session, int stream_id, ubyte[] buf, ref DataFlags data_flags, DataSource source);
+alias ReadCallback = bool delegate(int stream_id, ubyte[] buf, ref DataFlags data_flags, DataSource source, ref bool pause, ref bool rst_stream);
 
 //DataProvider
 /// This struct represents the data source and the way to read a chunk of data from it.
