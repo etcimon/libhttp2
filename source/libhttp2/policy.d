@@ -4,12 +4,11 @@ import libhttp2.types;
 import libhttp2.frame;
 import libhttp2.session;
 
-alias HTTP2SessionPolicy = Policy;
 
 package:
 abstract class Policy
 {
-
+public:
 ////////////////// Protocol ////////////////////////
 
     /**
@@ -51,7 +50,7 @@ abstract class Policy
 	/**
      * Callback function invoked when the stream |stream_id| is closed.
      * The reason of closure is indicated by the |error_code|.  The
-     * |error_code| is usually one of $(D ErrorCode), but that
+     * |error_code| is usually one of $(D FrameError), but that
      * is not guaranteed. 
      *
      * This function is also called for a stream in reserved state.
@@ -60,7 +59,7 @@ abstract class Policy
      * $(D Session.recv) and $(D Session.send) functions
      * immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-	bool onStreamExit(int stream_id, ErrorCode error_code);
+	bool onStreamExit(int stream_id, FrameError error_code);
 
 /////////////////// Receiving ////////////////////////
 
@@ -237,7 +236,7 @@ abstract class Policy
      * $(D Session.recv) and $(D Session.send) functions
      * immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-    bool onFrameReady(in Frame frame); // send
+    bool onFrameReady(in Frame frame);
 
     /**
      * Callback function invoked after the frame |frame| is sent.  
@@ -246,7 +245,7 @@ abstract class Policy
      * $(D Session.recv) and $(D Session.send) functions
      * immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-    bool onFrameSent(in Frame frame); // send
+    bool onFrameSent(in Frame frame);
 
     /**
      * Callback function invoked when the library asks application how
@@ -282,7 +281,197 @@ abstract class Policy
      * $(D ErrorCode.CALLBACK_FAILURE) will signal the entire session
      * failure..
      */
-    int maxFrameSize(FrameType frame_type, int stream_id,  int session_remote_window_size, int stream_remote_window_size, uint remote_max_frame_size);
+    int maxFrameSize(FrameType frame_type, int stream_id, int session_remote_window_size, int stream_remote_window_size, uint remote_max_frame_size)
+	{
+		return min(session_remote_window_size, stream_remote_window_size, remote_max_frame_size);
+	}
 
 
+}
+
+class CallbackPolicy : Policy
+{
+public:
+	/**
+     * Callback function invoked when the session wants to send data to
+     * the remote peer.  This callback is not necessary if the
+     * application uses solely $(D Session.memSend) to serialize
+     * data to transmit.
+     */
+	int delegate(in ubyte[]) write_cb;
+	
+	/**
+     * Callback function invoked when the session wants to receive data
+     * from the remote peer.  This callback is not necessary if the
+     * application uses solely `nghttp2_session_mem_recv()` to process
+     * received data.
+     */
+	int delegate(out ubyte[]) read_cb;
+	
+	/**
+     * Callback function invoked when the stream is closed.
+     */
+	bool delegate(int, FrameError, ErrorCode) on_stream_exit_cb;
+
+	/**
+     * Callback function invoked by $(D Session.recv) when a
+     * frame is received.
+     */
+	bool delegate(in Frame) on_frame_cb;
+
+	/**
+     * Sets callback function invoked when a frame header is received.
+     */
+	bool delegate(in FrameHeader) on_frame_header_cb;
+
+	/**
+     * Callback function invoked when the reception of header block in
+     * HEADERS or PUSH_PROMISE is started.
+     */
+	bool delegate(in Frame) on_headers_cb;
+
+	/**
+     * Callback function invoked when a header name/value pair is
+     * received.
+     */
+	bool delegate(in Frame, HeaderField, ref bool, ref bool) on_header_field_cb;
+
+	/**
+     * Callback function invoked when a chunk of data in DATA frame is
+     * received.
+     */
+	bool delegate(FrameFlags, int, in ubyte[], ref bool) on_data_chunk_cb;
+
+	/**
+     * Callback function invoked by $(D Session.recv) when an
+     * invalid non-DATA frame is received.
+     */
+	bool delegate(in Frame, FrameError) on_invalid_frame_cb;
+
+	/**
+     * The callback function invoked when a non-DATA frame is not sent
+     * because of an error.
+     */
+	bool delegate(in Frame, ErrorCode) on_frame_failure_cb;
+
+	/**
+     * Callback function invoked before a non-DATA frame is sent.
+     */
+	bool delegate(in Frame) on_frame_ready_cb;
+
+	/**
+     * Callback function invoked after a frame is sent.
+     */
+	bool delegate(in Frame) on_frame_sent_cb;
+
+	/**
+     * Callback function invoked when the library asks application how
+     * many padding bytes are required for the transmission of the given
+     * frame.
+     */
+	int delegate(in Frame, int) select_padding_length_cb;
+
+	/**
+     * The callback function used to determine the length allowed in
+     * $(D DataSource.read_callback)
+     */
+	int delegate(FrameType, int, int, int, uint) max_frame_size_cb;
+
+///////////////// Derived //////////////////
+	int write(in ubyte[] data) 
+	{ 
+		if (!write_cb) 
+			return true; 
+		return write_cb(data); 
+	}
+	
+	int read(out ubyte[] data) 
+	{ 
+		if (!read_cb) 
+			return true; 
+		return read_cb(data); 
+	}
+	bool onStreamExit(int stream_id, FrameError error_code)
+	{ 
+		if (!on_stream_exit_cb) 
+			return true; 
+		return on_stream_exit_cb(stream_id, error_code); 
+	}
+	bool onFrame(in Frame frame)
+	{
+		if (!on_frame_cb) 
+			return true; 
+		return on_frame_cb(frame);
+	}
+	
+	bool onFrameHeader(in FrameHeader hd)
+	{
+		if (!on_frame_header_cb) 
+			return true; 
+		return on_frame_header_cb(hd); 
+	}
+	
+	bool onHeaders(in Frame frame)
+	{
+		if (!on_headers_cb)
+			return true;
+		return on_headers_cb(frame);
+	}
+	
+	bool onHeaderField(in Frame frame, HeaderField hf, ref bool pause, ref bool rst_stream)
+	{
+		if (!on_header_field_cb)
+			return true;
+		return on_header_field_cb(frame, hf, pause, rst_stream);
+	}
+	
+	bool onDataChunk(FrameFlags flags, int stream_id, in ubyte[] data, ref bool pause)
+	{
+		if (!on_data_chunk_cb)
+			return true;
+		return on_data_chunk_cb(frame, stream_id, data, pause);
+	}
+	
+	bool onInvalidFrame(in Frame frame, FrameError error_code)
+	{
+		if (!on_invalid_frame_cb)
+			return true;
+		return on_invalid_frame_cb(frame, error_code);
+	}
+	
+	bool onFrameFailure(in Frame frame, ErrorCode error_code)
+	{
+		if (!on_frame_failure_cb)
+			return true;
+		return on_frame_failure_cb(frame, error_code);
+	}
+	
+	bool onFrameReady(in Frame frame)
+	{
+		if (!on_frame_ready_cb)
+			return true;
+		return on_frame_ready_cb(frame);
+	}
+	
+	bool onFrameSent(in Frame frame)
+	{
+		if (!on_frame_sent_cb)
+			return true;
+		return on_frame_sent_cb(frame);
+	}
+	
+	int selectPaddingLength(in Frame frame, int max_payloadlen)
+	{
+		if (!select_padding_length_cb)
+			return super.selectPaddingLength(frame, max_payloadlen);
+		return select_padding_length_cb(frame, max_payloadlen);
+	}
+	
+	int maxFrameSize(FrameType frame_type, int stream_id, int session_remote_window_size, int stream_remote_window_size, uint remote_max_frame_size)
+	{
+		if (!max_frame_size_cb)
+			return super.max_frame_size_cb(frame_type, stream_id, session_remote_window_size, stream_remote_window_size, remote_max_frame_size);
+		return max_frame_size_cb(frame_type, stream_id, session_remote_window_size, stream_remote_window_size, remote_max_frame_size);
+	}
+	
 }

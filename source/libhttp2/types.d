@@ -544,7 +544,7 @@ union DataSource
  * 
  * Returning false will signal $(D Error.CALLBACK_FAILURE), aborting the entire session.
  */
-alias ReadCallback = bool delegate(int stream_id, ubyte[] buf, ref DataFlags data_flags, DataSource source, ref bool pause, ref bool rst_stream);
+alias ReadCallback = int delegate(int stream_id, ubyte[] buf, ref DataFlags data_flags, DataSource source);
 
 //DataProvider
 /// This struct represents the data source and the way to read a chunk of data from it.

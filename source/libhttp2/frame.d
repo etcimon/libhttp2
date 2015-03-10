@@ -37,8 +37,8 @@ struct FrameHeader
 	FrameType type;
 	FrameFlags flags;
 	int stream_id;
-	/// 0
-	ubyte reserved;
+
+	ubyte reserved = 0;
 
 	// unpack buf into FrameHeader
 	this(in ubyte* buf) {
@@ -53,7 +53,7 @@ struct FrameHeader
 	}
 
 	// pack FrameHeader into buf
-	void pack(out ubyte* buf) {
+	void pack(out ubyte[] buf) {
 		write!uint(buf, cast(uint)(length << 8));
 		buf[3] = cast(ubyte) type;
 		buf[4] = cast(ubyte) flags;
@@ -199,12 +199,7 @@ struct Headers
 		padlen = 0;
 		hfa = _hfa;
 		cat = _cat;
-		
-		if (pri_spec) {
-			pri_spec = _pri_spec;
-		} else {
-			http2_priority_spec_default_init(&frame.pri_spec);
-		}
+		pri_spec = _pri_spec;
 	}
 
 	void free() {
@@ -319,7 +314,7 @@ struct PrioritySpec
 	 * Packs the PrioritySpec in |buf|.  This function assumes |buf| has
 	 * enough space for serialization.
 	 */
-	void pack(out ubyte* buf) {
+	void pack(out ubyte[] buf) {
 		write!uint(buf, pri_spec.stream_id);
 		if (exclusive) 
 			buf[0] |= 0x80;
@@ -347,7 +342,7 @@ struct PrioritySpec
 	this(int _stream_id, int _weight, bool _exclusive) {
 		stream_id = _stream_id;
 		weight = _weight;
-		exclusive = _exclusive != 0;
+		exclusive = _exclusive;
 	}	
 
 	void adjustWeight(ref PrioritySpec pri_spec) {
@@ -524,6 +519,10 @@ struct Settings {
 		
 	}
 
+	void unpack(in ubyte[] payload) {
+		unpack(iva, payload);
+	}
+
 	/*
 	 * Unpacks SETTINGS payload into |iva|. The number of entries are
 	 * assigned to the |niv|. This function allocates enough memory
@@ -581,7 +580,7 @@ struct PushPromise {
 	int promised_stream_id;
 	
 	/// 0
-	ubyte reserved;
+	ubyte reserved = 0;
 	
 	/*
 	 * Initializes PUSH_PROMISE frame with given values.  PushPromise
@@ -926,6 +925,50 @@ union Frame
 		return padlen - ((hd.flags & FrameFlags.PADDED) > 0);
 	}
 
+	void unpack(Frame frame, in ubyte[] input)
+	{
+		ubyte[] payload = payload[FRAME_HDLEN .. $];
+		size_t payloadoff;
+		
+		hd.unpack(input);
+
+		with (FrameType) final switch (frame.hd.type) {
+			case HEADERS:
+				payloadoff = cast(size_t) ((hd.flags & FrameFlags.PADDED) > 0);
+				frame.headers.unpack(payload[payloadoff .. $]);
+				break;
+			case PRIORITY:
+				frame.priority.unpack(payload);
+				break;
+			case RST_STREAM:
+				frame.rst_stream.unpack(payload);
+				break;
+			case SETTINGS:
+				frame.settings.unpack(payload);
+				break;
+			case PUSH_PROMISE:
+				frame.push_promise.unpack(payload);
+				break;
+			case PING:
+				frame.ping.unpack(payload);
+				break;
+			case GOAWAY:
+				frame.goaway.unpack(payload);
+				break;
+			case WINDOW_UPDATE:
+				frame.window_update.unpack(payload);
+				break;
+		}
+	}
+
+	void unpack(Buffers bufs) {
+		Buffer *buf;
+		
+		/* Assuming we have required data in first buffer. We don't decode
+		   header block so, we don't mind its space */
+		buf = &bufs.head.buf;
+		unpack(buf[]);
+	}
 }
 
 

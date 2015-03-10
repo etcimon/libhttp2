@@ -22,6 +22,14 @@
  * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
+module libhttp2.huffman_tests;
+import libhttp2.buffers;
+import libhttp2.huffman;
+import libhttp2.deflater;
+import libhttp2.inflater;
+import libhttp2.types;
+import libhttp2.frame;
+import libhttp2.helpers;
 
 #define GET_TABLE_ENT(context, index) http2_hd_table_get(context, index)
 
@@ -47,7 +55,7 @@ void test_http2_hd_deflate(void) {
   assert(0 == http2_hd_inflate_init(&inflater, mem));
 
   rv = http2_hd_deflate_hd_bufs(&deflater, &bufs, nva1, ARRLEN(nva1));
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(0 == rv);
   assert(blocklen > 0);
@@ -57,11 +65,11 @@ void test_http2_hd_deflate(void) {
   assert_nv_equal(nva1, out.nva, 3);
 
   nva_out_reset(&out);
-  http2_bufs_reset(&bufs);
+  bufs.reset();
 
   /* Second headers */
   rv = http2_hd_deflate_hd_bufs(&deflater, &bufs, nva2, ARRLEN(nva2));
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(0 == rv);
   assert(blocklen > 0);
@@ -71,12 +79,12 @@ void test_http2_hd_deflate(void) {
   assert_nv_equal(nva2, out.nva, 2);
 
   nva_out_reset(&out);
-  http2_bufs_reset(&bufs);
+  bufs.reset();
 
   /* Third headers, including same header field name, but value is not
      the same. */
   rv = http2_hd_deflate_hd_bufs(&deflater, &bufs, nva3, ARRLEN(nva3));
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(0 == rv);
   assert(blocklen > 0);
@@ -86,11 +94,11 @@ void test_http2_hd_deflate(void) {
   assert_nv_equal(nva3, out.nva, 3);
 
   nva_out_reset(&out);
-  http2_bufs_reset(&bufs);
+  bufs.reset();
 
   /* Fourth headers, including duplicate header fields. */
   rv = http2_hd_deflate_hd_bufs(&deflater, &bufs, nva4, ARRLEN(nva4));
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(0 == rv);
   assert(blocklen > 0);
@@ -100,11 +108,11 @@ void test_http2_hd_deflate(void) {
   assert_nv_equal(nva4, out.nva, 3);
 
   nva_out_reset(&out);
-  http2_bufs_reset(&bufs);
+  bufs.reset();
 
   /* Fifth headers includes empty value */
   rv = http2_hd_deflate_hd_bufs(&deflater, &bufs, nva5, ARRLEN(nva5));
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(0 == rv);
   assert(blocklen > 0);
@@ -114,7 +122,7 @@ void test_http2_hd_deflate(void) {
   assert_nv_equal(nva5, out.nva, 2);
 
   nva_out_reset(&out);
-  http2_bufs_reset(&bufs);
+  bufs.reset();
 
   /* Cleanup */
   http2_bufs_free(&bufs);
@@ -143,21 +151,21 @@ void test_http2_hd_deflate_same_indexed_repr(void) {
 
   /* Encode 2 same headers.  Emit 1 literal reprs and 1 index repr. */
   rv = http2_hd_deflate_hd_bufs(&deflater, &bufs, nva1, ARRLEN(nva1));
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(0 == rv);
   assert(blocklen > 0);
   assert(blocklen == inflate_hd(&inflater, &out, &bufs, 0));
 
   assert(2 == out.nvlen);
-  assert_nv_equal(nva1, out.nva, 2);
+  assert_nv_equal(nva1.equals(out.nva));
 
   nva_out_reset(&out);
-  http2_bufs_reset(&bufs);
+  bufs.reset();
 
   /* Encode 3 same headers.  This time, emits 3 index reprs. */
   rv = http2_hd_deflate_hd_bufs(&deflater, &bufs, nva2, ARRLEN(nva2));
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(0 == rv);
   assert(blocklen == 3);
@@ -167,7 +175,7 @@ void test_http2_hd_deflate_same_indexed_repr(void) {
   assert_nv_equal(nva2, out.nva, 3);
 
   nva_out_reset(&out);
-  http2_bufs_reset(&bufs);
+  bufs.reset();
 
   /* Cleanup */
   http2_bufs_free(&bufs);
@@ -191,7 +199,7 @@ void test_http2_hd_inflate_indexed(void) {
 
   http2_bufs_addb(&bufs, (1 << 7) | 4);
 
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(1 == blocklen);
   assert(blocklen == inflate_hd(&inflater, &out, &bufs, 0));
@@ -201,12 +209,12 @@ void test_http2_hd_inflate_indexed(void) {
   assert_nv_equal(&nv, out.nva, 1);
 
   nva_out_reset(&out);
-  http2_bufs_reset(&bufs);
+  bufs.reset();
 
   /* index = 0 is error */
   http2_bufs_addb(&bufs, 1 << 7);
 
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(1 == blocklen);
   assert(HTTP2_ERR_HEADER_COMP == inflate_hd(&inflater, &out, &bufs, 0));
@@ -236,7 +244,7 @@ void test_http2_hd_inflate_indname_noinc(void) {
   for (i = 0; i < ARRLEN(nv); ++i) {
     assert(0 == http2_hd_emit_indname_block(&bufs, 57, &nv[i], 0));
 
-    blocklen = http2_bufs_len(&bufs);
+    blocklen = bufs.length;
 
     assert(blocklen > 0);
     assert(blocklen == inflate_hd(&inflater, &out, &bufs, 0));
@@ -246,7 +254,7 @@ void test_http2_hd_inflate_indname_noinc(void) {
     assert(0 == inflater.ctx.hd_table.len);
 
     nva_out_reset(&out);
-    http2_bufs_reset(&bufs);
+    bufs.reset();
   }
 
   http2_bufs_free(&bufs);
@@ -269,7 +277,7 @@ void test_http2_hd_inflate_indname_inc(void) {
 
   assert(0 == http2_hd_emit_indname_block(&bufs, 57, &nv, 1));
 
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(blocklen > 0);
   assert(blocklen == inflate_hd(&inflater, &out, &bufs, 0));
@@ -313,7 +321,7 @@ void test_http2_hd_inflate_indname_inc_eviction(void) {
   assert(0 == http2_hd_emit_indname_block(&bufs, 16, &nv, 1));
   assert(0 == http2_hd_emit_indname_block(&bufs, 17, &nv, 1));
 
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(blocklen > 0);
 
@@ -325,7 +333,7 @@ void test_http2_hd_inflate_indname_inc_eviction(void) {
   assert(sizeof(value) == out.nva[0].valuelen);
 
   nva_out_reset(&out);
-  http2_bufs_reset(&bufs);
+  bufs.reset();
 
   assert(3 == inflater.ctx.hd_table.len);
 
@@ -357,7 +365,7 @@ void test_http2_hd_inflate_newname_noinc(void) {
   for (i = 0; i < ARRLEN(nv); ++i) {
     assert(0 == http2_hd_emit_newname_block(&bufs, &nv[i], 0));
 
-    blocklen = http2_bufs_len(&bufs);
+    blocklen = bufs.length;
 
     assert(blocklen > 0);
     assert(blocklen == inflate_hd(&inflater, &out, &bufs, 0));
@@ -367,7 +375,7 @@ void test_http2_hd_inflate_newname_noinc(void) {
     assert(0 == inflater.ctx.hd_table.len);
 
     nva_out_reset(&out);
-    http2_bufs_reset(&bufs);
+    bufs.reset();
   }
 
   http2_bufs_free(&bufs);
@@ -390,7 +398,7 @@ void test_http2_hd_inflate_newname_inc(void) {
 
   assert(0 == http2_hd_emit_newname_block(&bufs, &nv, 1));
 
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(blocklen > 0);
   assert(blocklen == inflate_hd(&inflater, &out, &bufs, 0));
@@ -434,7 +442,7 @@ void test_http2_hd_inflate_clearall_inc(void) {
 
   assert(0 == http2_hd_emit_newname_block(&bufs, &nv, 1));
 
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(blocklen > 0);
   assert(blocklen == inflate_hd(&inflater, &out, &bufs, 0));
@@ -453,7 +461,7 @@ void test_http2_hd_inflate_clearall_inc(void) {
   assert(0 == inflater.ctx.hd_table.len);
 
   nva_out_reset(&out);
-  http2_bufs_reset(&bufs);
+  bufs.reset();
 
   /* This time, 4096 bytes space required, which is just fits in the
      header table */
@@ -461,7 +469,7 @@ void test_http2_hd_inflate_clearall_inc(void) {
 
   assert(0 == http2_hd_emit_newname_block(&bufs, &nv, 1));
 
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(blocklen > 0);
   assert(blocklen == inflate_hd(&inflater, &out, &bufs, 0));
@@ -471,7 +479,7 @@ void test_http2_hd_inflate_clearall_inc(void) {
   assert(1 == inflater.ctx.hd_table.len);
 
   nva_out_reset(&out);
-  http2_bufs_reset(&bufs);
+  bufs.reset();
 
   http2_bufs_free(&bufs);
   http2_hd_inflate_free(&inflater);
@@ -543,7 +551,7 @@ void test_http2_hd_ringbuf_reserve(void) {
   for (i = 0; i < 150; ++i) {
     memcpy(nv.value, &i, sizeof(i));
     rv = http2_hd_deflate_hd_bufs(&deflater, &bufs, &nv, 1);
-    blocklen = http2_bufs_len(&bufs);
+    blocklen = bufs.length;
 
     assert(0 == rv);
     assert(blocklen > 0);
@@ -554,7 +562,7 @@ void test_http2_hd_ringbuf_reserve(void) {
     assert_nv_equal(&nv, out.nva, 1);
 
     nva_out_reset(&out);
-    http2_bufs_reset(&bufs);
+    bufs.reset();
   }
 
   http2_bufs_free(&bufs);
@@ -594,7 +602,7 @@ void test_http2_hd_change_table_size(void) {
 
   /* This will emit encoding context update with header table size 4096 */
   rv = http2_hd_deflate_hd_bufs(&deflater, &bufs, nva, 2);
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(0 == rv);
   assert(blocklen > 0);
@@ -607,7 +615,7 @@ void test_http2_hd_change_table_size(void) {
   assert(8000 == inflater.settings_hd_table_bufsize_max);
 
   nva_out_reset(&out);
-  http2_bufs_reset(&bufs);
+  bufs.reset();
 
   /* inflater changes header table size to 1024 */
   assert(0 == http2_hd_inflate_change_table_size(&inflater, 1024));
@@ -619,7 +627,7 @@ void test_http2_hd_change_table_size(void) {
   assert(1024 == inflater.settings_hd_table_bufsize_max);
 
   rv = http2_hd_deflate_hd_bufs(&deflater, &bufs, nva, 2);
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(0 == rv);
   assert(blocklen > 0);
@@ -632,7 +640,7 @@ void test_http2_hd_change_table_size(void) {
   assert(1024 == inflater.settings_hd_table_bufsize_max);
 
   nva_out_reset(&out);
-  http2_bufs_reset(&bufs);
+  bufs.reset();
 
   /* inflater changes header table size to 0 */
   assert(0 == http2_hd_inflate_change_table_size(&inflater, 0));
@@ -646,7 +654,7 @@ void test_http2_hd_change_table_size(void) {
   assert(0 == inflater.settings_hd_table_bufsize_max);
 
   rv = http2_hd_deflate_hd_bufs(&deflater, &bufs, nva, 2);
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(0 == rv);
   assert(blocklen > 0);
@@ -659,7 +667,7 @@ void test_http2_hd_change_table_size(void) {
   assert(0 == inflater.settings_hd_table_bufsize_max);
 
   nva_out_reset(&out);
-  http2_bufs_reset(&bufs);
+  bufs.reset();
 
   http2_bufs_free(&bufs);
   http2_hd_inflate_free(&inflater);
@@ -681,7 +689,7 @@ void test_http2_hd_change_table_size(void) {
   assert(8000 == inflater.settings_hd_table_bufsize_max);
 
   rv = http2_hd_deflate_hd_bufs(&deflater, &bufs, nva, 2);
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(0 == rv);
   assert(blocklen > 0);
@@ -694,7 +702,7 @@ void test_http2_hd_change_table_size(void) {
   assert(8000 == inflater.settings_hd_table_bufsize_max);
 
   nva_out_reset(&out);
-  http2_bufs_reset(&bufs);
+  bufs.reset();
 
   assert(0 == http2_hd_inflate_change_table_size(&inflater, 16383));
   assert(0 == http2_hd_deflate_change_table_size(&deflater, 16383));
@@ -705,7 +713,7 @@ void test_http2_hd_change_table_size(void) {
   assert(16383 == inflater.settings_hd_table_bufsize_max);
 
   rv = http2_hd_deflate_hd_bufs(&deflater, &bufs, nva, 2);
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(0 == rv);
   assert(blocklen > 0);
@@ -718,7 +726,7 @@ void test_http2_hd_change_table_size(void) {
   assert(16383 == inflater.settings_hd_table_bufsize_max);
 
   nva_out_reset(&out);
-  http2_bufs_reset(&bufs);
+  bufs.reset();
 
   /* Lastly, check the error condition */
 
@@ -727,7 +735,7 @@ void test_http2_hd_change_table_size(void) {
   assert(HTTP2_ERR_HEADER_COMP == inflate_hd(&inflater, &out, &bufs, 0));
 
   nva_out_reset(&out);
-  http2_bufs_reset(&bufs);
+  bufs.reset();
 
   http2_hd_inflate_free(&inflater);
   http2_hd_deflate_free(&deflater);
@@ -741,7 +749,7 @@ void test_http2_hd_change_table_size(void) {
 
   /* This emits context update with buffer size 1024 */
   rv = http2_hd_deflate_hd_bufs(&deflater, &bufs, nva, 2);
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(0 == rv);
   assert(blocklen > 0);
@@ -754,7 +762,7 @@ void test_http2_hd_change_table_size(void) {
   assert(4096 == inflater.settings_hd_table_bufsize_max);
 
   nva_out_reset(&out);
-  http2_bufs_reset(&bufs);
+  bufs.reset();
 
   http2_hd_inflate_free(&inflater);
   http2_hd_deflate_free(&deflater);
@@ -767,7 +775,7 @@ void test_http2_hd_change_table_size(void) {
   assert(0 == http2_hd_deflate_change_table_size(&deflater, UINT32_MAX));
 
   rv = http2_hd_deflate_hd_bufs(&deflater, &bufs, nva, 2);
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(0 == rv);
   assert(UINT32_MAX == deflater.ctx.hd_table_bufsize_max);
@@ -777,7 +785,7 @@ void test_http2_hd_change_table_size(void) {
   assert(UINT32_MAX == inflater.settings_hd_table_bufsize_max);
 
   nva_out_reset(&out);
-  http2_bufs_reset(&bufs);
+  bufs.reset();
 
   http2_hd_inflate_free(&inflater);
   http2_hd_deflate_free(&deflater);
@@ -795,7 +803,7 @@ void test_http2_hd_change_table_size(void) {
   assert(3000 == deflater.ctx.hd_table_bufsize_max);
 
   rv = http2_hd_deflate_hd_bufs(&deflater, &bufs, nva2, 1);
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(0 == rv);
   assert(3 < blocklen);
@@ -807,7 +815,7 @@ void test_http2_hd_change_table_size(void) {
   assert(3000 == inflater.settings_hd_table_bufsize_max);
 
   nva_out_reset(&out);
-  http2_bufs_reset(&bufs);
+  bufs.reset();
 
   http2_hd_inflate_free(&inflater);
   http2_hd_deflate_free(&deflater);
@@ -827,7 +835,7 @@ static void check_deflate_inflate(http2_hd_deflater *deflater,
 
   nva_out_init(&out);
   rv = http2_hd_deflate_hd_bufs(deflater, &bufs, nva, nvlen);
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(0 == rv);
   assert(blocklen >= 0);
@@ -1029,7 +1037,7 @@ void test_http2_hd_no_index(void) {
   http2_hd_inflate_init(&inflater, mem);
 
   rv = http2_hd_deflate_hd_bufs(&deflater, &bufs, nva, ARRLEN(nva));
-  blocklen = http2_bufs_len(&bufs);
+  blocklen = bufs.length;
 
   assert(0 == rv);
   assert(blocklen > 0);
@@ -1070,7 +1078,7 @@ void test_http2_hd_deflate_bound(void) {
 
   http2_hd_deflate_hd_bufs(&deflater, &bufs, nva, ARRLEN(nva));
 
-  assert(bound > (size_t)http2_bufs_len(&bufs));
+  assert(bound > (size_t)bufs.length);
 
   bound2 = http2_hd_deflate_bound(&deflater, nva, ARRLEN(nva));
 
@@ -1200,7 +1208,7 @@ void test_http2_hd_decode_length(void) {
 void test_http2_hd_huff_encode(void) {
   int rv;
   size_t len;
-  http2_bufs bufs, outbufs;
+  Buffers bufs, outbufs;
   http2_hd_huff_decode_context ctx;
   const ubyte t1[] = [22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11,
                         10, 9,  8,  7,  6,  5,  4,  3,  2,  1,  0];
@@ -1215,9 +1223,9 @@ void test_http2_hd_huff_encode(void) {
   http2_hd_huff_decode_context_init(&ctx);
 
   len = http2_hd_huff_decode(&ctx, &outbufs, bufs.cur->buf.pos,
-                               http2_bufs_len(&bufs), 1);
+                               bufs.length, 1);
 
-  assert(http2_bufs_len(&bufs) == len);
+  assert(bufs.length == len);
   assert((size_t)sizeof(t1) == http2_bufs_len(&outbufs));
 
   assert(0 == memcmp(t1, outbufs.cur->buf.pos, sizeof(t1)));

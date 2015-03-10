@@ -1676,7 +1676,7 @@ class Session {
 	/**
 	 * Returns stream_user_data for the stream |stream_id|.  The
 	 * stream_user_data is provided by `http2_submit_request()`,
-	 * `http2_submit_headers()` or  `setStreamUserData()`. 
+	 * `submitHeaders()` or  `setStreamUserData()`. 
 	 * Unless it is set using `setStreamUserData()`, if the stream is
 	 * initiated by the remote endpoint, stream_user_data is always
 	 * `null`.  If the stream does not exist, this function returns
@@ -2381,7 +2381,7 @@ package:
 	 *
 	 * This function returns a pointer to created new stream object.
 	 */
-	Stream openStream(int stream_id, StreamFlags flags, ref PrioritySpec pri_spec_in, StreamState initial_state, void *stream_user_data)
+	Stream openStream(int stream_id, StreamFlags flags, PrioritySpec pri_spec_in, StreamState initial_state, void *stream_user_data = null)
 	{
 		ErrorCode rv;
 		Stream stream;
@@ -2389,7 +2389,7 @@ package:
 		Stream root_stream;
 		bool stream_alloc;
 		PrioritySpec pri_spec_default;
-		PrioritySpec *pri_spec = &pri_spec_in;
+		PrioritySpec pri_spec = pri_spec_in;
 		
 		stream = getStreamRaw(stream_id);
 		
@@ -2970,7 +2970,7 @@ package:
 	 * ErrorCode.CALLBACK_FAILURE
 	 *     The read_callback failed
 	 */
-	ErrorCode onPriorityReceived(Frame frame) 
+	ErrorCode onPriority(Frame frame) 
 	{
 		ErrorCode rv;
 		Stream stream;
@@ -3495,7 +3495,9 @@ package:
 		assert(buf.available >= cast(int)datamax);
 		
 		data_flags = DataFlags.NONE;
-		payloadlen = aux_data.data_prd.read_callback(frame.hd.stream_id, buf.pos, datamax, data_flags, aux_data.data_prd.source);
+
+		// TODO: Deferred and all
+		payloadlen = aux_data.data_prd.read_callback(frame.hd.stream_id, buf.pos[0 .. datamax], data_flags, aux_data.data_prd.source);
 		
 		if (payloadlen == ErrorCode.DEFERRED ||
 			payloadlen == ErrorCode.TEMPORAL_CALLBACK_FAILURE)
@@ -4779,7 +4781,7 @@ private:
 		
 		frame.priority.unpack(iframe.sbuf[]);
 		
-		return onPriorityReceived(frame);
+		return onPriority(frame);
 	}
 
 	ErrorCode processRstStreamFrame()
@@ -5502,7 +5504,7 @@ private:
 		DataAuxData aux_data = item.aux_data.data;
 		
 		/* On EOF, we have already detached data.  Please note that
-	       application may issue http2_submit_data() in
+	       application may issue submitData() in
 	       $(D Policy.onFrameSent) (call from afterFrameSent),
 	       which attach data to stream.  We don't want to detach it. */
 		if (aux_data.eof) {
@@ -6106,7 +6108,7 @@ int packSettingsPayload(ubyte[] buf, const ref Setting[] iva)
  */
 int submitRequest(in PrioritySpec pri_spec, in HeaderField[] hfa, in DataProvider data_prd, void *stream_user_data = null)
 {
-	ubyte flags = set_request_flags(pri_spec, data_prd);
+	ubyte flags = setRequestFlags(pri_spec, data_prd);
 	
 	return submitHeadersSharedHfa(session, flags, -1, pri_spec, hfa, data_prd, stream_user_data, false);
 }
@@ -6144,7 +6146,7 @@ int submitRequest(in PrioritySpec pri_spec, in HeaderField[] hfa, in DataProvide
  *
  * To send non-final response headers (e.g., HTTP status 101), don't
  * use this function because this function half-closes the outbound
- * stream.  Instead, use `http2_submit_headers()` for this purpose.
+ * stream.  Instead, use `submitHeaders()` for this purpose.
  *
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
@@ -6162,7 +6164,7 @@ int submitRequest(in PrioritySpec pri_spec, in HeaderField[] hfa, in DataProvide
  */
 ErrorCode http2_submit_response(Session session, int stream_id, in HeaderField[] hfa, in DataProvider data_prd)
 {
-	ubyte flags = set_response_flags(data_prd);
+	ubyte flags = setResponseFlags(data_prd);
 	return submitHeadersSharedHfa(session, flags, stream_id, PrioritySpec.init, hfa, data_prd, null, true);
 }
 
@@ -6236,13 +6238,12 @@ ErrorCode http2_submit_response(Session session, int stream_id, in HeaderField[]
  *   frame.
  *
  */
-ErrorCode submitHeaders(Session session, FrameFlags flags, int stream_id, const PrioritySpec pri_spec, in HeaderField[] hfa, void *stream_user_data)
+ErrorCode submitHeaders(Session session, FrameFlags flags, int stream_id = -1, in PrioritySpec pri_spec = PrioritySpec.init, in HeaderField[] hfa = null, void *stream_user_data = null)
 {
 	flags &= FrameFlags.END_STREAM;
 	
-	if (pri_spec != PrioritySpec.init) {
+	if (pri_spec != PrioritySpec.init)
 		flags |= FrameFlags.PRIORITY;
-	}
 	
 	return submitHeadersSharedHfa(session, flags, stream_id, pri_spec, hfa, DataProvider.init, stream_user_data, false);
 }
@@ -6273,22 +6274,20 @@ ErrorCode submitHeaders(Session session, FrameFlags flags, int stream_id, const 
  *   results in $(D ErrorCode.DATA_EXIST) error code.  The
  *   earliest callback which tells that previous data is done is
  *   :type:`http2_on_frame_send_callback`.  In side that callback,
- *   new data can be submitted using `http2_submit_data()`.  Of
+ *   new data can be submitted using `submitData()`.  Of
  *   course, all data except for last one must not have
  *   $(D FrameFlags.END_STREAM) flag set in |flags|.
  */
 ErrorCode submitData(Session session, FrameFlags flags, int stream_id, in DataProvider data_prd)
 {
-	int rv;
 	OutboundItem item;
 	Frame* frame;
 	DataAuxData* aux_data;
-	ubyte nflags = flags & FrameFlags.END_STREAM;
+	FrameFlags nflags = flags & FrameFlags.END_STREAM;
 	
-	if (stream_id == 0) {
+	if (stream_id == 0)
 		return ErrorCode.INVALID_ARGUMENT;
-	}
-	
+
 	item = Mem.alloc!OutboundItem(session);
 	scope(failure) Mem.free(item);
 	
@@ -6324,46 +6323,34 @@ ErrorCode submitData(Session session, FrameFlags flags, int stream_id, in DataPr
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
  *
- * $(D ErrorCode.NOMEM)
- *     Out of memory.
  * $(D ErrorCode.INVALID_ARGUMENT)
  *     The |stream_id| is 0; or the |pri_spec| is null; or trying to
  *     depend on itself.
  */
-ErrorCode http2_submit_priority(Session session, int stream_id, const ref PrioritySpec pri_spec)
+ErrorCode submitPriority(Session session, int stream_id, in PrioritySpec pri_spec)
 {
-	int rv;
 	OutboundItem item;
 	Frame* frame;
-	http2_priority_spec copy_pri_spec;
+	PrioritySpec copy_pri_spec;
 
-	if (stream_id == 0 || !pri_spec) {
+	if (stream_id == 0 || pri_spec == PrioritySpec.init)
 		return ErrorCode.INVALID_ARGUMENT;
-	}
 	
-	if (stream_id == pri_spec.stream_id) {
+	if (stream_id == pri_spec.stream_id)
 		return ErrorCode.INVALID_ARGUMENT;
-	}
 	
-	copy_pri_spec = *pri_spec;
+	copy_pri_spec = pri_spec;
 	
-	adjust_priority_spec_weight(&copy_pri_spec);
+	copy_pri_spec.adjustWeight();
 	
 	item = Mem.alloc!OutboundItem(session);
-	
+	scope(failure) Mem.free(item);
 	frame = &item.frame;
 	
-	http2_frame_priority_init(&frame.priority, stream_id, &copy_pri_spec);
-	
-	rv = http2_session_add_item(session, item);
-	
-	if (rv != 0) {
-		http2_frame_priority_free(&frame.priority);
-		http2_mem_free(mem, item);
-		
-		return rv;
-	}
-	
+	frame.priority = Priority(stream_id, copy_pri_spec);
+	scope(failure) frame.priority.free();
+
+	session.addItem(item);
 	return 0;
 }
 
@@ -6386,11 +6373,10 @@ ErrorCode http2_submit_priority(Session session, int stream_id, const ref Priori
  */
 ErrorCode http2_submit_rst_stream(Session session, int stream_id, FrameError error_code)
 {
-	if (stream_id == 0) {
+	if (stream_id == 0)
 		return ErrorCode.INVALID_ARGUMENT;
-	}
 	
-	return addRstStream(stream_id, error_code);
+	return session.addRstStream(stream_id, error_code);
 }
 
 /**
@@ -6723,25 +6709,25 @@ ErrorCode http2_submit_shutdown_notice(Session session)
 
 private: 
 
-ubyte set_response_flags(const http2_data_provider *data_prd) {
-	ubyte flags = FrameFlags.NONE;
-	if (!data_prd || !data_prd.read_callback) {
+FrameFlags setResponseFlags(in DataProvider data_prd) 
+{
+	FrameFlags flags = FrameFlags.NONE;
+
+	if (data_prd == DataProvider.init || !data_prd.read_callback) 
 		flags |= FrameFlags.END_STREAM;
-	}
+
 	return flags;
 }
 
-ubyte set_request_flags(const http2_priority_spec *pri_spec,
-	const http2_data_provider *data_prd) {
-	ubyte flags = FrameFlags.NONE;
-	if (!data_prd || !data_prd.read_callback) {
+FrameFlags setRequestFlags(in PrioritySpec pri_spec, in DataProvider data_prd)
+{
+	FrameFlags flags = FrameFlags.NONE;
+	if (!data_prd || !data_prd.read_callback)
 		flags |= FrameFlags.END_STREAM;
-	}
-	
-	if (pri_spec) {
+		
+	if (pri_spec != PrioritySpec.init) 
 		flags |= FrameFlags.PRIORITY;
-	}
-	
+		
 	return flags;
 }
 
@@ -6828,6 +6814,8 @@ int submitHeadersSharedHfa(Session session, FrameFlags flags, int stream_id, in 
 
 	return submitHeadersShared(session, flags, stream_id, copy_pri_spec, hfa_copy, data_prd, stream_user_data, attach_stream);
 }
+
+public:
 
 /**
  * A helper function for dealing with NPN in client side or ALPN in
