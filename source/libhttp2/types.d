@@ -229,8 +229,8 @@ enum HeaderFlag : ubyte
 /// The header field, which mainly used to represent HTTP headers.
 struct HeaderField 
 {
-	string name;
-	string value;
+	char[] name;
+	char[] value;
 	HeaderFlag flag = HeaderFlag.NONE;
 
 	bool opEquals(ref HeaderField other) {

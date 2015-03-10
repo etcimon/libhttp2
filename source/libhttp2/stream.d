@@ -1155,7 +1155,7 @@ package:
 		HeaderField[] hfa;
 		size_t i;
 		
-		with(FrameType) switch (frame->hd.type) {
+		with(FrameType) switch (frame.hd.type) {
 			case HEADERS:
 				hfa = frame.headers.hfa;
 				break;

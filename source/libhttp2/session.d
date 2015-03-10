@@ -17,6 +17,7 @@ import libhttp2.deflater;
 import libhttp2.inflater;
 import libhttp2.buffers;
 import libhttp2.priority_queue;
+import libhttp2.helpers;
 import core.exception : RangeError;
 
 import memutils.circularbuffer;
@@ -676,7 +677,7 @@ class Session {
 						return pos - first;
 					}
 					
-					http2_frame_unpack_frame_hd(&iframe.frame.hd, iframe.sbuf.pos);
+					iframe.frame.hd.unpack(iframe.sbuf[]);
 					iframe.payloadleft = iframe.frame.hd.length;
 					
 					DEBUGF(fprintf(stderr, "recv: payloadlen=%zu, type=%u, flags=0x%02x, stream_id=%d\n",
@@ -763,7 +764,7 @@ class Session {
 								break;
 							}
 							
-							pri_fieldlen = http2_frame_priority_len(iframe.frame.hd.flags);
+							pri_fieldlen = priorityLength(iframe.frame.hd.flags);
 							
 							if (pri_fieldlen > 0) {
 								if (iframe.payloadleft < pri_fieldlen) {
@@ -1007,7 +1008,7 @@ class Session {
 								}
 								iframe.frame.headers.padlen = padlen;
 								
-								pri_fieldlen = http2_frame_priority_len(iframe.frame.hd.flags);
+								pri_fieldlen = priorityLength(iframe.frame.hd.flags);
 								
 								if (pri_fieldlen > 0) {
 									if (iframe.payloadleft < pri_fieldlen) {
@@ -1496,7 +1497,7 @@ class Session {
 						
 						if (stream && data_readlen > 0) {
 							if (isHTTPMessagingEnabled()) {
-								if (http2_http_on_data_chunk(stream, data_readlen) != 0) {
+								if (!stream.onDataChunk(data_readlen)) {
 									addRstStream(iframe.frame.hd.stream_id, FrameError.PROTOCOL_ERROR);
 									busy = true;
 									iframe.state = IGN_DATA;
@@ -1675,7 +1676,7 @@ class Session {
 
 	/**
 	 * Returns stream_user_data for the stream |stream_id|.  The
-	 * stream_user_data is provided by `http2_submit_request()`,
+	 * stream_user_data is provided by `submitRequest()`,
 	 * `submitHeaders()` or  `setStreamUserData()`. 
 	 * Unless it is set using `setStreamUserData()`, if the stream is
 	 * initiated by the remote endpoint, stream_user_data is always
@@ -1728,10 +1729,10 @@ package:
 	 * Returns the number of DATA payload in bytes received without
 	 * WINDOW_UPDATE transmission for the stream |stream_id|.  The local
 	 * (receive) window size can be adjusted by
-	 * `http2_submit_window_update()`.  This function takes into account
+	 * $(D submitWindowUpdate).  This function takes into account
 	 * that and returns effective data length.  In particular, if the
 	 * local window size is reduced by submitting negative
-	 * window_size_increment with `http2_submit_window_update()`, this
+	 * window_size_increment with $(D submitWindowUpdate), this
 	 * function returns the number of bytes less than actually received.
 	 *
 	 * This function returns -1 if it fails.
@@ -1747,7 +1748,7 @@ package:
 	/**
 	 * Returns the local (receive) window size for the stream |stream_id|.
 	 * The local window size can be adjusted by
-	 * `http2_submit_window_update()`.  This function takes into account
+	 * $(D submitWindowUpdate).  This function takes into account
 	 * that and returns effective window size.
 	 *
 	 * This function returns -1 if it fails.
@@ -1763,11 +1764,11 @@ package:
 	/**
 	 * Returns the number of DATA payload in bytes received without
 	 * WINDOW_UPDATE transmission for a connection.  The local (receive)
-	 * window size can be adjusted by `http2_submit_window_update()`.
+	 * window size can be adjusted by $(D submitWindowUpdate).
 	 * This function takes into account that and returns effective data
 	 * length.  In particular, if the local window size is reduced by
 	 * submitting negative window_size_increment with
-	 * `http2_submit_window_update()`, this function returns the number
+	 * $(D submitWindowUpdate), this function returns the number
 	 * of bytes less than actually received.
 	 *
 	 * This function returns -1 if it fails.
@@ -1780,7 +1781,7 @@ package:
 	/**
 	 * Returns the local (receive) window size for a connection.  The
 	 * local window size can be adjusted by
-	 * `http2_submit_window_update()`.  This function takes into account
+	 * $(D submitWindowUpdate).  This function takes into account
 	 * that and returns effective window size.
 	 *
 	 * This function returns -1 if it fails.
@@ -1797,7 +1798,7 @@ package:
 	 * local endpoint can send without stream level WINDOW_UPDATE.  There
 	 * is also connection level flow control, so the effective size of
 	 * payload that the local endpoint can actually send is
-	 * min(`http2_session_get_stream_remote_window_size()`, `getRemoteWindowSize()`).
+	 * min(getStreamRemoteWindowSize(), getRemoteWindowSize()).
 	 *
 	 * This function returns -1 if it fails.
 	 */
@@ -1852,7 +1853,7 @@ package:
 	 * Signals the session so that the connection should be terminated.
 	 *
 	 * The last stream ID is the minimum value between the stream ID of a
-	 * stream for which :type:`http2_on_frame_recv_callback` was called
+	 * stream for which $(D Policy.onFrame) was called
 	 * most recently and the last stream ID we have sent to the peer
 	 * previously.
 	 *
@@ -1875,7 +1876,7 @@ package:
 	/**
 	 * Signals the session so that the connection should be terminated.
 	 *
-	 * This function behaves like `http2_session_terminate_session()`,
+	 * This function behaves like $(D Session.terminateSession),
 	 * but the last stream ID can be specified by the application for fine
 	 * grained control of stream.  The HTTP/2 specification does not allow
 	 * last_stream_id to be increased.  So the actual value sent as
@@ -1957,7 +1958,7 @@ package:
 	 * |stream_id| were consumed by application and are ready to
 	 * WINDOW_UPDATE.  This function is intended to be used without
 	 * automatic window update (see
-	 * `http2_option_set_no_auto_window_update()`).
+	 * $(D Options.setNoAutoWindowUpdate).
 	 *
 	 * This function returns 0 if it succeeds, or one of the following
 	 * negative error codes:
@@ -2007,7 +2008,7 @@ package:
 	 * value sent in `HTTP2-Settings` header field and must be decoded
 	 * by base64url decoder.  The |settings_payloadlen| is the length of
 	 * |settings_payload|.  The |settings_payload| is unpacked and its
-	 * setting values will be submitted using `http2_submit_settings()`.
+	 * setting values will be submitted using $(D submitSettings).
 	 * This means that the client application code does not need to submit
 	 * SETTINGS by itself.  The stream with stream ID=1 is opened and the
 	 * |stream_user_data| is used for its stream_user_data.  The opened
@@ -2167,10 +2168,10 @@ package:
 	/*
 	 * Adds RST_STREAM frame for the stream |stream_id| with the error
 	 * code |error_code|. This is a convenient function built on top of
-	 * http2_session_add_frame() to add RST_STREAM easily.
+	 * $(D Session.addFrame) to add RST_STREAM easily.
 	 *
 	 * This function simply returns without adding RST_STREAM frame if
-	 * given stream is in HTTP2_STREAM_CLOSING state, because multiple
+	 * given stream is in StreamState.CLOSING state, because multiple
 	 * RST_STREAM for a stream is redundant.
 	 */
 	void addRstStream(int stream_id, FrameError error_code) 
@@ -2222,7 +2223,7 @@ package:
 
 	/*
 	 * Adds PING frame. This is a convenient functin built on top of
-	 * http2_session_add_frame() to add PING easily.
+	 * $(D Session.addFrame) to add PING easily.
 	 *
 	 * If the |opaque_data| is not null, it must point to 8 bytes memory
 	 * region of data. The data pointed by |opaque_data| is copied. It can
@@ -2247,9 +2248,9 @@ package:
 	/*
 	 * Adds GOAWAY frame with the last-stream-ID |last_stream_id| and the
 	 * error code |error_code|. This is a convenient function built on top
-	 * of http2_session_add_frame() to add GOAWAY easily.  The
+	 * of $(D Session.addFrame) to add GOAWAY easily.  The
 	 * |aux_flags| are bitwise-OR of one or more of
-	 * http2_goaway_aux_flag.
+	 * GoAwayAuxFlags.
 	 *
 	 * This function returns 0 if it succeeds, or one of the following
 	 * negative error codes:
@@ -2293,7 +2294,7 @@ package:
 	/*
 	 * Adds WINDOW_UPDATE frame with stream ID |stream_id| and
 	 * window-size-increment |window_size_increment|. This is a convenient
-	 * function built on top of http2_session_add_frame() to add
+	 * function built on top of $(D Session.addFrame) to add
 	 * WINDOW_UPDATE easily.
 	 */
 	void addWindowUpdate(FrameFlags flags, int stream_id, int window_size_increment) {
@@ -2370,7 +2371,7 @@ package:
 	/**
 	 * Creates new stream in $(D Session) with stream ID |stream_id|,
 	 * priority |pri_spec| and flags |flags|.  The |flags| is bitwise OR
-	 * of http2_stream_flag.  Since this function is called when initial
+	 * of StreamFlags.  Since this function is called when initial
 	 * HEADERS is sent or received, these flags are taken from it.  The
 	 * state of stream is set to |initial_state|. The |stream_user_data|
 	 * is a pointer to the arbitrary user supplied data to be associated
@@ -2399,7 +2400,7 @@ package:
 			detachIdleStream(stream);
 			stream.remove();
 		} else {
-			if (session.server && initial_state != StreamState.IDLE && !isMyStreamId(stream_id))				
+			if (is_server && initial_state != StreamState.IDLE && !isMyStreamId(stream_id))				
 				adjustClosedStream(1);
 			stream = Mem.alloc!Stream();
 			stream_alloc = true;
@@ -3092,8 +3093,8 @@ package:
 			return 0;
 		}
 		
-		for (i = 0; i < frame.settings.niv; ++i) {
-			http2_settings_entry *entry = &frame.settings.iv[i];
+		for (i = 0; i < frame.settings.iva.length; ++i) {
+			Setting entry = frame.settings.iva[i];
 			
 			with(Setting) switch (entry.id) {
 				case HEADER_TABLE_SIZE:
@@ -3387,7 +3388,7 @@ package:
 	ErrorCode onData(Frame frame) 
 	{
 		int rv = 0;
-		int call_cb = 1;
+		bool call_cb = true;
 		Stream stream = getStream(frame.hd.stream_id);
 		
 		/* We don't call on_frame_recv_callback if stream has been closed already or being closed. */
@@ -3400,8 +3401,8 @@ package:
 		
 		if (isHTTPMessagingEnabled() && (frame.hd.flags & FrameFlags.END_STREAM)) 
 		{
-			if (http2_http_on_remote_end_stream(stream) != 0) {
-				call_cb = 0;
+			if (!stream.validateRemoteEndStream()) {
+				call_cb = false;
 				addRstStream(stream.id, FrameError.PROTOCOL_ERROR);
 			}
 		}
@@ -3676,7 +3677,7 @@ package:
 	 * SettingsID.MAX_HEADER_LIST_SIZE, inclusive.
 	 *
 	 * While updating individual stream's local window size, if the window
-	 * size becomes strictly larger than HTTP2_MAX_WINDOW_SIZE,
+	 * size becomes strictly larger than max_WINDOW_SIZE,
 	 * RST_STREAM is issued against such a stream.
 	 *
 	 * This function returns 0 if it succeeds, or one of the following
@@ -4426,7 +4427,7 @@ private:
 		/* We don't have to send WINDOW_UPDATE if the data received is the last chunk in the incoming stream. */
 		if (send_window_update && !(opt_flags & OptionsMask.NO_AUTO_WINDOW_UPDATE)) {
 			/* We have to use local_settings here because it is the constraint the remote endpoint should honor. */
-			if (http2_should_send_window_update(stream.localWindowSize, stream.recvWindowSize)) {
+			if (shouldSendWindowUpdate(stream.localWindowSize, stream.recvWindowSize)) {
 				addWindowUpdate(FrameFlags.NONE, stream.id, stream.recvWindowSize);
 				stream.recvWindowSize = 0;
 			}
@@ -4450,7 +4451,7 @@ private:
 		if (!(session.opt_flags & OptionsMask.NO_AUTO_WINDOW_UPDATE))
 		{
 			
-			if (http2_should_send_window_update(session.local_window_size, session.recv_window_size)) 
+			if (shouldSendWindowUpdate(session.local_window_size, session.recv_window_size)) 
 			{
 				/* Use stream ID 0 to update connection-level flow control window */
 				addWindowUpdate(FrameFlags.NONE, 0, session.recv_window_size);				
@@ -4475,7 +4476,7 @@ private:
 		/* recv_window_size may be smaller than consumed_size, because it may be decreased by negative value with http2_submit_window_update(). */
 		recv_size = min(consumed_size, recv_window_size);
 		
-		if (http2_should_send_window_update(local_window_size, recv_size)) 
+		if (shouldSendWindowUpdate(local_window_size, recv_size)) 
 		{
 			addWindowUpdate(FrameFlags.NONE, stream_id, recv_size);
 			recv_window_size -= recv_size;
@@ -4933,7 +4934,7 @@ private:
 		
 		DEBUGF(fprintf(stderr, "send: padding selected: payloadlen=%zd, padlen=%zu\n", padded_payloadlen, padlen));
 		
-		rv = http2_frame_add_pad(framebufs, &frame.hd, padlen);
+		rv = frame.hd.addPad(framebufs, padlen);
 		
 		if (rv != 0) {
 			return rv;
@@ -4998,7 +4999,7 @@ private:
 
 			if (!(opt_flags & OptionsMask.NO_AUTO_WINDOW_UPDATE)) {
 				
-				if (http2_should_send_window_update(stream.localWindowSize, stream.recvWindowSize)) {
+				if (shouldSendWindowUpdate(stream.localWindowSize, stream.recvWindowSize)) {
 					
 					addWindowUpdate(FrameFlags.NONE, stream.id, stream.recvWindowSize);
 					stream.recvWindowSize = 0;
@@ -5089,7 +5090,7 @@ private:
 						}
 						
 						if (isHTTPMessagingEnabled()) {
-							http2_http_record_request_method(stream, frame);
+							stream.setRequestMethod(frame);
 						}
 					} else {
 						Stream stream = getStream(frame.hd.stream_id);
@@ -5871,7 +5872,7 @@ private:
 				}
 			}
 			if (inflate_flags & InflateFlag.INFLATE_FINAL) {
-				http2_hd_inflate_end_headers(&session.hd_inflater);
+				hd_inflater.endHeaders();
 				break;
 			}
 			if ((inflate_flags & InflateFlag.INFLATE_EMIT) == 0 && inlen == 0) {
@@ -5913,7 +5914,7 @@ private:
 	/// Sequence number of outbound frame to maintain the order of enqueue if priority is equal.
 	long next_seq;
 	
-	/** Reset count of http2_outbound_item's weight.  We decrements
+	/** Reset count of OutboundItem's weight.  We decrements
         weight each time DATA is sent to simulate resource sharing.  We
         use priority queue and larger weight has the precedence.  If
         weight is reached to lowest weight, it resets to its initial
@@ -5973,7 +5974,7 @@ private:
 	/// Notes: This value will be used as last-stream-id when sending GOAWAY frame.
 	int last_proc_stream_id;
 	
-	/// Counter of unique ID of PING. Wraps when it exceeds HTTP2_MAX_UNIQUE_ID */
+	/// Counter of unique ID of PING. Wraps when it exceeds max_UNIQUE_ID */
 	uint next_unique_id;
 	
 	/// This is the last-stream-ID we have sent in GOAWAY
@@ -5996,8 +5997,8 @@ private:
 	/// The amount of recv_window_size cut using submitting negative value to WINDOW_UPDATE
 	int recv_reduction;
 	
-	/// window size for local flow control. It is initially set to HTTP2_INITIAL_CONNECTION_WINDOW_SIZE and could be
-	/// increased/decreased by submitting WINDOW_UPDATE. See http2_submit_window_update().
+	/// window size for local flow control. It is initially set to INITIAL_CONNECTION_WINDOW_SIZE and could be
+	/// increased/decreased by submitting WINDOW_UPDATE. See submitWindowUpdate().
 	int local_window_size = INITIAL_CONNECTION_WINDOW_SIZE;	
 	
 	/// Settings value received from the remote endpoint. We just use ID as index. The index = 0 is unused. 
@@ -6006,7 +6007,7 @@ private:
 	/// Settings value of the local endpoint.
 	SettingsStorage local_settings;
 	
-	/// Option flags. This is bitwise-OR of 0 or more of http2_optmask.
+	/// Option flags. This is bitwise-OR of 0 or more of OptionsMask.
 	OptionsMask opt_flags;
 	
 	/// Unacked local SettingsID.MAX_CONCURRENT_STREAMS value. We use this to refuse the incoming stream if it exceeds this value. 
@@ -6089,7 +6090,7 @@ int packSettingsPayload(ubyte[] buf, const ref Setting[] iva)
  * HEADERS have END_STREAM set.  The |stream_user_data| is data
  * associated to the stream opened by this request and can be an
  * arbitrary pointer, which can be retrieved later by
- * `http2_session_get_stream_user_data()`.
+ * `getStreamUserData()`.
  *
  * This function returns assigned stream ID if it succeeds, or one of
  * the following negative error codes:
@@ -6106,7 +6107,7 @@ int packSettingsPayload(ubyte[] buf, const ref Setting[] iva)
  *   frame.
  *
  */
-int submitRequest(in PrioritySpec pri_spec, in HeaderField[] hfa, in DataProvider data_prd, void *stream_user_data = null)
+int submitRequest(Session session, in PrioritySpec pri_spec, in HeaderField[] hfa, in DataProvider data_prd, void* stream_user_data = null)
 {
 	ubyte flags = setRequestFlags(pri_spec, data_prd);
 	
@@ -6114,8 +6115,6 @@ int submitRequest(in PrioritySpec pri_spec, in HeaderField[] hfa, in DataProvide
 }
 
 /**
- * @function
- *
  * Submits response HEADERS frame and optionally one or more DATA
  * frames against the stream |stream_id|.
  *
@@ -6140,9 +6139,9 @@ int submitRequest(in PrioritySpec pri_spec, in HeaderField[] hfa, in DataProvide
  *
  * This method can be used as normal HTTP response and push response.
  * When pushing a resource using this function, the $(D Session) must be
- * configured using `http2_session_server_new()` or its variants and
+ * configured using `new Session()` or its variants and
  * the target stream denoted by the |stream_id| must be reserved using
- * `http2_submit_push_promise()`.
+ * `submitPushPromise()`.
  *
  * To send non-final response headers (e.g., HTTP status 101), don't
  * use this function because this function half-closes the outbound
@@ -6150,9 +6149,7 @@ int submitRequest(in PrioritySpec pri_spec, in HeaderField[] hfa, in DataProvide
  *
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
- *
- * $(D ErrorCode.NOMEM)
- *     Out of memory.
+ * 
  * $(D ErrorCode.INVALID_ARGUMENT)
  *     The |stream_id| is 0.
  *
@@ -6162,15 +6159,13 @@ int submitRequest(in PrioritySpec pri_spec, in HeaderField[] hfa, in DataProvide
  *   program crash.  It is generally considered to a programming error
  *   to commit response twice.
  */
-ErrorCode http2_submit_response(Session session, int stream_id, in HeaderField[] hfa, in DataProvider data_prd)
+ErrorCode submitResponse(Session session, int stream_id, in HeaderField[] hfa, in DataProvider data_prd)
 {
-	ubyte flags = setResponseFlags(data_prd);
+	FrameFlags flags = setResponseFlags(data_prd);
 	return submitHeadersSharedHfa(session, flags, stream_id, PrioritySpec.init, hfa, data_prd, null, true);
 }
 
 /**
- * @function
- *
  * Submits HEADERS frame. The |flags| is bitwise OR of the
  * following values:
  *
@@ -6188,11 +6183,9 @@ ErrorCode http2_submit_response(Session session, int stream_id, in HeaderField[]
  * assigned stream ID will be returned.  Otherwise, specify stream ID
  * in |stream_id|.
  *
- * The |pri_spec| is priority specification of this request.  `null`
- * means the default priority (see
- * `http2_priority_spec_default_init()`).  To specify the priority,
- * use `http2_priority_spec_init()`.  If |pri_spec| is not `null`,
- * this function will copy its data members.
+ * The |pri_spec| is priority specification of this request.  init
+ * means the default priority.  To specify the priority,
+ * use $(D PrioritySpec) constructor. 
  *
  * The `pri_spec.weight` must be in [$(D MIN_WEIGHT),
  * $(D MAX_WEIGHT)], inclusive.  If `pri_spec.weight` is
@@ -6217,7 +6210,7 @@ ErrorCode http2_submit_response(Session session, int stream_id, in HeaderField[]
  *
  * This function is low-level in a sense that the application code can
  * specify flags directly.  For usual HTTP request,
- * `http2_submit_request()` is useful.
+ * `submitRequest()` is useful.
  *
  * This function returns newly assigned stream ID if it succeeds and
  * |stream_id| is -1.  Otherwise, this function returns 0 if it
@@ -6234,7 +6227,7 @@ ErrorCode http2_submit_response(Session session, int stream_id, in HeaderField[]
  *   This function returns assigned stream ID if it succeeds and
  *   |stream_id| is -1.  But that stream is not opened yet.  The
  *   application must not submit frame to that stream ID before
- *   :type:`http2_before_frame_send_callback` is called for this
+ *   $(D Policy.onFrameHeader) is called for this
  *   frame.
  *
  */
@@ -6273,7 +6266,7 @@ ErrorCode submitHeaders(Session session, FrameFlags flags, int stream_id = -1, i
  *   Submitting data more than once before first data is finished
  *   results in $(D ErrorCode.DATA_EXIST) error code.  The
  *   earliest callback which tells that previous data is done is
- *   :type:`http2_on_frame_send_callback`.  In side that callback,
+ *   $(D Policy.onFrameSent).  In side that callback,
  *   new data can be submitted using `submitData()`.  Of
  *   course, all data except for last one must not have
  *   $(D FrameFlags.END_STREAM) flag set in |flags|.
@@ -6371,7 +6364,7 @@ ErrorCode submitPriority(Session session, int stream_id, in PrioritySpec pri_spe
  * $(D ErrorCode.INVALID_ARGUMENT)
  *     The |stream_id| is 0.
  */
-ErrorCode http2_submit_rst_stream(Session session, int stream_id, FrameError error_code)
+ErrorCode submitRstStream(Session session, int stream_id, FrameError error_code)
 {
 	if (stream_id == 0)
 		return ErrorCode.INVALID_ARGUMENT;
@@ -6382,15 +6375,15 @@ ErrorCode http2_submit_rst_stream(Session session, int stream_id, FrameError err
 /**
  * @function
  *
- * Stores local settings and submits SETTINGS frame.  The |iv| is the
- * pointer to the array of :type:`http2_settings_entry`.  The |niv|
- * indicates the number of :type:`http2_settings_entry`.
+ * Stores local settings and submits SETTINGS frame.  The |iva| is the
+ * pointer to the array of $(D Setting).  The |iv.length|
+ * indicates the number of settings.
  *
- * This function does not take ownership of the |iv|.  This function
- * copies all the elements in the |iv|.
+ * This function does not take ownership of the |iva|.  This function
+ * copies all the elements in the |iva|.
  *
  * While updating individual stream's local window size, if the window
- * size becomes strictly larger than HTTP2_MAX_WINDOW_SIZE,
+ * size becomes strictly larger than max_WINDOW_SIZE,
  * RST_STREAM is issued against such a stream.
  *
  * SETTINGS with $(D FrameFlags.ACK) is automatically submitted
@@ -6415,8 +6408,6 @@ ErrorCode submitSettings(Session session, in Setting[] iva)
 }
 
 /**
- * @function
- *
  * Submits PUSH_PROMISE frame.
  *
  * The |stream_id| must be client initiated stream ID.
@@ -6433,20 +6424,18 @@ ErrorCode submitSettings(Session session, in Setting[] iva)
  *
  * The |promised_stream_user_data| is a pointer to an arbitrary data
  * which is associated to the promised stream this frame will open and
- * make it in reserved state.  It is available using `getStreamUserData()`.  
- * The application can access it in :type:`http2_before_frame_send_callback` and
- * :type:`http2_on_frame_send_callback` of this frame.
+ * make it in reserved state.  It is available using $(D Session.getStreamUserData).  
+ * The application can access it in $(D Policy.onFrameHeader) and
+ * $(D Policy.onFrameSent) of this frame.
  *
  * The client side is not allowed to use this function.
  *
  * To submit response headers and data, use
- * `http2_submit_response()`.
+ * `submitResponse()`.
  *
  * This function returns assigned promised stream ID if it succeeds,
  * or one of the following negative error codes:
- *
- * $(D ErrorCode.NOMEM)
- *     Out of memory.
+ * 
  * $(D ErrorCode.PROTO)
  *     This function was invoked when $(D Session) is initialized as
  *     client.
@@ -6462,26 +6451,24 @@ ErrorCode submitSettings(Session session, in Setting[] iva)
  *   This function returns assigned promised stream ID if it succeeds.
  *   But that stream is not opened yet.  The application must not
  *   submit frame to that stream ID before
- *   :type:`http2_before_frame_send_callback` is called for this
+ *   $(D Policy.onFrameHeader) is called for this
  *   frame.
  *
  */
-ErrorCode http2_submit_push_promise(Session session, int stream_id, in HeaderField[] hfa, void *promised_stream_user_data)
+ErrorCode submitPushPromise(Session session, int stream_id, in HeaderField[] hfa, void* promised_stream_user_data)
 {
 	OutboundItem item;
 	Frame* frame;
 	HeaderField hfa_copy;
-	ubyte flags_copy;
+	FrameFlags flags_copy;
 	int promised_stream_id;
-	int rv;
 
 	if (stream_id == 0 || isMyStreamId(stream_id)) {
 		return ErrorCode.INVALID_ARGUMENT;
 	}
 	
-	if (!session.server) {
+	if (!session.is_server)
 		return ErrorCode.PROTO;
-	}
 	
 	/* All 32bit signed stream IDs are spent. */
 	if (session.next_stream_id > int.max) {
@@ -6489,40 +6476,31 @@ ErrorCode http2_submit_push_promise(Session session, int stream_id, in HeaderFie
 	}
 	
 	item = Mem.alloc!OutboundItem(session);
-	
+	scope(failure) 
+		Mem.free(item);
+
 	item.aux_data.headers.stream_user_data = promised_stream_user_data;
 	
 	frame = &item.frame;
-	
+	bool is_owner;
 	hfa_copy = hfa.copy();
-	if (rv < 0) {
-		http2_mem_free(mem, item);
-		return rv;
-	}
-	
+	is_owner = true;
+	scope(failure) if (is_owner) Mem.free(hfa_copy);
 	flags_copy = FrameFlags.END_HEADERS;
 	
 	promised_stream_id = session.next_stream_id;
 	session.next_stream_id += 2;
-	
-	http2_frame_push_promise_init(&frame.push_promise, flags_copy, stream_id,
-		promised_stream_id, hfa_copy);
-	
-	rv = http2_session_add_item(session, item);
-	
-	if (rv != 0) {
-		http2_frame_push_promise_free(&frame.push_promise, mem);
-		http2_mem_free(mem, item);
-		
-		return rv;
-	}
-	
+
+	is_owner = false;
+	frame.push_promise = PushPromise(flags_copy, stream_id,	promised_stream_id, hfa_copy);
+	scope(failure) frame.push_promise.free();
+
+	session.addItem(item);
+
 	return promised_stream_id;
 }
 
 /**
- * @function
- *
  * Submits PING frame.  You don't have to send PING back when you
  * received PING frame.  The library automatically submits PING frame
  * in this case.
@@ -6590,8 +6568,6 @@ ErrorCode submitGoAway(Session session, int last_stream_id, FrameError error_cod
 }
 
 /**
- * @function
- *
  * Submits WINDOW_UPDATE frame.
  *
  * The |flags| is currently ignored and should be
@@ -6606,7 +6582,7 @@ ErrorCode submitGoAway(Session session, int last_stream_id, FrameError error_cod
  * If the |window_size_increment| is negative, the local window size
  * is decreased by -|window_size_increment|.  If automatic
  * WINDOW_UPDATE is enabled
- * (`http2_option_set_no_auto_window_update()`), and the library
+ * $(D Options.setNoAutoWindowUpdate), and the library
  * decided that the WINDOW_UPDATE should be submitted, then
  * WINDOW_UPDATE is queued with the current received bytes count.
  *
@@ -6618,33 +6594,27 @@ ErrorCode submitGoAway(Session session, int last_stream_id, FrameError error_cod
  *
  * $(D ErrorCode.FLOW_CONTROL)
  *     The local window size overflow or gets negative.
- * $(D ErrorCode.NOMEM)
- *     Out of memory.
  */
-ErrorCode http2_submit_window_update(Session session, int stream_id, int window_size_increment)
+ErrorCode submitWindowUpdate(Session session, int stream_id, int window_size_increment)
 {
-	int rv;
-	http2_stream *stream = 0;
+	ErrorCode rv;
+	Stream stream;
 	if (window_size_increment == 0) {
 		return 0;
 	}
 	flags = 0;
 	if (stream_id == 0) {
-		rv = http2_adjust_local_window_size(
-			&session.local_window_size, &session.recv_window_size,
-			&session.recv_reduction, &window_size_increment);
+		rv = adjustLocalWindowSize(session.local_window_size, session.recv_window_size, session.recv_reduction, window_size_increment);
 		if (rv != 0) {
 			return rv;
 		}
 	} else {
-		stream = http2_session_get_stream(session, stream_id);
+		stream = session.getStream(stream_id);
 		if (!stream) {
 			return 0;
 		}
 		
-		rv = http2_adjust_local_window_size(
-			&stream.local_window_size, &stream.recv_window_size,
-			&stream.recv_reduction, &window_size_increment);
+		rv = adjustLocalWindowSize(stream.local_window_size, stream.recv_window_size, stream.recv_reduction, window_size_increment);
 		if (rv != 0) {
 			return rv;
 		}
@@ -6653,10 +6623,10 @@ ErrorCode http2_submit_window_update(Session session, int stream_id, int window_
 	if (window_size_increment > 0) {
 		if (stream_id == 0) {
 			session.consumed_size =
-				http2_max(0, session.consumed_size - window_size_increment);
+				max(0, session.consumed_size - window_size_increment);
 		} else {
 			stream.consumed_size =
-				http2_max(0, stream.consumed_size - window_size_increment);
+				max(0, stream.consumed_size - window_size_increment);
 		}
 		
 		addWindowUpdate(flags, stream_id, window_size_increment);
@@ -6696,15 +6666,15 @@ ErrorCode http2_submit_window_update(Session session, int stream_id, int window_
  * $(D ErrorCode.INVALID_STATE)
  *     The $(D Session) is initialized as client.
  */
-ErrorCode http2_submit_shutdown_notice(Session session)
+ErrorCode submitShutdownNotice(Session session)
 {
-	if (!session.server) {
+	if (!session.is_server) {
 		return ErrorCode.INVALID_STATE;
 	}
-	if (session.goaway_flags) {
+	if (session.goaway_flags)
 		return 0;
-	}
-	return http2_session_add_goaway(session, (1u << 31) - 1, FrameError.NO_ERROR, null, 0, GoAwayAuxFlags.SHUTDOWN_NOTICE);
+
+	return session.addGoAway((1u << 31) - 1, FrameError.NO_ERROR, null, GoAwayAuxFlags.SHUTDOWN_NOTICE);
 }
 
 private: 
@@ -6795,7 +6765,7 @@ int submitHeadersShared(Session session, FrameFlags flags, int stream_id,
 	return 0;
 	
 fail:
-	/* http2_frame_headers_init() takes ownership of hfa_copy. */
+	/* FrameHeader takes ownership of hfa_copy. */
 	hfa_copy.free();
 fail2:
 	Mem.free(item);

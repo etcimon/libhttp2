@@ -41,7 +41,6 @@ const MAX_HF_LEN = 65536;
 /// larger buffer size for its decoding, encoder only uses the memory up to this value.
 const DEFAULT_MAX_DEFLATE_BUFFER_SIZE = (1 << 12);
 
-package:
 
 // http2_hd_inflate_flag
 /// The flags for header inflation.
@@ -56,6 +55,7 @@ enum InflateFlag : ubyte
 	/// Indicates a header was emitted.
 	EMIT = 0x02
 }
+package:
 
 //http2_hd_flags
 enum HDFlags 

@@ -1,11 +1,12 @@
 ﻿module libhttp2.helpers;
 
-import libhttp2.types : Token;
+import libhttp2.constants;
 import std.bitmanip : bigEndianToNative, nativeToBigEndian;
-import libhttp2.types : HeaderField, Setting, Mem;
+import libhttp2.types : Token, HeaderField, Setting, Mem, ErrorCode;
 import std.c.string : memcpy;
 import std.string : toLowerInPlace;
 import core.exception : onRangeError;
+import std.algorithm : max, min;
 
 void write(T)(out ubyte* buf, T n) {
 	auto x = nativeToBigEndian(n);
@@ -19,12 +20,12 @@ void write(T)(out ubyte[] buf, T n) {
 }
 
 T read(T = uint)(in ubyte* buf) {
-	return bigEndianToNative(buf[0 .. T.sizeof]);
+	return bigEndianToNative!T(buf[0 .. T.sizeof]);
 }
 
 T read(T = uint)(in ubyte[] buf) {
 	if (buf.length < T.sizeof) onRangeError();
-	return bigEndianToNative(buf);
+	return bigEndianToNative!T(buf);
 }
 
 HeaderField[] copy(ref HeaderField[] hfa) {
@@ -174,4 +175,101 @@ Token parseToken(in ubyte[] name) {
 			break;
 	}
 	return Token.UNKNOWN;
+}
+
+
+/*
+ *   local_window_size
+ *   ^  *
+ *   |  *    recv_window_size
+ *   |  *  * ^
+ *   |  *  * |
+ *  0+++++++++
+ *   |  *  *   \
+ *   |  *  *   | This rage is hidden in flow control.  But it must be
+ *   v  *  *   / kept in order to restore it when window size is enlarged.
+ *   recv_reduction
+ *   (+ for negative direction)
+ *
+ *   recv_window_size could be negative if we decrease
+ *   local_window_size more than recv_window_size:
+ *
+ *   local_window_size
+ *   ^  *
+ *   |  *
+ *   |  *
+ *   0++++++++
+ *   |  *    ^ recv_window_size (negative)
+ *   |  *    |
+ *   v  *  *
+ *   recv_reduction
+ */
+ErrorCode adjustLocalWindowSize(ref int local_window_size_ptr, ref int recv_window_size_ptr, ref int recv_reduction_ptr, ref int delta_ptr)
+{
+	if (delta_ptr > 0) {
+		int recv_reduction_delta;
+		int delta;
+		int new_recv_window_size = max(0, recv_window_size_ptr) - delta_ptr;
+		
+		if (new_recv_window_size >= 0) 
+		{
+			recv_window_size_ptr = new_recv_window_size;
+			return 0;
+		}
+		
+		delta = -new_recv_window_size;
+		
+		/* The delta size is strictly more than received bytes. Increase
+       	   local_window_size by that difference |delta|. */
+		if (local_window_size_ptr > MAX_WINDOW_SIZE - delta)
+		{
+			return ErrorCode.FLOW_CONTROL;
+		}
+		local_window_size_ptr += delta;
+
+		/* If there is recv_reduction due to earlier window_size
+       	   reduction, we have to adjust it too. */
+		recv_reduction_delta = min(recv_reduction_ptr, delta);
+
+		recv_reduction_ptr -= recv_reduction_delta;
+
+		if (recv_window_size_ptr < 0) {
+			recv_window_size_ptr += recv_reduction_delta;
+		} else {
+			/* If recv_window_size_ptr > 0, then those bytes are going to
+		       be returned to the remote peer (by WINDOW_UPDATE with the
+		       adjusted delta_ptr), so it is effectively 0 now.  We set to
+		       recv_reduction_delta, because caller does not take into
+		       account it in delta_ptr. */
+			recv_window_size_ptr = recv_reduction_delta;
+		}
+
+		/* recv_reduction_delta must be paied from delta_ptr, since it
+       	   was added in window size reduction (see below). */
+		delta_ptr -= recv_reduction_delta;
+		
+		return 0;
+	}
+
+	if (local_window_size_ptr + delta_ptr < 0 ||
+		recv_window_size_ptr < int.min - delta_ptr ||
+		recv_reduction_ptr > int.max + delta_ptr)
+	{
+		return ErrorCode.FLOW_CONTROL;
+	}
+	/* Decreasing local window size. Note that we achieve this without
+	   noticing to the remote peer. To do this, we cut
+	   recv_window_size by -delta. This means that we don't send
+	   WINDOW_UPDATE for -delta bytes. */
+
+	local_window_size_ptr += delta_ptr;
+	recv_window_size_ptr += delta_ptr;
+	recv_reduction_ptr -= delta_ptr;
+	delta_ptr = 0;
+	
+	return 0;
+}
+
+bool shouldSendWindowUpdate(int local_window_size, int recv_window_size) {
+	return recv_window_size >= local_window_size / 2;
 }

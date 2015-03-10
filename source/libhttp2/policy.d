@@ -163,7 +163,7 @@ public:
      * Enabling $(D rst_stream) will close  the stream by issuing RST_STREAM with 
      * $(D FrameError.INTERNAL_ERROR).  In this case, $(D Policy.onFrame) will 
      * not be invoked.  If a different error code is desirable, use
-     * `http2_submit_rst_stream()` with a desired error code and then
+     * $(D submitRstStream) with a desired error code and then
      * set $(D rst_stream) to true.
      *
      * The implementation of this function must return true if it succeeds.

@@ -52,6 +52,13 @@ struct FrameHeader
 		stream_id = read!uint(&buf[5]) & STREAM_ID_MASK;
 	}
 
+	void unpack(in ubyte[] buf) {
+		length = read!uint(buf) >> 8;
+		type = FrameType(buf[3]);
+		flags = FrameFlags(buf[4]);
+		stream_id = read!uint(buf[5 .. $]) & STREAM_ID_MASK;
+	}
+
 	// pack FrameHeader into buf
 	void pack(out ubyte[] buf) {
 		write!uint(buf, cast(uint)(length << 8));
@@ -925,38 +932,38 @@ union Frame
 		return padlen - ((hd.flags & FrameFlags.PADDED) > 0);
 	}
 
-	void unpack(Frame frame, in ubyte[] input)
+	void unpack(in ubyte[] input)
 	{
 		ubyte[] payload = payload[FRAME_HDLEN .. $];
 		size_t payloadoff;
 		
 		hd.unpack(input);
 
-		with (FrameType) final switch (frame.hd.type) {
+		with (FrameType) final switch (hd.type) {
 			case HEADERS:
 				payloadoff = cast(size_t) ((hd.flags & FrameFlags.PADDED) > 0);
-				frame.headers.unpack(payload[payloadoff .. $]);
+				headers.unpack(payload[payloadoff .. $]);
 				break;
 			case PRIORITY:
-				frame.priority.unpack(payload);
+				priority.unpack(payload);
 				break;
 			case RST_STREAM:
-				frame.rst_stream.unpack(payload);
+				rst_stream.unpack(payload);
 				break;
 			case SETTINGS:
-				frame.settings.unpack(payload);
+				settings.unpack(payload);
 				break;
 			case PUSH_PROMISE:
-				frame.push_promise.unpack(payload);
+				push_promise.unpack(payload);
 				break;
 			case PING:
-				frame.ping.unpack(payload);
+				ping.unpack(payload);
 				break;
 			case GOAWAY:
-				frame.goaway.unpack(payload);
+				goaway.unpack(payload);
 				break;
 			case WINDOW_UPDATE:
-				frame.window_update.unpack(payload);
+				window_update.unpack(payload);
 				break;
 		}
 	}
