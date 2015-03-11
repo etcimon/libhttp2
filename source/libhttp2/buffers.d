@@ -12,7 +12,7 @@
 module libhttp2.buffers;
 
 import libhttp2.types;
-import std.algorithm : max;
+import std.algorithm : max, min;
 import core.exception : onOutOfMemoryError;
 import std.c.string : memcpy;
 
@@ -29,7 +29,7 @@ struct Buffer
 	/// Mark arbitrary position in buffer [begin, end)
 	ubyte* mark;
 
-	T[] opSlice() { return pos[0 .. length]; }
+	ubyte[] opSlice() { return pos[0 .. length]; }
 
 	@property int length() {
 		return cast(int)(last - pos);
@@ -67,9 +67,8 @@ struct Buffer
 	void free()
 	{
 		if (!begin) return;
-		
 		Mem.free(begin[0 .. end - begin]);
-		buf.begin = null;
+		begin = null;
 	}
 	
 	/*
@@ -87,7 +86,7 @@ struct Buffer
 		cap = capacity;
 		
 		if (cap >= new_cap) {
-			return 0;
+			return;
 		}
 		
 		new_cap = max(new_cap, cap * 2);
@@ -105,7 +104,7 @@ struct Buffer
 		begin = ptr;
 		end = ptr + new_cap;
 		
-		return 0;
+		return;
 	}
 	
 	/// Resets pos, last, mark member of |buf| to buf.begin.
@@ -119,9 +118,8 @@ struct Buffer
 	 * the application should not call *_reserve() or free() functions.
 	 */
 	this(ubyte[] buf) {
-		owner = true;
 		begin = pos = last = mark = begin;
-		end = begin + len;
+		end = begin + buf.length;
 	}		
 	
 	/*
@@ -146,19 +144,19 @@ class Buffers {
 		Chain next;
 		static Chain opCall(size_t chunk_length = 0)
 		{
-			Chain ret;
-			chain = Mem.alloc!Chain();
+			Chain chain;
+			chain = Mem.alloc!(Buffers.Chain)();
 			scope(failure) Mem.free(chain);
 			
 			chain.next = null;			
 			chain.buf = Buffer(chunk_length);
 
-			return ret;
+			return chain;
 		}
 
 		void free() {
 			buf.free();
-			Mem.free(chain);
+			Mem.free(next);
 		}
 	}
 
@@ -250,9 +248,9 @@ class Buffers {
 		
 		if (!head) return;
 
-		if (dontFree) {
-			Mem.free(bufs.head);
-			bufs.head = null;
+		if (!dontFree) {
+			Mem.free(head);
+			head = null;
 			return;
 		}
 		
@@ -279,8 +277,8 @@ class Buffers {
 	 * ErrorCode.INVALID_ARGUMENT
 	 *     chunk_length < offset
 	 */
-	ErrorCode realloc(size_t _chunk_length)
-	in { assert(chunk_length < bufs.offset, "Invalid Arguments"); }
+	void realloc(size_t _chunk_length)
+	in { assert(chunk_length < offset, "Invalid Arguments"); }
 	body {
 		Chain chain = Chain(chunk_length);
 		
@@ -308,23 +306,23 @@ class Buffers {
 	 * ErrorCode.BUFFER_ERROR
 	 *     Out of buffer space.
 	 */
-	ErrorCode add(in ubyte[] data)
+	ErrorCode add(in string data)
 	{
 		ErrorCode rv;
 		size_t nwrite;
 		Buffer* buf;
-		const ubyte *p;
+		const(ubyte)* p;
 		int len = cast(int)data.length;
-		if (bufs.available < len) {
+		if (available < len) {
 			return ErrorCode.BUFFER_ERROR;
 		}
 		
-		p = data.ptr;
+		p = cast(const(ubyte)*)data.ptr;
 		
 		while (len) {
-			buf = &bufs.cur.buf;
+			buf = &cur.buf;
 			
-			nwrite = cast(size_t) min(buf.available, len);
+			nwrite = cast(size_t) min(available, len);
 			if (nwrite == 0) {
 				rv = allocChain();
 				if (rv != 0) {
@@ -333,12 +331,12 @@ class Buffers {
 				continue;
 			}
 			
-			buf.last = memcpy(buf.last, p, nwrite);
+			memcpy(buf.last, p, nwrite);
 			p += len;
 			len -= nwrite;
 		}
 		
-		return 0;
+		return ErrorCode.OK;
 	}
 
 	/*
@@ -349,14 +347,12 @@ class Buffers {
 	 * This function returns 0 if it succeeds, or one of the following
 	 * negative error codes:
 	 *
-	 * ErrorCode.NOMEM
-	 *     Out of memory.
 	 * ErrorCode.BUFFER_ERROR
 	 *     Out of buffer space.
 	 */
 	ErrorCode add(ubyte b)
 	{
-		int rv;
+		ErrorCode rv;
 		
 		rv = ensureAddByte();
 		if (rv != 0) 
@@ -365,7 +361,7 @@ class Buffers {
 		
 		*cur.buf.last++ = b;
 		
-		return 0;
+		return ErrorCode.OK;
 	}
 
 	/*
@@ -374,7 +370,7 @@ class Buffers {
 	 */
 	ErrorCode addHold(ubyte b)
 	{
-		int rv;
+		ErrorCode rv;
 		
 		rv = ensureAddByte();
 		if (rv != 0) {
@@ -383,7 +379,7 @@ class Buffers {
 		
 		*cur.buf.last = b;
 		
-		return 0;
+		return ErrorCode.OK;
 	}
 
 	void fastAdd(ubyte b) {
@@ -408,7 +404,7 @@ class Buffers {
 	 */
 	ErrorCode or(ubyte b)
 	{
-		int rv;
+		ErrorCode rv;
 		
 		rv = ensureAddByte();
 		if (rv != 0) {
@@ -417,7 +413,7 @@ class Buffers {
 		
 		*cur.buf.last++ |= b;
 		
-		return 0;
+		return ErrorCode.OK;
 	}
 
 	/*
@@ -426,7 +422,7 @@ class Buffers {
 	 */
 	ErrorCode orHold(ubyte b)
 	{
-		int rv;
+		ErrorCode rv;
 		
 		rv = ensureAddByte();
 		if (rv != 0) {
@@ -435,7 +431,7 @@ class Buffers {
 		
 		*cur.buf.last |= b;
 		
-		return 0;
+		return ErrorCode.OK;
 	}
 
 	void fastOr(ubyte b) {
@@ -476,7 +472,7 @@ class Buffers {
 			buf = &chain.buf;
 			
 			if (resbuf.last) {
-				resbuf.last = memcpy(resbuf.last, buf.pos, buf.length);
+				memcpy(resbuf.last, buf.pos, buf.length);
 			}
 			
 			buf.reset();
@@ -583,7 +579,7 @@ class Buffers {
 		return cur.buf.available();
 	}
 
-	@property int length() const
+	@property int length()
 	{
 		Chain ci;
 		int len;
@@ -597,26 +593,26 @@ class Buffers {
 	}
 
 private:
-	@property int available() const {
-		return cur.buf.available + (chunk_length - offset) * (max_chunk - chunk_used);
+	@property int available() {
+		return cast(int)(cur.buf.available + (chunk_length - offset) * (max_chunk - chunk_used));
 
 	}
 
 	ErrorCode ensureAddByte()
 	{
-		int rv;
+		ErrorCode rv;
 		Buffer* buf;
 		
 		buf = &cur.buf;
 		
 		if (buf.available >= 1) {
-			return 0;
+			return ErrorCode.OK;
 		}
 		
 		rv = allocChain();
 		if (rv != 0)
 			return rv;		
-		return 0;
+		return ErrorCode.OK;
 	}
 
 	ErrorCode allocChain() {
@@ -624,7 +620,7 @@ private:
 		
 		if (cur.next) {
 			cur = cur.next;
-			return 0;
+			return ErrorCode.OK;
 		}
 		
 		if (max_chunk == chunk_used)
@@ -632,9 +628,7 @@ private:
 
 		chain = Chain(chunk_length);
 		
-		DEBUGF(fprintf(stderr,
-				"new buffer %zu bytes allocated for bufs %p, used %zu\n",
-				chunk_length, this, chunk_used));
+		LOGF("new buffer %zu bytes allocated for bufs %p, used %zu\n", chunk_length, this, chunk_used);
 		
 		++chunk_used;
 		
@@ -642,7 +636,7 @@ private:
 		cur = chain;		
 		cur.buf.shiftRight(offset);
 		
-		return 0;
+		return ErrorCode.OK;
 	}
 
 }

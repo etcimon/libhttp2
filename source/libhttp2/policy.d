@@ -56,7 +56,7 @@ public:
      * If the application uses solely `http2_session_mem_recv()`
      * instead, this callback function is unnecessary.
      */
-    int read(out ubyte[] data);
+    int read(ubyte[] data);
 
 	/**
      * Callback function invoked when the stream |stream_id| is closed.
@@ -317,12 +317,12 @@ public:
      * application uses solely `nghttp2_session_mem_recv()` to process
      * received data.
      */
-	int delegate(out ubyte[]) read_cb;
+	int delegate(ubyte[]) read_cb;
 	
 	/**
      * Callback function invoked when the stream is closed.
      */
-	bool delegate(int, FrameError, ErrorCode) on_stream_exit_cb;
+	bool delegate(int, FrameError) on_stream_exit_cb;
 
 	/**
      * Callback function invoked by $(D Session.recv) when a
@@ -345,7 +345,7 @@ public:
      * Callback function invoked when a header name/value pair is
      * received.
      */
-	bool delegate(in Frame, HeaderField, ref bool, ref bool) on_header_field_cb;
+	bool delegate(in Frame, in HeaderField, ref bool, ref bool) on_header_field_cb;
 
 	/**
      * Callback function invoked when a chunk of data in DATA frame is
@@ -389,6 +389,7 @@ public:
 	int delegate(FrameType, int, int, int, uint) max_frame_size_cb;
 
 ///////////////// Derived //////////////////
+override:
 	int write(in ubyte[] data) 
 	{ 
 		if (!write_cb) 
@@ -396,18 +397,20 @@ public:
 		return write_cb(data); 
 	}
 	
-	int read(out ubyte[] data) 
+	int read(ubyte[] data) 
 	{ 
 		if (!read_cb) 
 			return true; 
 		return read_cb(data); 
 	}
+
 	bool onStreamExit(int stream_id, FrameError error_code)
 	{ 
 		if (!on_stream_exit_cb) 
 			return true; 
 		return on_stream_exit_cb(stream_id, error_code); 
 	}
+
 	bool onFrame(in Frame frame)
 	{
 		if (!on_frame_cb) 
@@ -440,7 +443,7 @@ public:
 	{
 		if (!on_data_chunk_cb)
 			return true;
-		return on_data_chunk_cb(frame, stream_id, data, pause);
+		return on_data_chunk_cb(flags, stream_id, data, pause);
 	}
 	
 	bool onInvalidFrame(in Frame frame, FrameError error_code)
@@ -481,7 +484,7 @@ public:
 	int maxFrameSize(FrameType frame_type, int stream_id, int session_remote_window_size, int stream_remote_window_size, uint remote_max_frame_size)
 	{
 		if (!max_frame_size_cb)
-			return super.max_frame_size_cb(frame_type, stream_id, session_remote_window_size, stream_remote_window_size, remote_max_frame_size);
+			return super.maxFrameSize(frame_type, stream_id, session_remote_window_size, stream_remote_window_size, remote_max_frame_size);
 		return max_frame_size_cb(frame_type, stream_id, session_remote_window_size, stream_remote_window_size, remote_max_frame_size);
 	}
 	

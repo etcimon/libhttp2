@@ -14,7 +14,9 @@ import libhttp2.constants;
 import libhttp2.types;
 import libhttp2.stream;
 import libhttp2.buffers;
-import libhttp2.huffman_decoder;
+import libhttp2.huffman;
+import libhttp2.helpers;
+import libhttp2.deflater;
 
 struct FrameHeader 
 {
@@ -26,6 +28,14 @@ struct FrameHeader
 
 	ubyte reserved = 0;
 
+	this(uint _length, FrameType _type, FrameFlags _flags, int _stream_id) 
+	{
+		length = _length;
+		type = _type;
+		flags = _flags;
+		stream_id = _stream_id;
+	}
+
 	// unpack buf into FrameHeader
 	this(in ubyte* buf) {
 		unpack(buf);
@@ -33,24 +43,24 @@ struct FrameHeader
 
 	void unpack(in ubyte* buf) {
 		length = read!uint(buf) >> 8;
-		type = FrameType(buf[3]);
-		flags = FrameFlags(buf[4]);
+		type = cast(FrameType) buf[3];
+		flags = cast(FrameFlags) buf[4];
 		stream_id = read!uint(&buf[5]) & STREAM_ID_MASK;
 	}
 
 	void unpack(in ubyte[] buf) {
 		length = read!uint(buf) >> 8;
-		type = FrameType(buf[3]);
-		flags = FrameFlags(buf[4]);
+		type = cast(FrameType)buf[3];
+		flags = cast(FrameFlags)buf[4];
 		stream_id = read!uint(buf[5 .. $]) & STREAM_ID_MASK;
 	}
 
 	// pack FrameHeader into buf
-	void pack(out ubyte[] buf) {
+	void pack(ubyte[] buf) {
 		write!uint(buf, cast(uint)(length << 8));
 		buf[3] = cast(ubyte) type;
 		buf[4] = cast(ubyte) flags;
-		write!uint(buf[5 .. $], hd.stream_id);
+		write!uint(buf[5 .. $], cast(uint)stream_id);
 		/* ignore hd.reserved for now */
 	}
 
@@ -69,13 +79,13 @@ struct FrameHeader
 	void packShared(Buffers bufs) 
 	{
 		Buffer* buf;
-		Chain ci;
-		Chain ce;
+		Buffers.Chain ci;
+		Buffers.Chain ce;
 
 		buf = &bufs.head.buf;
 		length = buf.length;
 		
-		DEBUGF(fprintf(stderr, "send: HEADERS/PUSH_PROMISE, payloadlen=%zu\n", length));
+		LOGF("send: HEADERS/PUSH_PROMISE, payloadlen=%zu\n", length);
 		
 		/* We have multiple frame buffers, which means one or more
 	       CONTINUATION frame is involved. Remove END_HEADERS flag from the
@@ -85,7 +95,7 @@ struct FrameHeader
 		}
 		
 		buf.pos -= FRAME_HDLEN;
-		pack(buf.pos);
+		pack((*buf)[]);
 		
 		if (bufs.head != bufs.cur) {
 			/* 2nd and later frames are CONTINUATION frames. */
@@ -98,33 +108,33 @@ struct FrameHeader
 			for (ci = bufs.head.next; ci != ce; ci = ci.next) {
 				buf = &ci.buf;
 				
-				length = http2_buf_len(buf);
+				length = buf.length;
 				
-				DEBUGF(fprintf(stderr, "send: int CONTINUATION, payloadlen=%zu\n", length));
+				LOGF("send: int CONTINUATION, payloadlen=%zu\n", length);
 				
 				buf.pos -= FRAME_HDLEN;
-				pack(buf.pos);
+				pack((*buf)[]);
 			}
 			
 			buf = &ci.buf;
-			length = http2_buf_len(buf);
+			length = buf.length;
 			/* Set END_HEADERS flag for last CONTINUATION */
 			flags = FrameFlags.END_HEADERS;
 			
-			DEBUGF(fprintf(stderr, "send: last CONTINUATION, payloadlen=%zu\n", length));
+			LOGF("send: last CONTINUATION, payloadlen=%zu\n", length);
 			
 			buf.pos -= FRAME_HDLEN;
-			pack(buf.pos);
+			pack((*buf)[]);
 		}
 	}
 
 
-	void addPad(Buffers bufs, size_t padlen) 
+	void addPad(Buffers bufs, int padlen) 
 	{
 		Buffer* buf;
 		
 		if (padlen == 0) {
-			DEBUGF(fprintf(stderr, "send: padlen = 0, nothing to do\n"));
+			LOGF("send: padlen = 0, nothing to do\n");
 			
 			return ;
 		}
@@ -151,14 +161,14 @@ struct FrameHeader
 		
 		buf = &bufs.head.buf;
 		
-		assert(buf.available >= cast(size_t)padlen - 1);
+		assert(buf.available >= cast(size_t)(padlen - 1));
 		
 		frameSetPad(buf, padlen);
 		
 		length += padlen;
 		flags |= FrameFlags.PADDED;
 		
-		DEBUGF(fprintf(stderr, "send: final payloadlen=%zu, padlen=%zu\n", length, padlen));
+		LOGF("send: final payloadlen=%zu, padlen=%zu\n", length, padlen);
 	}
 
 	void free(){}
@@ -217,7 +227,7 @@ struct Headers
 	ErrorCode pack(Buffers bufs, ref Deflater deflater) 
 	{
 		size_t hf_offset;
-		int rv;
+		ErrorCode rv;
 		Buffer* buf;
 		
 		assert(bufs.head == bufs.cur);
@@ -241,13 +251,15 @@ struct Headers
 			return rv;
 		
 		if (hd.flags & FrameFlags.PRIORITY) {
-			pri_spec.unpack(buf.pos);
+			pri_spec.unpack((*buf)[]);
 		}
 		
 		padlen = 0;
 		hd.length = bufs.length;
 		
-		return hd.packShared(bufs);
+		hd.packShared(bufs);
+
+		return ErrorCode.OK;
 	}
 
 	/*
@@ -278,7 +290,7 @@ struct Data
 {
 	FrameHeader hd;
 	/// The length of the padding in this frame. This includes PAD_HIGH and PAD_LOW.
-	size_t padlen;
+	int padlen;
 
 	this(FrameFlags flags, int stream_id) {
 		/* At this moment, the length of DATA frame is unknown */
@@ -295,20 +307,23 @@ struct Data
 struct PrioritySpec
 {
 	/// The stream ID of the stream to depend on. Specifying 0 makes stream not depend any other stream.
-	int parent;
+	int stream_id;
 	int weight = DEFAULT_WEIGHT;
 	bool exclusive;
 
+	this(in ubyte[] data) {
+		unpack(data);
+	}
 
 	/**
 	 * Packs the PrioritySpec in |buf|.  This function assumes |buf| has
 	 * enough space for serialization.
 	 */
-	void pack(out ubyte[] buf) {
-		write!uint(buf, pri_spec.stream_id);
+	void pack(ubyte[] buf) {
+		write!uint(buf, stream_id);
 		if (exclusive) 
 			buf[0] |= 0x80;
-		buf[4] = weight - 1;
+		buf[4] = cast(ubyte)(weight - 1);
 	}
 
 	/**
@@ -335,7 +350,7 @@ struct PrioritySpec
 		exclusive = _exclusive;
 	}	
 
-	void adjustWeight(ref PrioritySpec pri_spec) {
+	void adjustWeight() {
 		if (weight < MIN_WEIGHT) {
 			weight = MIN_WEIGHT;
 		} else if (weight > MAX_WEIGHT) {
@@ -377,9 +392,9 @@ struct Priority {
 		
 		buf.pos -= FRAME_HDLEN;
 		
-		hd.pack(buf.pos);
+		hd.pack((*buf)[]);
 		
-		pri_spec.pack(buf.last);
+		pri_spec.pack(buf.last[0 .. buf.available]);
 		
 		buf.last += PRIORITY_SPECLEN;
 	}
@@ -425,9 +440,9 @@ struct RstStream {
 		
 		buf.pos -= FRAME_HDLEN;
 		
-		frame.hd.pack(buf.pos);
+		hd.pack((*buf)[]);
 		
-		write!uint(buf.last, frame.error_code);
+		write!uint(buf.last, error_code);
 		buf.last += 4;
 	}
 	
@@ -435,7 +450,7 @@ struct RstStream {
 	 * Unpacks RST_STREAM frame byte sequence into |frame|.
 	 */
 	void unpack(in ubyte[] payload) {
-		error_code = read!uint(payload);
+		error_code = cast(FrameError)read!uint(payload);
 	}
 }
 
@@ -449,13 +464,13 @@ struct Settings {
 	 * ownership of |iv|, so caller must not free it. The |flags| are
 	 * bitwise-OR of one or more of FrameFlags, the only permissible value is ACK.
 	 */
-	this(FrameFlags flags, Setting[] _iv) {
+	this(FrameFlags flags, Setting[] _iva) {
 		// TODO: Allow only FrameFlags.ACK ?
-		hd = FrameHeader(iv.length * FRAME_SETTINGS_ENTRY_LENGTH, FrameType.SETTINGS, flags, 0);
-		iv = _iv;
+		hd = FrameHeader(cast(uint)_iva.length * FRAME_SETTINGS_ENTRY_LENGTH, FrameType.SETTINGS, flags, 0);
+		iva = _iva;
 	}
 	
-	void free() { Mem.free(iv); }
+	void free() { Mem.free(iva); }
 
 
 	/*
@@ -483,18 +498,18 @@ struct Settings {
 
 		buf.pos -= FRAME_HDLEN;
 		
-		frame.hd.pack(buf.pos);
+		hd.pack((*buf)[]);
 		
-		buf.last += pack(buf.last, iva);
+		buf.last += pack(buf.last[0 .. buf.available], iva);
 		
-		return 0;
+		return ErrorCode.OK;
 	}
 
 	
 	/*
 	 * Makes a copy of |_iva| in |iva|.
 	 */
-	void unpack(out Setting[] _iva) 
+	void unpack(Setting[] _iva) 
 	{
 		if (iva) free();
 
@@ -517,7 +532,7 @@ struct Settings {
 	 * to store the result in |iva|. The caller is responsible to free
 	 * |iva| after its use.
 	 */
-	static void unpack(out Setting[] iva, in ubyte[] payload) {
+	static void unpack(Setting[] iva, in ubyte[] payload) {
 		size_t i;
 		
 		size_t len = payload.length / FRAME_SETTINGS_ENTRY_LENGTH;
@@ -541,14 +556,14 @@ struct Settings {
 	 *
 	 * Returns the number of bytes written into the |buf|.
 	 */
-	private static int pack(out ubyte* buf, in Setting[] _iva)
+	static int pack(ubyte[] buf, in Setting[] _iva)
 	{
 		size_t i;
-		for (i = 0; i < _iva.length; ++i, buf += FRAME_SETTINGS_ENTRY_LENGTH) {
+		for (i = 0; i < _iva.length; ++i, buf = buf[FRAME_SETTINGS_ENTRY_LENGTH .. $]) {
 			write!ushort(buf, _iva[i].id);
-			write!uint(buf + 2, _iva[i].value);
+			write!uint(buf[2 .. $], _iva[i].value);
 		}
-		return cast(int) FRAME_SETTINGS_ENTRY_LENGTH * _iva.length;
+		return cast(int) (FRAME_SETTINGS_ENTRY_LENGTH * _iva.length);
 	}
 
 }
@@ -602,7 +617,7 @@ struct PushPromise {
 	ErrorCode pack(Buffers bufs, ref Deflater deflater) 
 	{
 		size_t hf_offset = 4;
-		int rv;
+		ErrorCode rv;
 		Buffer* buf;
 		
 		assert(bufs.head == bufs.cur);
@@ -628,7 +643,8 @@ struct PushPromise {
 		padlen = 0;
 		hd.length = bufs.length;
 		
-		return hd.packShared(bufs);
+		hd.packShared(bufs);
+		return ErrorCode.OK;
 	}
 	
 	/*
@@ -682,11 +698,10 @@ struct Ping {
 		
 		buf.pos -= FRAME_HDLEN;
 		
-		hd.pack(buf.pos);
+		hd.pack((*buf)[]);
 		
-		buf.last = memcpy(buf.last, opaque_data.ptr, opaque_data.sizeof);
-		
-		return 0;
+		memcpy(buf.last, opaque_data.ptr, opaque_data.sizeof);
+
 	}
 	
 	/*
@@ -705,15 +720,15 @@ struct GoAway {
 	int last_stream_id;
 	FrameError error_code;
 	/// The additional debug data
-	ubyte[] opaque_data;
+	string opaque_data;
 	ubyte reserved = 0;
 
 	/*
 	 * Initializes GOAWAY frame with given values. On success, this function takes ownership
 	 * of |opaque_data|, so caller must not free it. 
 	 */
-	this(int _last_stream_id, FrameError _error_code, ubyte[] _opaque_data) {
-		hd = FrameHeader(8 + _opaque_data.length, FrameType.GOAWAY, FrameFlags.NONE, 0);
+	this(int _last_stream_id, FrameError _error_code, string _opaque_data) {
+		hd = FrameHeader(cast(uint)(8 + _opaque_data.length), FrameType.GOAWAY, FrameFlags.NONE, 0);
 		last_stream_id = _last_stream_id;
 		error_code = _error_code;
 		opaque_data = _opaque_data;
@@ -737,7 +752,7 @@ struct GoAway {
 	 */
 	ErrorCode pack(Buffers bufs) 
 	{
-		int rv;
+		ErrorCode rv;
 		Buffer* buf;
 		
 		assert(bufs.head == bufs.cur);
@@ -746,7 +761,7 @@ struct GoAway {
 		
 		buf.pos -= FRAME_HDLEN;
 		
-		hd.pack(buf.pos);
+		hd.pack((*buf)[]);
 		
 		write!uint(buf.last, last_stream_id);
 		buf.last += 4;
@@ -754,15 +769,12 @@ struct GoAway {
 		write!uint(buf.last, error_code);
 		buf.last += 4;
 		
-		rv = http2_bufs_add(bufs, opaque_data);
+		rv = bufs.add(cast(string)opaque_data);
 		
 		if (rv == ErrorCode.BUFFER_ERROR)
 			return ErrorCode.FRAME_SIZE_ERROR;
-		
-		if (rv != 0) 
-			return rv;
 
-		return 0;
+		return rv;
 	}
 	
 	/*
@@ -775,8 +787,8 @@ struct GoAway {
 	void unpack(in ubyte[] payload, ubyte[] var_gift_payload)
 	{
 		last_stream_id = read!uint(payload) & STREAM_ID_MASK;
-		error_code = read!uint(payload[4 .. $]);
-		opaque_data = var_gift_payload;
+		error_code = cast(FrameError) read!uint(payload[4 .. $]);
+		opaque_data = cast(string)var_gift_payload;
 	}
 		
 	/*
@@ -840,7 +852,7 @@ struct WindowUpdate {
 		
 		buf.pos -= FRAME_HDLEN;
 		
-		hd.pack(buf.pos);
+		hd.pack((*buf)[]);
 		
 		write!uint(buf.last, window_size_increment);
 		buf.last += 4;
@@ -886,9 +898,9 @@ union Frame
 
 	void unpack(in ubyte[] input)
 	{
-		ubyte[] payload = payload[FRAME_HDLEN .. $];
+		const(ubyte)[] payload = input[FRAME_HDLEN .. $];
 		size_t payloadoff;
-		
+
 		hd.unpack(input);
 
 		with (FrameType) final switch (hd.type) {
@@ -917,6 +929,10 @@ union Frame
 			case WINDOW_UPDATE:
 				window_update.unpack(payload);
 				break;
+			case DATA:
+			case CONTINUATION:
+				break;
+
 		}
 	}
 
@@ -926,7 +942,7 @@ union Frame
 		/* Assuming we have required data in first buffer. We don't decode
 		   header block so, we don't mind its space */
 		buf = &bufs.head.buf;
-		unpack(buf[]);
+		unpack((*buf)[]);
 	}
 }
 
@@ -958,15 +974,15 @@ struct DataAuxData {
     * END_STREAM set.
     */
 	DataFlags flags;
-	
+
 	/// The flag to indicate whether EOF was reached or not. Initially |eof| is 0. It becomes 1 after all data were read.
-	ubyte eof;
+	bool eof;
 }
 
 enum GoAwayAuxFlags {
 	NONE = 0x0,
 	/// indicates that session should be terminated after the transmission of this frame.
-	ON_SEND = 0x1,
+	TERM_ON_SEND = 0x1,
 	/// indicates that this GOAWAY is just a notification for graceful shutdown.  
 	/// No http2_session.goaway_flags should be updated on the reaction to this frame.
 	SHUTDOWN_NOTICE = 0x2,
@@ -1002,9 +1018,42 @@ class OutboundItem {
 	this(Session session) {
 		seq = session.next_seq++;
 	}
+
+	void free() {
+
+		with (FrameType) switch (frame.hd.type) {
+			case HEADERS:
+				frame.headers.free();
+				break;
+			case PRIORITY:
+				frame.priority.free();
+				break;
+			case RST_STREAM:
+				frame.rst_stream.free();
+				break;
+			case SETTINGS:
+				frame.settings.free();
+				break;
+			case PUSH_PROMISE:
+				frame.push_promise.free();
+				break;
+			case PING:
+				frame.ping.free();
+				break;
+			case GOAWAY:
+				frame.goaway.free();
+				break;
+			case WINDOW_UPDATE:
+				frame.window_update.free();
+				break;
+			default: break;
+		}
+	}
+
 }
 
 int bytes_compar(const ubyte* a, size_t alen, const ubyte* b, size_t blen) {
+	import std.c.string : memcmp;
 	int rv;
 	
 	if (alen == blen) {
@@ -1034,7 +1083,7 @@ int bytes_compar(const ubyte* a, size_t alen, const ubyte* b, size_t blen) {
 bool check(in Setting[] iva) 
 {
 	foreach (entry; iva) {
-		with (SettingsID) switch (entry.id) {
+		with(Setting) switch (entry.id) {
 			case HEADER_TABLE_SIZE:
 				if (entry.value > MAX_HEADER_TABLE_SIZE) {
 					return true;
@@ -1060,17 +1109,20 @@ bool check(in Setting[] iva)
 				break;
 			case MAX_HEADER_LIST_SIZE:
 				break;
+			default:
+				break;
 		}
 	}
 	return false;
 }
 
-void frameSetPad(Buffer* buf, size_t padlen) 
+void frameSetPad(Buffer* buf, int padlen) 
 {
-	size_t trail_padlen;
-	size_t newlen;
+	import std.c.string : memmove, memset;
+	int trail_padlen;
+	int newlen;
 	
-	DEBUGF(fprintf(stderr, "send: padlen=%zu, shift left 1 bytes\n", padlen));
+	LOGF("send: padlen=%zu, shift left 1 bytes\n", padlen);
 	
 	memmove(buf.pos - 1, buf.pos, FRAME_HDLEN);
 	
@@ -1079,10 +1131,10 @@ void frameSetPad(Buffer* buf, size_t padlen)
 	buf.pos[4] |= FrameFlags.PADDED;
 	
 	newlen = (read!uint(buf.pos) >> 8) + padlen;
-	write!uint(buf.pos, (uint)((newlen << 8) + buf.pos[3]));
+	write!uint(buf.pos, cast(uint)((newlen << 8) + buf.pos[3]));
 	
 	trail_padlen = padlen - 1;
-	buf.pos[FRAME_HDLEN] = trail_padlen;
+	buf.pos[FRAME_HDLEN] = cast(ubyte) trail_padlen;
 	
 	/* zero out padding */
 	memset(buf.last, 0, trail_padlen);

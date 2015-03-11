@@ -12,7 +12,7 @@
 module libhttp2.session_tests;
 
 import libhttp2.constants;
-static if (TEST_ALL):
+//static if (TEST_ALL):
 
 import libhttp2.session;
 import libhttp2.policy;
@@ -23,6 +23,8 @@ import libhttp2.deflater;
 import libhttp2.inflater;
 import libhttp2.stream;
 import libhttp2.tests;
+import libhttp2.huffman;
+import libhttp2.helpers;
 
 import memutils.refcounted;
 
@@ -30,6 +32,8 @@ import std.algorithm : min, max;
 import std.functional : toDelegate;
 
 struct Accumulator {
+	ubyte[] opSlice() { return buf[0 .. length]; }
+
 	ubyte[65535] buf;
 	size_t length;
 }
@@ -67,7 +71,7 @@ struct MyUserData {
 	this(Session* sess)
 	{
 		cb_handlers = MyCallbacks(sess, &this);
-		datasrc = MyDatasource(&this);
+		datasrc = MyDataSource(&this);
 	}
 	void opAssign(ref MyUserData other) {
 		cb_handlers = other.cb_handlers;
@@ -92,7 +96,7 @@ struct MyUserData {
 	int stream_id;
 	size_t block_count;
 	int data_chunk_recv_cb_called;
-	Frame* frame;
+	const(Frame)* frame;
 	size_t fixed_sendlen;
 	int header_cb_called;
 	int begin_headers_cb_called;
@@ -114,7 +118,7 @@ struct MyCallbacks {
 
 	static int writeNull(in ubyte[] data) 
 	{
-		return data.length;
+		return cast(int)data.length;
 	}
 	
 	static int writeFailure(in ubyte[] data) 
@@ -125,7 +129,7 @@ struct MyCallbacks {
 	int writeFixedBytes(in ubyte[] data) 
 	{
 		size_t fixed_sendlen = user_data.fixed_sendlen;
-		return fixed_sendlen < data.length ? fixed_sendlen : data.length;
+		return cast(int)(fixed_sendlen < data.length ? fixed_sendlen : data.length);
 	}
 	
 	int writeToAccumulator(in ubyte[] data) 
@@ -134,7 +138,7 @@ struct MyCallbacks {
 		assert(acc.length + data.length < acc.buf.length);
 		acc.buf[acc.length .. acc.length + data.length] = data[0 .. $];
 		acc.length += data.length;
-		return data.length;
+		return cast(int)data.length;
 	}
 
 	int writeWouldBlock(in ubyte[] data) 
@@ -144,12 +148,12 @@ struct MyCallbacks {
 			r = ErrorCode.WOULDBLOCK;
 		} else {
 			--user_data.block_count;
-			r = data.length;
+			r = cast(int)data.length;
 		}
 		return r;
 	}
 		
-	int readScripted(out ubyte[] data) 
+	int readScripted(ubyte[] data) 
 	{
 		ScriptedDataFeed* df = user_data.df;
 		size_t wlen = df.feedseq[df.seqidx] > data.length ? data.length : df.feedseq[df.seqidx];
@@ -159,10 +163,10 @@ struct MyCallbacks {
 		if (df.feedseq[df.seqidx] == 0) {
 			++df.seqidx;
 		}
-		return wlen;
+		return cast(int)wlen;
 	}
 
-	static int readEOF(out ubyte[] data) 
+	static int readEOF(ubyte[] data) 
 	{
 		return ErrorCode.EOF;
 	}
@@ -202,9 +206,9 @@ struct MyCallbacks {
 		if (!called) {
 			called = true;
 			
-			data_prd.read_callback = &MyDataSource.readTwice;
-			
-			rv = session.submitData(FrameFlags.END_STREAM, frame.hd.stream_id, data_prd);
+			data_prd.read_callback = toDelegate(&MyDataSource.readTwice);
+
+			rv = submitData(*session, FrameFlags.END_STREAM, frame.hd.stream_id, data_prd);
 			assert(0 == rv);
 		}
 		
@@ -234,9 +238,9 @@ struct MyCallbacks {
 		return true;
 	}
 
-	int selectPaddingLength(in Frame frame, size_t max_payloadlen) 
+	int selectPaddingLength(in Frame frame, int max_payloadlen) 
 	{
-		return min(max_payloadlen, frame.hd.length + user_data.padlen);
+		return cast(int) min(max_payloadlen, frame.hd.length + user_data.padlen);
 	}
 
 	static int tooLargeMaxFrameSize(FrameType frame_type, int stream_id, int session_remote_window_size, int stream_remote_window_size, uint remote_max_frame_size)
@@ -253,16 +257,16 @@ struct MyCallbacks {
 	{
 		++user_data.header_cb_called;
 		user_data.hf = hf;
-		user_data.frame = frame;
+		user_data.frame = &frame;
 		return true;
 	}
 	
-	static bool onHeaderFieldPause(in Frame frame, in HeaderField hf, ref bool pause, ref bool rst_stream) {
+	bool onHeaderFieldPause(in Frame frame, in HeaderField hf, ref bool pause, ref bool rst_stream) {
 		pause = true;
 		return onHeaderField(frame, hf, pause, rst_stream);
 	}
 	
-	static bool onHeaderFieldRstStream(in Frame frame, in HeaderField hf, ref bool pause, ref bool rst_stream) {
+	bool onHeaderFieldRstStream(in Frame frame, in HeaderField hf, ref bool pause, ref bool rst_stream) {
 		rst_stream = true;
 		return onHeaderField(frame, hf, pause, rst_stream);
 	}
@@ -298,7 +302,7 @@ struct MyDataSource
 		if (user_data.data_source_length == 0) {
 			data_flags |= DataFlags.EOF;
 		}
-		return wlen;
+		return cast(int)wlen;
 	}
 
 	static int readRstStream(int stream_id, ubyte[] buf, ref DataFlags data_flags, DataSource source)
@@ -388,7 +392,7 @@ void test_session_read() {
 	
 	frame.priority.free();
 	
-	df = SciptedDataFeed(bufs);
+	df = ScriptedDataFeed(bufs);
 	
 	user_data.frame_recv_cb_called = 0;
 	user_data.begin_frame_cb_called = 0;
@@ -421,7 +425,7 @@ void test_session_read() {
 	
 	frame.ping.free();
 	
-	df = SciptedDataFeed(bufs);
+	df = ScriptedDataFeed(bufs);
 	user_data.frame_recv_cb_called = 0;
 	user_data.begin_frame_cb_called = 0;
 	
@@ -467,7 +471,7 @@ void test_session_read_invalid_stream_id() {
 	assert(0 == rv);
 	assert(bufs.length > 0);
 	
-	df = SciptedDataFeed(bufs);
+	df = ScriptedDataFeed(bufs);
 	frame.headers.free();
 	
 	assert(0 == session.recv());
@@ -506,7 +510,7 @@ void test_session_read_invalid_frame() {
 	assert(0 == rv);
 	assert(bufs.length > 0);
 	
-	df = SciptedDataFeed(bufs);
+	df = ScriptedDataFeed(bufs);
 	
 	assert(0 == session.recv());
 	assert(0 == session.send());
@@ -514,7 +518,7 @@ void test_session_read_invalid_frame() {
 	
 	/* Receive exactly same bytes of HEADERS is treated as error, because it has
    * pseudo headers and without END_STREAM flag set */
-	df = SciptedDataFeed(bufs);
+	df = ScriptedDataFeed(bufs);
 	
 	assert(0 == session.recv());
 	assert(0 == session.send());
@@ -588,7 +592,7 @@ void test_session_read_data() {
 
 	/* Set initial window size 16383 to check stream flow control,
      isolating it from the conneciton flow control */
-	stream.local_window_size = 16383;
+	stream.localWindowSize = 16383;
 	
 	user_data.data_chunk_recv_cb_called = 0;
 	user_data.frame_recv_cb_called = 0;
@@ -598,7 +602,7 @@ void test_session_read_data() {
 	assert(0 == user_data.data_chunk_recv_cb_called);
 	assert(0 == user_data.frame_recv_cb_called);
 	item = session.getNextOutboundItem();
-	assert(null == item);
+	assert(!item);
 	
 	/* This is normal case. DATA is acceptable. */
 	stream.state = StreamState.OPENED;
@@ -611,7 +615,7 @@ void test_session_read_data() {
 	assert(1 == user_data.data_chunk_recv_cb_called);
 	assert(1 == user_data.frame_recv_cb_called);
 	
-	assert(null == session.getNextOutboundItem());
+	assert(!session.getNextOutboundItem());
 	
 	user_data.data_chunk_recv_cb_called = 0;
 	user_data.frame_recv_cb_called = 0;
@@ -629,7 +633,7 @@ void test_session_read_data() {
 	
 	/* Set initial window size to 1MiB, so that we can check connection
      flow control individually */
-	stream.local_window_size = 1 << 20;
+	stream.localWindowSize = 1 << 20;
 	/* Connection flow control takes into account DATA which is received
      in the error condition. We have received 4096 * 4 bytes of
      DATA. Additional 4 DATA frames, connection flow control will kick
@@ -691,8 +695,7 @@ void test_session_read_continuation() {
 	/* Make 1 HEADERS and insert CONTINUATION header */
 	
 	hfa = reqhf.copy();
-	frame.headers = Headers(FrameFlags.NONE, 1,
-		HeadersCategory.HEADERS, pri_spec_default, hfa);
+	frame.headers = Headers(FrameFlags.NONE, 1, HeadersCategory.HEADERS, pri_spec_default, hfa);
 	rv = frame.headers.pack(bufs, deflater);
 	
 	assert(0 == rv);
@@ -705,7 +708,7 @@ void test_session_read_continuation() {
 	frame.headers.free();
 	
 	/* HEADERS's payload is 1 byte */
-	memcpy(data, buf.pos, FRAME_HDLEN + 1);
+	memcpy(data.ptr, buf.pos, FRAME_HDLEN + 1);
 	datalen = FRAME_HDLEN + 1;
 	buf.pos += FRAME_HDLEN + 1;
 	
@@ -773,9 +776,8 @@ void test_session_read_continuation() {
 	frame.priority = Priority(1, pri_spec);
 	bufs.reset();
 	
-	rv = frame.priority.pack(bufs);
-	
-	assert(0 == rv);
+	frame.priority.pack(bufs);
+
 	assert(bufs.length > 0);
 	
 	memcpy(data.ptr + datalen, buf.pos, buf.length);
@@ -813,8 +815,8 @@ void test_session_read_headers_with_priority() {
 	session = new Session(CLIENT, *callbacks);
 	
 	deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
-	
-	session.openStream(1);
+
+	openStream(session, 1);
 	
 	/* With FrameFlags.PRIORITY without exclusive flag set */
 	
@@ -822,7 +824,7 @@ void test_session_read_headers_with_priority() {
 	
 	pri_spec = PrioritySpec(1, 99, 0);
 	
-	frame.headers = Headers(FrameFlags.END_HEADERS | FrameFlags.PRIORITY, 3, HeadersCategory.HEADERS, pri_spec, hfa);
+	frame.headers = Headers(cast(FrameFlags)(FrameFlags.END_HEADERS | FrameFlags.PRIORITY), 3, HeadersCategory.HEADERS, pri_spec, hfa);
 	
 	rv = frame.headers.pack(bufs, deflater);
 	
@@ -836,7 +838,7 @@ void test_session_read_headers_with_priority() {
 	
 	user_data.frame_recv_cb_called = 0;
 	
-	rv = session.memRecv(buf[]);
+	rv = session.memRecv((*buf)[]);
 	
 	assert(buf.length == rv);
 	assert(1 == user_data.frame_recv_cb_called);
@@ -844,7 +846,7 @@ void test_session_read_headers_with_priority() {
 	stream = session.getStream(3);
 	
 	assert(99 == stream.weight);
-	assert(1 == stream.dep_prev.stream_id);
+	assert(1 == stream.depPrev.id);
 	
 	bufs.reset();
 	
@@ -855,7 +857,7 @@ void test_session_read_headers_with_priority() {
 	
 	pri_spec = PrioritySpec(0, 99, 0);
 	
-	frame.headers = Headers(FrameFlags.END_HEADERS | FrameFlags.PRIORITY, 5, HeadersCategory.HEADERS, pri_spec, hfa);
+	frame.headers = Headers(cast(FrameFlags)(FrameFlags.END_HEADERS | FrameFlags.PRIORITY), 5, HeadersCategory.HEADERS, pri_spec, hfa);
 	
 	rv = frame.headers.pack(bufs, deflater);
 	
@@ -871,17 +873,17 @@ void test_session_read_headers_with_priority() {
 	
 	user_data.frame_recv_cb_called = 0;
 	
-	rv = session.memRecv(buf[]);
+	rv = session.memRecv((*buf)[]);
 	
 	assert(buf.length == rv);
 	assert(0 == user_data.frame_recv_cb_called);
 	
 	stream = session.getStream(5);
 	
-	assert(null == stream);
+	assert(!stream);
 	
 	item = session.getNextOutboundItem();
-	assert(null != item);
+	assert(item);
 	assert(FrameType.GOAWAY == item.frame.hd.type);
 	assert(FrameError.FRAME_SIZE_ERROR == item.frame.goaway.error_code);
 	
@@ -900,7 +902,7 @@ void test_session_read_headers_with_priority() {
 	
 	pri_spec = PrioritySpec(1, 0, 0);
 	
-	frame.headers = Headers(FrameFlags.END_HEADERS | FrameFlags.PRIORITY, 1, HeadersCategory.HEADERS, pri_spec, hfa);
+	frame.headers = Headers(cast(FrameFlags)(FrameFlags.END_HEADERS | FrameFlags.PRIORITY), 1, HeadersCategory.HEADERS, pri_spec, hfa);
 	
 	rv = frame.headers.pack(bufs, deflater);
 	
@@ -914,17 +916,17 @@ void test_session_read_headers_with_priority() {
 	
 	user_data.frame_recv_cb_called = 0;
 	
-	rv = session.memRecv(buf[]);
+	rv = session.memRecv((*buf)[]);
 	
 	assert(buf.length == rv);
 	assert(0 == user_data.frame_recv_cb_called);
 	
 	stream = session.getStream(1);
 	
-	assert(null == stream);
+	assert(!stream);
 	
 	item = session.getNextOutboundItem();
-	assert(null != item);
+	assert(item);
 	assert(FrameType.GOAWAY == item.frame.hd.type);
 	assert(FrameError.PROTOCOL_ERROR == item.frame.goaway.error_code);
 	
@@ -972,7 +974,7 @@ void test_session_read_premature_headers() {
 	assert(cast(size_t)(buf.length - 1) == rv);
 	
 	item = session.getNextOutboundItem();
-	assert(null != item);
+	assert(item);
 	assert(FrameType.RST_STREAM == item.frame.hd.type);
 	assert(FrameError.COMPRESSION_ERROR == item.frame.rst_stream.error_code);
 	
@@ -990,7 +992,7 @@ void test_session_read_unknown_frame() {
 	FrameHeader hd;
 	size_t rv;
 	
-	hd = FrameHeader(16000, 99, FrameFlags.NONE, 0);
+	hd = FrameHeader(16000, cast(FrameType)99, FrameFlags.NONE, 0);
 
 	hd.pack(data[0 .. $]);
 	datalen = FRAME_HDLEN + hd.length;
@@ -1007,7 +1009,7 @@ void test_session_read_unknown_frame() {
 	
 	assert(rv == cast(size_t)datalen);
 	assert(0 == user_data.frame_recv_cb_called);
-	assert(null == session.getNextOutboundItem());
+	assert(!session.getNextOutboundItem());
 	
 	session.free();
 }
@@ -1032,7 +1034,7 @@ void test_session_read_unexpected_continuation() {
 	
 	session = new Session(CLIENT, *callbacks);
 	
-	session.openStream(1);
+	openStream(session, 1);
 	
 	user_data.frame_recv_cb_called = 0;
 	
@@ -1085,7 +1087,7 @@ void test_session_read_settings_header_table_size() {
 	
 	user_data.frame_recv_cb_called = 0;
 	
-	rv = session.memRecv(buf[]);
+	rv = session.memRecv((*buf)[]);
 	
 	assert(rv == buf.length);
 	assert(1 == user_data.frame_recv_cb_called);
@@ -1119,7 +1121,7 @@ void test_session_read_settings_header_table_size() {
 	
 	user_data.frame_recv_cb_called = 0;
 	
-	rv = session.memRecv(buf[]);
+	rv = session.memRecv((*buf)[]);
 	
 	assert(rv == buf.length);
 	assert(1 == user_data.frame_recv_cb_called);
@@ -1130,10 +1132,10 @@ void test_session_read_settings_header_table_size() {
 	bufs.reset();
 	
 	/* 2 SettingsID.HEADER_TABLE_SIZE; first entry clears dynamic header table. */	
-	submitRequest(session, pri_spec_default, iva[0 .. 1], DataProvider.init, null);
+	submitRequest(session, pri_spec_default, (&hf)[0 .. 1], DataProvider.init, null);
 	session.send();
 	
-	assert(0 < session.hd_deflater.ctx.hd_table.len);
+	assert(0 < session.hd_deflater.ctx.hd_table.length);
 	
 	iva[0].id = Setting.HEADER_TABLE_SIZE;
 	iva[0].value = 0;
@@ -1158,24 +1160,24 @@ void test_session_read_settings_header_table_size() {
 	
 	user_data.frame_recv_cb_called = 0;
 	
-	rv = session.memRecv(buf[]);
+	rv = session.memRecv((*buf)[]);
 	
 	assert(rv == buf.length);
 	assert(1 == user_data.frame_recv_cb_called);
 	
 	assert(4096 == session.remote_settings.header_table_size);
 	assert(16382 == session.remote_settings.initial_window_size);
-	assert(0 == session.hd_deflater.ctx.hd_table.len);
+	assert(0 == session.hd_deflater.ctx.hd_table.length);
 	
 	bufs.reset();
 	
 	/* 2 SettingsID.HEADER_TABLE_SIZE; second entry clears dynamic header
      table. */
 	
-	submitRequest(session, pri_spec_default, iva[0 .. 1], DataProvider.init, null);
+	submitRequest(session, pri_spec_default, (&hf)[0 .. 1], DataProvider.init, null);
 	session.send();
 	
-	assert(0 < session.hd_deflater.ctx.hd_table.len);
+	assert(0 < session.hd_deflater.ctx.hd_table.length);
 	
 	iva[0].id = Setting.HEADER_TABLE_SIZE;
 	iva[0].value = 3000;
@@ -1200,14 +1202,14 @@ void test_session_read_settings_header_table_size() {
 	
 	user_data.frame_recv_cb_called = 0;
 	
-	rv = session.memRecv(buf[]);
+	rv = session.memRecv((*buf)[]);
 	
 	assert(rv == buf.length);
 	assert(1 == user_data.frame_recv_cb_called);
 	
 	assert(0 == session.remote_settings.header_table_size);
 	assert(16381 == session.remote_settings.initial_window_size);
-	assert(0 == session.hd_deflater.ctx.hd_table.len);
+	assert(0 == session.hd_deflater.ctx.hd_table.length);
 	
 	bufs.reset();
 	
@@ -1233,7 +1235,7 @@ void test_session_read_too_large_frame_length() {
 	
 	item = session.getNextOutboundItem();
 	
-	assert(item != null);
+	assert(item);
 	assert(FrameType.GOAWAY == item.frame.hd.type);
 	
 	session.free();
@@ -1263,7 +1265,7 @@ void test_session_continue() {
 	callbacks.write_cb = toDelegate(&MyCallbacks.writeNull);
 	callbacks.on_frame_cb = &user_data.cb_handlers.onFrame;
 	callbacks.on_data_chunk_cb = &user_data.cb_handlers.onDataChunkPause;
-	callbacks.on_header_field_cb = toDelegate(&MyCallbacks.onHeaderFieldPause);
+	callbacks.on_header_field_cb = &user_data.cb_handlers.onHeaderFieldPause;
 	callbacks.on_headers_cb = &user_data.cb_handlers.onHeaders;
 	
 	session = new Session(SERVER, *callbacks);
@@ -1311,7 +1313,7 @@ void test_session_continue() {
 	assert(rv >= 0);
 	databuf.pos += rv;
 	
-	recv_frame = user_data.frame;
+	recv_frame = cast(Frame*)user_data.frame;
 	assert(FrameType.HEADERS == recv_frame.hd.type);
 	assert(framelen1 - FRAME_HDLEN == recv_frame.hd.length);
 	
@@ -1340,7 +1342,7 @@ void test_session_continue() {
 	assert(rv >= 0);
 	databuf.pos += rv;
 	
-	recv_frame = user_data.frame;
+	recv_frame = cast(Frame*) user_data.frame;
 	assert(FrameType.HEADERS == recv_frame.hd.type);
 	assert(framelen2 - FRAME_HDLEN == recv_frame.hd.length);
 	
@@ -1432,7 +1434,7 @@ void test_session_add_frame() {
 	
 	hfa = reqhf.copy();
 	
-	frame.headers = Headers(FrameFlags.END_HEADERS | FrameFlags.PRIORITY, session.next_stream_id, HeadersCategory.REQUEST, pri_spec_default, hfa);
+	frame.headers = Headers(cast(FrameFlags)(FrameFlags.END_HEADERS | FrameFlags.PRIORITY), session.next_stream_id, HeadersCategory.REQUEST, pri_spec_default, hfa);
 	
 	session.next_stream_id += 2;
 	
@@ -1440,7 +1442,7 @@ void test_session_add_frame() {
 	assert(0 == session.ob_ss_pq.empty);
 	assert(0 == session.send());
 	assert(FrameType.HEADERS == acc.buf[3]);
-	assert((FrameFlags.END_HEADERS | FrameFlags.PRIORITY) == acc.buf[4]);
+	assert(cast(ubyte)(FrameFlags.END_HEADERS | FrameFlags.PRIORITY) == acc.buf[4]);
 	/* check stream id */
 	assert(1 == read!uint(&acc.buf[5]));
 	
@@ -1466,7 +1468,7 @@ void test_session_on_request_headers_received() {
 	
 	pri_spec = PrioritySpec(0, 255, 0);
 
-	frame.headers = Headers(FrameFlags.END_HEADERS | FrameFlags.PRIORITY, stream_id, HeadersCategory.REQUEST, pri_spec, null);
+	frame.headers = Headers(cast(FrameFlags)(FrameFlags.END_HEADERS | FrameFlags.PRIORITY), stream_id, HeadersCategory.REQUEST, pri_spec, null);
 	
 	user_data.begin_headers_cb_called = 0;
 	user_data.invalid_frame_recv_cb_called = 0;
@@ -1481,7 +1483,7 @@ void test_session_on_request_headers_received() {
 	
 	/* More than un-ACKed max concurrent streams leads REFUSED_STREAM */
 	session.pending_local_max_concurrent_stream = 1;
-	frame.headers = Headers(FrameFlags.END_HEADERS | FrameFlags.PRIORITY, 3, HeadersCategory.HEADERS, pri_spec_default, null);
+	frame.headers = Headers(cast(FrameFlags)(FrameFlags.END_HEADERS | FrameFlags.PRIORITY), 3, HeadersCategory.HEADERS, pri_spec_default, null);
 	user_data.invalid_frame_recv_cb_called = 0;
 	assert(ErrorCode.IGN_HEADER_BLOCK == session.onRequestHeaders(frame));
 	assert(1 == user_data.invalid_frame_recv_cb_called);
@@ -1491,7 +1493,7 @@ void test_session_on_request_headers_received() {
 	session.local_settings.max_concurrent_streams = INITIAL_MAX_CONCURRENT_STREAMS;
 
 	/* Stream ID less than or equal to the previouly received request HEADERS is just ignored due to race condition */
-	frame.headers = Headers(FrameFlags.END_HEADERS | FrameFlags.PRIORITY, 3, HeadersCategory.HEADERS, pri_spec_default, null);
+	frame.headers = Headers(cast(FrameFlags)(FrameFlags.END_HEADERS | FrameFlags.PRIORITY), 3, HeadersCategory.HEADERS, pri_spec_default, null);
 	user_data.invalid_frame_recv_cb_called = 0;
 	assert(ErrorCode.IGN_HEADER_BLOCK == session.onRequestHeaders(frame));
 	assert(0 == user_data.invalid_frame_recv_cb_called);
@@ -1500,7 +1502,7 @@ void test_session_on_request_headers_received() {
 	frame.headers.free();
 	
 	/* Stream ID is our side and it is idle stream ID, then treat it as connection error */
-	frame.headers = Headers(FrameFlags.END_HEADERS | FrameFlags.PRIORITY, 2, HeadersCategory.HEADERS, pri_spec_default, null);
+	frame.headers = Headers(cast(FrameFlags)(FrameFlags.END_HEADERS | FrameFlags.PRIORITY), 2, HeadersCategory.HEADERS, pri_spec_default, null);
 	user_data.invalid_frame_recv_cb_called = 0;
 	assert(ErrorCode.IGN_HEADER_BLOCK == session.onRequestHeaders(frame));
 	assert(1 == user_data.invalid_frame_recv_cb_called);
@@ -1515,7 +1517,7 @@ void test_session_on_request_headers_received() {
 	
 	hfa = malformed_hfa.copy();
 
-	frame.headers = Headers(FrameFlags.END_HEADERS | FrameFlags.PRIORITY, 1, HeadersCategory.HEADERS, pri_spec_default, hfa);
+	frame.headers = Headers(cast(FrameFlags)(FrameFlags.END_HEADERS | FrameFlags.PRIORITY), 1, HeadersCategory.HEADERS, pri_spec_default, hfa);
 	user_data.begin_headers_cb_called = 0;
 	user_data.invalid_frame_recv_cb_called = 0;
 	assert(0 == session.onRequestHeaders(frame));
@@ -1613,8 +1615,8 @@ void test_session_on_response_headers_received() {
 	
 	user_data.begin_headers_cb_called = 0;
 	user_data.invalid_frame_recv_cb_called = 0;
-	
-	assert(0 == onResponseHeaders(frame, stream));
+
+	assert(0 == session.onResponseHeaders(frame, stream));
 	assert(1 == user_data.begin_headers_cb_called);
 	assert(StreamState.OPENED == stream.state);
 	
@@ -1663,7 +1665,7 @@ void test_session_on_headers_received() {
 	stream = session.openStream(2, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
 
 	/* half closed (remote) */
-	frame.hd.flags = FrameFlags.END_HEADERS | FrameFlags.END_STREAM;
+	frame.hd.flags = cast(FrameFlags)(FrameFlags.END_HEADERS | FrameFlags.END_STREAM);
 	frame.hd.stream_id = 2;
 	
 	assert(0 == session.onHeaders(frame, stream));
@@ -1770,7 +1772,7 @@ void test_session_on_priority_received() {
 	frame.priority.pri_spec = PrioritySpec(3, 1, 0);
 	
 	assert(0 == session.onPriority(frame));
-	assert(dep_stream == stream.dep_prev);
+	assert(dep_stream == stream.depPrev);
 	
 	/* PRIORITY against idle stream */
 	frame.hd.stream_id = 100;
@@ -1780,7 +1782,7 @@ void test_session_on_priority_received() {
 	stream = session.getStreamRaw(frame.hd.stream_id);
 	
 	assert(StreamState.IDLE == stream.state);
-	assert(dep_stream == stream.dep_prev);
+	assert(dep_stream == stream.depPrev);
 	
 	frame.priority.free();
 	session.free();
@@ -1815,7 +1817,7 @@ void test_session_on_rst_stream_received() {
 	frame.rst_stream = RstStream(1, FrameError.PROTOCOL_ERROR);
 	
 	assert(0 == session.onRstStream(frame));
-	assert(null == session.getStream(1));
+	assert(!session.getStream(1));
 	
 	frame.rst_stream.free();
 	session.free();
@@ -1854,8 +1856,8 @@ void test_session_on_settings_received() {
 	stream1 = session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
 	stream2 = session.openStream(2, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
 	/* Set window size for each streams and will see how settings updates these values */
-	stream1.remote_window_size = 16 * 1024;
-	stream2.remote_window_size = -48 * 1024;
+	stream1.remoteWindowSize = 16 * 1024;
+	stream2.remoteWindowSize = -48 * 1024;
 	
 	frame.settings = Settings(FrameFlags.NONE, iva[0 .. 5].copy());
 	
@@ -1865,18 +1867,18 @@ void test_session_on_settings_received() {
 	assert(1024 == session.remote_settings.header_table_size);
 	assert(0 == session.remote_settings.enable_push);
 	
-	assert(64 * 1024 == stream1.remote_window_size);
-	assert(0 == stream2.remote_window_size);
+	assert(64 * 1024 == stream1.remoteWindowSize);
+	assert(0 == stream2.remoteWindowSize);
 	
 	frame.settings.iva[2].value = 16 * 1024;
 	
 	assert(0 == session.onSettings(frame, false));
 	
-	assert(16 * 1024 == stream1.remote_window_size);
-	assert(-48 * 1024 == stream2.remote_window_size);
+	assert(16 * 1024 == stream1.remoteWindowSize);
+	assert(-48 * 1024 == stream2.remoteWindowSize);
 	
-	assert(16 * 1024 == session.getStreamRemoteWindowSize(stream1.stream_id));
-	assert(0 == session.getStreamRemoteWindowSize(stream2.stream_id));
+	assert(16 * 1024 == session.getStreamRemoteWindowSize(stream1.id));
+	assert(0 == session.getStreamRemoteWindowSize(stream2.id));
 	
 	frame.settings.free();
 	
@@ -1890,7 +1892,7 @@ void test_session_on_settings_received() {
 	
 	assert(0 == session.onSettings(frame, false));
 	item = session.getNextOutboundItem();
-	assert(item != null);
+	assert(item);
 	assert(FrameType.GOAWAY == item.frame.hd.type);
 	
 	session.inflight_iva = null;
@@ -1904,7 +1906,7 @@ void test_session_on_settings_received() {
 	
 	assert(0 == session.onSettings(frame, false));
 	item = session.getNextOutboundItem();
-	assert(item != null);
+	assert(item);
 	assert(FrameType.GOAWAY == item.frame.hd.type);
 	
 	frame.settings.free();
@@ -1914,11 +1916,11 @@ void test_session_on_settings_received() {
      and header table size is once cleared to 0. */
 	session = new Session(CLIENT, *callbacks);
 	
-	submitRequest(session, pri_spec_default, iva[0 .. 1], DataProvider.init, null);
-	
+	submitRequest(session, pri_spec_default, (&hf)[0 .. 1], DataProvider.init, null);
+
 	session.send();
 	
-	assert(session.hd_deflater.ctx.hd_table.len > 0);
+	assert(session.hd_deflater.ctx.hd_table.length > 0);
 	
 	iva[0].id = Setting.HEADER_TABLE_SIZE;
 	iva[0].value = 0;
@@ -1930,7 +1932,7 @@ void test_session_on_settings_received() {
 	
 	assert(0 == session.onSettings(frame, false));
 	
-	assert(0 == session.hd_deflater.ctx.hd_table.len);
+	assert(0 == session.hd_deflater.ctx.hd_table.length);
 	assert(2048 == session.hd_deflater.ctx.hd_table_bufsize_max);
 	assert(2048 == session.remote_settings.header_table_size);
 	
@@ -1949,7 +1951,7 @@ void test_session_on_settings_received() {
 
 	item = session.getNextOutboundItem();
 	
-	assert(item != null);
+	assert(item);
 	assert(FrameType.GOAWAY == item.frame.hd.type);
 	
 	frame.settings.free();
@@ -1974,7 +1976,7 @@ void test_session_on_push_promise_received() {
 	session = new Session(CLIENT, *callbacks);
 	
 	stream = session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
-	frame.push_promise = PushPromise(FrameFlags.END_HEADERS, 1, 2, null, 0);
+	frame.push_promise = PushPromise(FrameFlags.END_HEADERS, 1, 2, null);
 	
 	user_data.begin_headers_cb_called = 0;
 	user_data.invalid_frame_recv_cb_called = 0;
@@ -1996,7 +1998,7 @@ void test_session_on_push_promise_received() {
 	
 	assert(0 == user_data.begin_headers_cb_called);
 	assert(1 == user_data.invalid_frame_recv_cb_called);
-	assert(null == session.getStream(4));
+	assert(!session.getStream(4));
 	item = session.getNextOutboundItem();
 	assert(FrameType.RST_STREAM == item.frame.hd.type);
 	assert(4 == item.frame.hd.stream_id);
@@ -2005,7 +2007,7 @@ void test_session_on_push_promise_received() {
 	assert(4 == session.last_recv_stream_id);
 	
 	/* Attempt to PUSH_PROMISE against stream in closing state */
-	stream.shut_flags = ShutdownFlag.NONE;
+	stream.shutFlags = ShutdownFlag.NONE;
 	stream.state = StreamState.CLOSING;
 	frame.push_promise.promised_stream_id = 6;
 	
@@ -2014,7 +2016,7 @@ void test_session_on_push_promise_received() {
 	assert(ErrorCode.IGN_HEADER_BLOCK == session.onPushPromise(frame));
 	
 	assert(0 == user_data.begin_headers_cb_called);
-	assert(null == session.getStream(6));
+	assert(!session.getStream(6));
 	item = session.getNextOutboundItem();
 	assert(FrameType.RST_STREAM == item.frame.hd.type);
 	assert(6 == item.frame.hd.stream_id);
@@ -2030,7 +2032,7 @@ void test_session_on_push_promise_received() {
 	assert(ErrorCode.IGN_HEADER_BLOCK == session.onPushPromise(frame));
 	
 	assert(0 == user_data.begin_headers_cb_called);
-	assert(null == session.getStream(8));
+	assert(!session.getStream(8));
 	item = session.getNextOutboundItem();
 	assert(FrameType.GOAWAY == item.frame.hd.type);
 	assert(0 == item.frame.hd.stream_id);
@@ -2051,7 +2053,7 @@ void test_session_on_push_promise_received() {
 	assert(ErrorCode.IGN_HEADER_BLOCK == session.onPushPromise(frame));
 	
 	assert(0 == user_data.begin_headers_cb_called);
-	assert(null == session.getStream(8));
+	assert(!session.getStream(8));
 	item = session.getNextOutboundItem();
 	assert(FrameType.GOAWAY == item.frame.hd.type);
 	assert(FrameError.PROTOCOL_ERROR == item.frame.goaway.error_code);
@@ -2065,8 +2067,8 @@ void test_session_on_push_promise_received() {
 	assert(ErrorCode.IGN_HEADER_BLOCK == session.onPushPromise(frame));
 	
 	assert(0 == user_data.begin_headers_cb_called);
-	assert(null == session.getStream(10));
-	assert(null == session.getNextOutboundItem());
+	assert(!session.getStream(10));
+	assert(!session.getNextOutboundItem());
 	
 	frame.push_promise.free();
 	session.free();
@@ -2075,7 +2077,7 @@ void test_session_on_push_promise_received() {
 	
 	stream = session.openStream(2, StreamFlags.NONE, pri_spec_default, StreamState.RESERVED, null);
 	/* Attempt to PUSH_PROMISE against reserved (remote) stream */
-	frame.push_promise = PushPromise(FrameFlags.END_HEADERS, 2, 4, null, 0);
+	frame.push_promise = PushPromise(FrameFlags.END_HEADERS, 2, 4, null);
 	
 	user_data.begin_headers_cb_called = 0;
 	user_data.invalid_frame_recv_cb_called = 0;
@@ -2094,7 +2096,7 @@ void test_session_on_push_promise_received() {
 	
 	session.local_settings.enable_push = 0;
 	
-	frame.push_promise = PushPromise(FrameFlags.END_HEADERS, 1, 2, null, 0);
+	frame.push_promise = PushPromise(FrameFlags.END_HEADERS, 1, 2, null);
 	
 	user_data.begin_headers_cb_called = 0;
 	user_data.invalid_frame_recv_cb_called = 0;
@@ -2129,7 +2131,7 @@ void test_session_on_ping_received() {
 	MyUserData user_data = MyUserData(&session);
 	Frame frame;
 	OutboundItem top;
-	const ubyte[] opaque_data = "01234567";
+	string opaque_data = "01234567";
 	
 	user_data.frame_recv_cb_called = 0;
 	user_data.invalid_frame_recv_cb_called = 0;
@@ -2139,14 +2141,14 @@ void test_session_on_ping_received() {
 	callbacks.on_invalid_frame_cb = &user_data.cb_handlers.onInvalidFrame;
 	
 	session = new Session(CLIENT, *callbacks);
-	frame.ping = Ping(FrameFlags.ACK, opaque_data);
+	frame.ping = Ping(FrameFlags.ACK, cast(ubyte[])opaque_data.ptr[0 .. 8]);
 	
 	assert(0 == session.onPing(frame));
 	assert(1 == user_data.frame_recv_cb_called);
 	
 	/* Since this ping frame has PONG flag set, no further action is
      performed. */
-	assert(null == session.ob_pq_top);
+	assert(!session.ob_pq_top);
 	
 	/* Clear the flag, and receive it again */
 	frame.hd.flags = FrameFlags.NONE;
@@ -2156,7 +2158,7 @@ void test_session_on_ping_received() {
 	top = session.ob_pq_top;
 	assert(FrameType.PING == top.frame.hd.type);
 	assert(FrameFlags.ACK == top.frame.hd.flags);
-	assert(memcmp(opaque_data, top.frame.ping.opaque_data, 8) == 0);
+	assert(opaque_data == top.frame.ping.opaque_data);
 	
 	frame.ping.free();
 	session.free();
@@ -2182,7 +2184,7 @@ void test_session_on_goaway_received() {
 	session = new Session(CLIENT, *callbacks);
 	
 	for (i = 1; i <= 7; ++i) {
-		session.openStream(i);
+		openStream(session, i);
 	}
 	
 	frame.goaway = GoAway(3, FrameError.PROTOCOL_ERROR, null);
@@ -2196,13 +2198,13 @@ void test_session_on_goaway_received() {
 	/* on_stream_close should be callsed for 2 times (stream 5 and 7) */
 	assert(2 == user_data.stream_close_cb_called);
 	
-	assert(null != session.getStream(1));
-	assert(null != session.getStream(2));
-	assert(null != session.getStream(3));
-	assert(null != session.getStream(4));
-	assert(null == session.getStream(5));
-	assert(null != session.getStream(6));
-	assert(null == session.getStream(7));
+	assert(session.getStream(1));
+	assert(session.getStream(2));
+	assert(session.getStream(3));
+	assert(session.getStream(4));
+	assert(!session.getStream(5));
+	assert(session.getStream(6));
+	assert(!session.getStream(7));
 	
 	frame.goaway.free();
 	session.free();
@@ -2227,19 +2229,19 @@ void test_session_on_window_update_received() {
 	
 	data_item = createDataOutboundItem();
 	
-	assert(0 == attachItem(stream, data_item, session));
+	stream.attachItem(data_item, session);
 	
 	frame.window_update = WindowUpdate(FrameFlags.NONE, 1, 16 * 1024);
 
 	assert(0 == session.onWindowUpdate(frame));
 	assert(1 == user_data.frame_recv_cb_called);
-	assert(INITIAL_WINDOW_SIZE + 16 * 1024 == stream.remote_window_size);
+	assert(INITIAL_WINDOW_SIZE + 16 * 1024 == stream.remoteWindowSize);
 	
-	assert(0 == deferItem(stream, StreamFlags.DEFERRED_FLOW_CONTROL, session));
+	stream.deferItem(StreamFlags.DEFERRED_FLOW_CONTROL, session);
 	
 	assert(0 == session.onWindowUpdate(frame));
 	assert(2 == user_data.frame_recv_cb_called);
-	assert(INITIAL_WINDOW_SIZE + 16 * 1024 * 2 == stream.remote_window_size);
+	assert(INITIAL_WINDOW_SIZE + 16 * 1024 * 2 == stream.remoteWindowSize);
 	assert(0 == (stream.flags & StreamFlags.DEFERRED_ALL));
 	
 	frame.window_update.free();
@@ -2267,7 +2269,7 @@ void test_session_on_window_update_received() {
 	assert(0 == session.onWindowUpdate(frame));
 	assert(!(session.goaway_flags & GoAwayFlags.TERM_ON_SEND));
 	
-	assert(INITIAL_WINDOW_SIZE + 4096 == stream.remote_window_size);
+	assert(INITIAL_WINDOW_SIZE + 4096 == stream.remoteWindowSize);
 	
 	frame.window_update.free();
 	
@@ -2288,12 +2290,12 @@ void test_session_on_data_received() {
 	frame.hd = FrameHeader(4096, FrameType.DATA, FrameFlags.NONE, 2);
 	
 	assert(0 == session.onData(frame));
-	assert(0 == stream.shut_flags);
+	assert(0 == stream.shutFlags);
 	
 	frame.hd.flags = FrameFlags.END_STREAM;
 	
 	assert(0 == session.onData(frame));
-	assert(ShutdownFlag.RD == stream.shut_flags);
+	assert(ShutdownFlag.RD == stream.shutFlags);
 	
 	/* If StreamState.CLOSING state, DATA frame is discarded. */
 	stream = session.openStream(4, StreamFlags.NONE, pri_spec_default, StreamState.CLOSING, null);
@@ -2302,7 +2304,7 @@ void test_session_on_data_received() {
 	frame.hd.stream_id = 4;
 	
 	assert(0 == session.onData(frame));
-	assert(null == session.ob_pq_top);
+	assert(!session.ob_pq_top);
 	
 	/* Check INVALID_STREAM case: DATA frame with stream ID which does not exist. */
 	
@@ -2311,7 +2313,7 @@ void test_session_on_data_received() {
 	assert(0 == session.onData(frame));
 	top = session.ob_pq_top;
 	/* DATA against nonexistent stream is just ignored for now */
-	assert(top == null);
+	assert(!top);
 	/* assert(FrameType.RST_STREAM == top.frame.hd.type); */
 	/* assert(FrameError.PROTOCOL_ERROR == top.frame.rst_stream.error_code);
 	 */
@@ -2334,7 +2336,7 @@ void test_session_write_headers_start_stream() {
 
 	frame = &item.frame;
 	
-	frame.headers = Headers(FrameFlags.END_HEADERS,	session.next_stream_id, HeadersCategory.REQUEST, pri_spec_default, null, 0);
+	frame.headers = Headers(FrameFlags.END_HEADERS,	session.next_stream_id, HeadersCategory.REQUEST, pri_spec_default, null);
 	session.next_stream_id += 2;
 	
 	session.addItem(item);
@@ -2372,6 +2374,8 @@ void test_session_write_headers_reply() {
 }
 
 void test_session_write_headers_frame_size_error() {
+	import std.c.string : memset;
+
 	Session session;
 	Callbacks callbacks;
 	OutboundItem item;
@@ -2384,10 +2388,11 @@ void test_session_write_headers_frame_size_error() {
 	foreach(size_t i, ref hf; hfa) 
 	{
 		hf.name = "header";
-		hf.value = Mem.alloc!(char[])(vallen + 1);
-		memset(hf.value.ptr, '0' + cast(int)i, hf.value.length);
-		hf.value[$-1] = '\0';
-		hf.flags = HeaderFlag.NONE;
+		char[] value = Mem.alloc!(char[])(vallen + 1);
+		memset(value.ptr, '0' + cast(int)i, value.length);
+		value[$-1] = '\0';
+		hf.value = cast(string)value;
+		hf.flag = HeaderFlag.NONE;
 	}
 	
 	
@@ -2395,12 +2400,12 @@ void test_session_write_headers_frame_size_error() {
 	callbacks.on_frame_failure_cb = &user_data.cb_handlers.onFrameFailure;
 	
 	session = new Session(CLIENT, *callbacks);
-	hfa_copy = hfa.copy();
+	hfa_copy = hfa.ptr[0 .. hfa.length].copy();
 	item = Mem.alloc!OutboundItem(session);
 	
 	frame = &item.frame;
 	
-	frame.headers = Headers(FrameFlags.END_HEADERS,	session.next_stream_id, HeadersCategory.REQUEST, pri_spec_default, hfa_copy);
+	frame.headers = Headers(cast(FrameFlags)FrameFlags.END_HEADERS,	session.next_stream_id, HeadersCategory.REQUEST, pri_spec_default, hfa_copy);
 	
 	session.next_stream_id += 2;
 	
@@ -2468,7 +2473,7 @@ void test_session_write_rst_stream() {
 	session.addItem(item);
 	assert(0 == session.send());
 	
-	assert(null == session.getStream(1));
+	assert(!session.getStream(1));
 	
 	session.free();
 }
@@ -2507,7 +2512,7 @@ void test_session_write_push_promise() {
 	iv.value = 0;
 	frame = Mem.alloc!Frame();
 	frame.settings = Settings(FrameFlags.NONE, (&iv)[0 .. 1].copy());
-	session.onSettings(frame, true);
+	session.onSettings(*frame, true);
 	frame.settings.free();
 	Mem.free(frame);
 	
@@ -2538,7 +2543,7 @@ void test_session_write_push_promise() {
 	session.addItem(item);
 	
 	assert(0 == session.send());
-	assert(null == session.getStream(3));
+	assert(!session.getStream(3));
 
 	session.free();
 }
@@ -2549,17 +2554,17 @@ void test_session_is_my_stream_id() {
 	
 	session = new Session(SERVER, *callbacks);
 	
-	assert(0 == isMyStreamId(0));
-	assert(0 == isMyStreamId(1));
-	assert(1 == isMyStreamId(2));
+	assert(0 == session.isMyStreamId(0));
+	assert(0 == session.isMyStreamId(1));
+	assert(1 == session.isMyStreamId(2));
 	
 	session.free();
 	
 	session = new Session(CLIENT, *callbacks);
 	
-	assert(0 == isMyStreamId(0));
-	assert(1 == isMyStreamId(1));
-	assert(0 == isMyStreamId(2));
+	assert(0 == session.isMyStreamId(0));
+	assert(1 == session.isMyStreamId(1));
+	assert(0 == session.isMyStreamId(2));
 	
 	session.free();
 }
@@ -2582,11 +2587,11 @@ void test_session_upgrade() {
 	
 	/* Check client side */
 	session = new Session(CLIENT, *callbacks);
-	assert(0 == session.upgrade(settings_payload[0 .. settings_payloadlen], &callbacks));
+	assert(0 == session.upgrade(settings_payload[0 .. settings_payloadlen], &*callbacks));
 	stream = session.getStream(1);
 	assert(stream !is null);
-	assert(&callbacks == stream.stream_user_data);
-	assert(ShutdownFlag.WR == stream.shut_flags);
+	assert(&*callbacks == session.getStreamUserData(stream.id));
+	assert(ShutdownFlag.WR == stream.shutFlags);
 	item = session.getNextOutboundItem();
 	assert(FrameType.SETTINGS == item.frame.hd.type);
 	assert(2 == item.frame.settings.iva.length);
@@ -2596,21 +2601,21 @@ void test_session_upgrade() {
 	assert(4095 == item.frame.settings.iva[1].value);
 	
 	/* Call upgrade() again is error */
-	assert(ErrorCode.PROTO == session.upgrade(settings_payload[0 .. settings_payloadlen], &callbacks));
+	assert(ErrorCode.PROTO == session.upgrade(settings_payload[0 .. settings_payloadlen], &*callbacks));
 	session.free();
 
 	/* Check server side */
 	session = new Session(SERVER, *callbacks);
-	assert(0 == session.upgrade(settings_payload[0 .. settings_payloadlen], &callbacks));
+	assert(0 == session.upgrade(settings_payload[0 .. settings_payloadlen], &*callbacks));
 	stream = session.getStream(1);
-	assert(stream != null);
-	assert(null == stream.stream_user_data);
-	assert(ShutdownFlag.RD == stream.shut_flags);
-	assert(null == session.getNextOutboundItem());
+	assert(stream);
+	assert(!session.getStreamUserData(stream.id));
+	assert(ShutdownFlag.RD == stream.shutFlags);
+	assert(!session.getNextOutboundItem());
 	assert(1 == session.remote_settings.max_concurrent_streams);
 	assert(4095 == session.remote_settings.initial_window_size);
 	/* Call upgrade() again is error */
-	assert(ErrorCode.PROTO == session.upgrade(settings_payload[0 .. settings_payloadlen], &callbacks));
+	assert(ErrorCode.PROTO == session.upgrade(settings_payload[0 .. settings_payloadlen], &*callbacks));
 	session.free();
 
 	/* Empty SETTINGS is OK */
@@ -2640,7 +2645,7 @@ void test_session_reprioritize_stream() {
 	session.reprioritizeStream(stream, pri_spec);
 	
 	assert(10 == stream.weight);
-	assert(null == stream.dep_prev);
+	assert(!stream.depPrev);
 	
 	/* If depenency to idle stream which is not in depdenency tree yet */
 	
@@ -2649,13 +2654,13 @@ void test_session_reprioritize_stream() {
 	session.reprioritizeStream(stream, pri_spec);
 	
 	assert(99 == stream.weight);
-	assert(3 == stream.dep_prev.stream_id);
+	assert(3 == stream.depPrev.id);
 	
 	dep_stream = session.getStreamRaw(3);
 	
 	assert(DEFAULT_WEIGHT == dep_stream.weight);
 	
-	dep_stream = session.openStream(3);
+	dep_stream = openStream(session, 3);
 	
 	/* Change weight */
 	pri_spec.weight = 128;
@@ -2663,7 +2668,7 @@ void test_session_reprioritize_stream() {
 	session.reprioritizeStream(stream, pri_spec);
 	
 	assert(128 == stream.weight);
-	assert(dep_stream == stream.dep_prev);
+	assert(dep_stream == stream.depPrev);
 	
 	/* Test circular dependency; stream 1 is first removed and becomes
      root.  Then stream 3 depends on it. */
@@ -2672,7 +2677,7 @@ void test_session_reprioritize_stream() {
 	session.reprioritizeStream(dep_stream, pri_spec);
 	
 	assert(1 == dep_stream.weight);
-	assert(stream == dep_stream.dep_prev);
+	assert(stream == dep_stream.depPrev);
 	
 	/* Making priority to closed stream will result in default
      priority */
@@ -2690,6 +2695,7 @@ void test_session_reprioritize_stream() {
 void test_session_reprioritize_stream_with_idle_stream_dep() {
 	Session session;
 	Callbacks callbacks;
+	MyUserData user_data = MyUserData(&session);
 	Stream stream;
 	PrioritySpec pri_spec;
 
@@ -2708,7 +2714,7 @@ void test_session_reprioritize_stream_with_idle_stream_dep() {
 	/* idle stream is not counteed to max concurrent streams */
 	
 	assert(10 == stream.weight);
-	assert(101 == stream.dep_prev.stream_id);
+	assert(101 == stream.depPrev.id);
 	
 	stream = session.getStreamRaw(101);
 	
@@ -2724,7 +2730,7 @@ void test_submit_data() {
 	MyUserData user_data = MyUserData(&session);
 	Frame* frame;
 	FrameHeader hd;
-	ActiveOutboundItem aob;
+	ActiveOutboundItem* aob;
 	Buffers framebufs;
 	Buffer* buf;
 
@@ -2734,7 +2740,7 @@ void test_submit_data() {
 	user_data.data_source_length = DATA_PAYLOADLEN * 2;
 	session = new Session(CLIENT, *callbacks);
 	aob = &session.aob;
-	framebufs = &aob.framebufs;
+	framebufs = aob.framebufs;
 	
 	session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
 	assert(0 == submitData(session, FrameFlags.END_STREAM, 1, data_prd));
@@ -2744,7 +2750,7 @@ void test_submit_data() {
 	frame = &aob.item.frame;
 	
 	buf = &framebufs.head.buf;
-	hd.unpack(buf[]);
+	hd.unpack((*buf)[]);
 	
 	assert(FrameFlags.NONE == hd.flags);
 	assert(FrameFlags.NONE == frame.hd.flags);
@@ -2761,7 +2767,7 @@ void test_submit_data_read_length_too_large() {
 	MyUserData user_data = MyUserData(&session);
 	Frame* frame;
 	FrameHeader hd;
-	ActiveOutboundItem aob;
+	ActiveOutboundItem* aob;
 	Buffers framebufs;
 	Buffer* buf;
 	size_t payloadlen;
@@ -2774,7 +2780,7 @@ void test_submit_data_read_length_too_large() {
 	user_data.data_source_length = DATA_PAYLOADLEN * 2;
 	session = new Session(CLIENT, *callbacks);
 	aob = &session.aob;
-	framebufs = &aob.framebufs;
+	framebufs = aob.framebufs;
 	
 	session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
 	assert(0 == submitData(session, FrameFlags.END_STREAM, 1, data_prd));
@@ -2784,7 +2790,7 @@ void test_submit_data_read_length_too_large() {
 	frame = &aob.item.frame;
 	
 	buf = &framebufs.head.buf;
-	hd.unpack(buf[]);
+	hd.unpack((*buf)[]);
 	
 	assert(FrameFlags.NONE == hd.flags);
 	assert(FrameFlags.NONE == frame.hd.flags);
@@ -2811,10 +2817,10 @@ void test_submit_data_read_length_too_large() {
 	
 	frame = &aob.item.frame;
 	
-	framebufs = &aob.framebufs;
+	framebufs = aob.framebufs;
 	
 	buf = &framebufs.head.buf;
-	hd.unpack(buf[]);
+	hd.unpack((*buf)[]);
 	
 	payloadlen = min(INITIAL_CONNECTION_WINDOW_SIZE, INITIAL_WINDOW_SIZE);
 	
@@ -2835,7 +2841,7 @@ void test_submit_data_read_length_smallest() {
 	MyUserData user_data = MyUserData(&session);
 	Frame* frame;
 	FrameHeader hd;
-	ActiveOutboundItem aob;
+	ActiveOutboundItem* aob;
 	Buffers framebufs;
 	Buffer* buf;
 
@@ -2846,7 +2852,7 @@ void test_submit_data_read_length_smallest() {
 	user_data.data_source_length = DATA_PAYLOADLEN * 2;
 	session = new Session(CLIENT, *callbacks);
 	aob = &session.aob;
-	framebufs = &aob.framebufs;
+	framebufs = aob.framebufs;
 	
 	session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
 	assert(0 == submitData(session, FrameFlags.END_STREAM, 1, data_prd));
@@ -2856,7 +2862,7 @@ void test_submit_data_read_length_smallest() {
 	frame = &aob.item.frame;
 	
 	buf = &framebufs.head.buf;
-	hd.unpack(buf[]);
+	hd.unpack((*buf)[]);
 	
 	assert(FrameFlags.NONE == hd.flags);
 	assert(FrameFlags.NONE == frame.hd.flags);
@@ -2923,7 +2929,7 @@ void test_submit_request_without_data() {
 	Session session;
 	Callbacks callbacks;
 	Accumulator acc;
-	DataProvider data_prd = DataProvider(-1, null);
+	DataProvider data_prd = DataProvider(DataSource(-1), null);
 	OutboundItem item;
 	MyUserData user_data = MyUserData(&session);
 	Frame frame;
@@ -2946,13 +2952,13 @@ void test_submit_request_without_data() {
 	assert(0 == session.send());
 	frame.unpack(acc[]);
 
-	bufs.add(acc[]);
+	bufs.add(cast(string) acc[]);
 	output.inflate(inflater, bufs, FRAME_HDLEN);
 	
 	assert(reqhf.length == output.length);
-	assert(reqhf.equals(output.hfa));
+	assert(reqhf.equals(output.hfa_raw));
 	frame.headers.free();
-	HeaderFields_reset(&output);
+	output.reset();
 	
 	bufs.free();
 	inflater.free();
@@ -2971,7 +2977,7 @@ void test_submit_response_with_data() {
 	data_prd.read_callback = &user_data.datasrc.readFixedLength;
 	user_data.data_source_length = 64 * 1024 - 1;
 	session = new Session(SERVER, *callbacks);
-	session.openStream(1, FrameFlags.END_STREAM, pri_spec_default, StreamState.OPENING, null);
+	session.openStream(1, StreamFlags.PUSH, pri_spec_default, StreamState.OPENING, null);
 	assert(0 == submitResponse(session, 1, reshf, data_prd));
 	item = session.getNextOutboundItem();
 	assert(reshf.length == item.frame.headers.hfa.length);
@@ -2986,7 +2992,7 @@ void test_submit_response_without_data() {
 	Session session;
 	Callbacks callbacks;
 	Accumulator acc;
-	DataProvider data_prd = DataProvider(-1, null);
+	DataProvider data_prd = DataProvider(DataSource(-1), null);
 	OutboundItem item;
 	MyUserData user_data = MyUserData(&session);
 	Frame frame;
@@ -3000,7 +3006,7 @@ void test_submit_response_without_data() {
 	callbacks.write_cb = &user_data.cb_handlers.writeToAccumulator;
 	session = new Session(SERVER, *callbacks);
 
-	session.openStream(1, FrameFlags.END_STREAM, pri_spec_default, StreamState.OPENING, null);
+	session.openStream(1, StreamFlags.PUSH, pri_spec_default, StreamState.OPENING, null);
 	assert(0 == submitResponse(session, 1, reshf, data_prd));
 	item = session.getNextOutboundItem();
 	assert(reshf.length == item.frame.headers.hfa.length);
@@ -3010,13 +3016,13 @@ void test_submit_response_without_data() {
 	assert(0 == session.send());
 	frame.unpack(acc[]);
 	
-	bufs.add(acc[]);
+	bufs.add(cast(string)acc[]);
 	output.inflate(inflater, bufs, FRAME_HDLEN);
 	
 	assert(reshf.length == output.length);
-	assert(reshf.equals(output.hfa));
+	assert(reshf.equals(output.hfa_raw));
 	
-	HeaderFields_reset(&output);
+	output.reset();
 	bufs.free();
 	frame.headers.free();
 	inflater.free();
@@ -3033,7 +3039,7 @@ void test_submit_headers_start_stream() {
 	item = session.getNextOutboundItem();
 	assert(reqhf.length == item.frame.headers.hfa.length);
 	assert(reqhf.equals(item.frame.headers.hfa));
-	assert((FrameFlags.END_HEADERS | FrameFlags.END_STREAM) == item.frame.hd.flags);
+	assert(cast(FrameFlags)(FrameFlags.END_HEADERS | FrameFlags.END_STREAM) == item.frame.hd.flags);
 	assert(0 == (item.frame.hd.flags & FrameFlags.PRIORITY));
 	
 	session.free();
@@ -3054,10 +3060,10 @@ void test_submit_headers_reply() {
 	item = session.getNextOutboundItem();
 	assert(reshf.length == item.frame.headers.hfa.length);
 	assert(reshf.equals(item.frame.headers.hfa));
-	assert((FrameFlags.END_STREAM | FrameFlags.END_HEADERS) == item.frame.hd.flags);
+	assert(cast(FrameFlags)(FrameFlags.END_STREAM | FrameFlags.END_HEADERS) == item.frame.hd.flags);
 	
 	user_data.frame_send_cb_called = 0;
-	user_data.sent_frame_type = 0;
+	user_data.sent_frame_type = FrameType.init;
 	/* The transimission will be canceled because the stream 1 is not
      open. */
 	assert(0 == session.send());
@@ -3069,7 +3075,7 @@ void test_submit_headers_reply() {
 	assert(0 == session.send());
 	assert(1 == user_data.frame_send_cb_called);
 	assert(FrameType.HEADERS == user_data.sent_frame_type);
-	assert(stream.shut_flags & ShutdownFlag.WR);
+	assert(stream.shutFlags & ShutdownFlag.WR);
 	
 	session.free();
 }
@@ -3089,12 +3095,12 @@ void test_submit_headers_push_reply() {
 	assert(0 == submitHeaders(session, FrameFlags.NONE, 2, pri_spec_default, reshf, &foo));
 	
 	user_data.frame_send_cb_called = 0;
-	user_data.sent_frame_type = 0;
+	user_data.sent_frame_type = FrameType.init;
 	assert(0 == session.send());
 	assert(1 == user_data.frame_send_cb_called);
 	assert(FrameType.HEADERS == user_data.sent_frame_type);
 	assert(StreamState.OPENED == stream.state);
-	assert(&foo == stream.stream_user_data);
+	assert(&foo == session.getStreamUserData(stream.id));
 
 	session.free();
 	
@@ -3105,7 +3111,7 @@ void test_submit_headers_push_reply() {
 	assert(0 == submitHeaders(session, FrameFlags.NONE, 2, pri_spec_default, reqhf, null));
 	
 	user_data.frame_send_cb_called = 0;
-	user_data.sent_frame_type = 0;
+	user_data.sent_frame_type = FrameType.init;
 	assert(0 == session.send());
 	assert(0 == user_data.frame_send_cb_called);
 	
@@ -3136,10 +3142,10 @@ void test_submit_headers() {
 	item = session.getNextOutboundItem();
 	assert(reqhf.length == item.frame.headers.hfa.length);
 	assert(reqhf.equals(item.frame.headers.hfa));
-	assert((FrameFlags.END_STREAM | FrameFlags.END_HEADERS) == item.frame.hd.flags);
+	assert(cast(FrameFlags)(FrameFlags.END_STREAM | FrameFlags.END_HEADERS) == item.frame.hd.flags);
 	
 	user_data.frame_send_cb_called = 0;
-	user_data.sent_frame_type = 0;
+	user_data.sent_frame_type = FrameType.init;
 	/* The transimission will be canceled because the stream 1 is not open. */
 	assert(0 == session.send());
 	assert(0 == user_data.frame_send_cb_called);
@@ -3150,17 +3156,17 @@ void test_submit_headers() {
 	assert(0 == session.send());
 	assert(1 == user_data.frame_send_cb_called);
 	assert(FrameType.HEADERS == user_data.sent_frame_type);
-	assert(stream.shut_flags & ShutdownFlag.WR);
+	assert(stream.shutFlags & ShutdownFlag.WR);
 	
 	frame.unpack(acc[]);
 	
-	bufs.add(acc[]);
+	bufs.add(cast(string)acc[]);
 	output.inflate(inflater, bufs, FRAME_HDLEN);
 	
 	assert(reqhf.length == output.length);
-	assert(reqhf.equals(output.hfa));
+	assert(reqhf.equals(output.hfa_raw));
 	
-	HeaderFields_reset(&output);
+	output.reset();
 	bufs.free();
 	frame.headers.free();
 	
@@ -3179,7 +3185,7 @@ void test_submit_headers_continuation() {
 	MyUserData user_data = MyUserData(&session);
 
 	foreach(ref hf; hfa)
-		hf.value = data;
+		hf.value = cast(string)data;
 	
 	
 	callbacks.write_cb = toDelegate(&MyCallbacks.writeNull);
@@ -3189,7 +3195,7 @@ void test_submit_headers_continuation() {
 	assert(1 == submitHeaders(session, FrameFlags.END_STREAM, -1, pri_spec_default, hfa, null));
 	item = session.getNextOutboundItem();
 	assert(FrameType.HEADERS == item.frame.hd.type);
-	assert((FrameFlags.END_STREAM | FrameFlags.END_HEADERS) == item.frame.hd.flags);
+	assert(cast(FrameFlags)(FrameFlags.END_STREAM | FrameFlags.END_HEADERS) == item.frame.hd.flags);
 	assert(0 == (item.frame.hd.flags & FrameFlags.PRIORITY));
 	
 	user_data.frame_send_cb_called = 0;
@@ -3252,7 +3258,7 @@ void test_submit_settings() {
 	iva[3].id = Setting.HEADER_TABLE_SIZE;
 	iva[3].value = 0;
 	
-	iva[4].id = UNKNOWN_ID;
+	iva[4].id = cast(ushort)UNKNOWN_ID;
 	iva[4].value = 999;
 	
 	iva[5].id = Setting.INITIAL_WINDOW_SIZE;
@@ -3294,7 +3300,7 @@ void test_submit_settings() {
 	assert(50 == session.pending_local_max_concurrent_stream);
 	
 	ack_frame.settings = Settings(FrameFlags.ACK, null);
-	assert(0 == session.onSettings(&ack_frame, false));
+	assert(0 == session.onSettings(ack_frame, false));
 	ack_frame.settings.free();
 	
 	assert(16 * 1024 == session.local_settings.initial_window_size);
@@ -3324,21 +3330,21 @@ void test_submit_settings_update_local_window_size() {
 	session = new Session(SERVER, *callbacks);
 	
 	stream = session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENED, null);
-	stream.local_window_size = INITIAL_WINDOW_SIZE + 100;
-	stream.recv_window_size = 32768;
+	stream.localWindowSize = INITIAL_WINDOW_SIZE + 100;
+	stream.recvWindowSize = 32768;
 
 	stream = session.openStream(3, StreamFlags.NONE, pri_spec_default, StreamState.OPENED, null);
 	
 	assert(0 == submitSettings(session, iva[0 .. 1]));
 	assert(0 == session.send());
-	assert(0 == session.onSettings(&ack_frame, false));
+	assert(0 == session.onSettings(ack_frame, false));
 	
 	stream = session.getStream(1);
-	assert(0 == stream.recv_window_size);
-	assert(16 * 1024 + 100 == stream.local_window_size);
+	assert(0 == stream.recvWindowSize);
+	assert(16 * 1024 + 100 == stream.localWindowSize);
 	
 	stream = session.getStream(3);
-	assert(16 * 1024 == stream.local_window_size);
+	assert(16 * 1024 == stream.localWindowSize);
 	
 	item = session.getNextOutboundItem();
 	assert(FrameType.WINDOW_UPDATE == item.frame.hd.type);
@@ -3350,11 +3356,11 @@ void test_submit_settings_update_local_window_size() {
 	iva[0].value = 128 * 1024;
 	session = new Session(SERVER, *callbacks);
 	stream = session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENED, null);
-	stream.local_window_size = MAX_WINDOW_SIZE;
+	stream.localWindowSize = MAX_WINDOW_SIZE;
 	
 	assert(0 == submitSettings(session, iva[0 .. 1]));
 	assert(0 == session.send());
-	assert(0 == session.onSettings(&ack_frame, false));
+	assert(0 == session.onSettings(ack_frame, false));
 	
 	item = session.getNextOutboundItem();
 	assert(FrameType.GOAWAY == item.frame.hd.type);
@@ -3377,10 +3383,10 @@ void test_submit_push_promise() {
 	
 	session = new Session(SERVER, *callbacks);
 	session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
-	assert(2 == submitPushPromise(session, FrameFlags.NONE, 1, reqhf, &user_data));
+	assert(2 == submitPushPromise(session, 1, reqhf, &user_data));
 	
 	user_data.frame_send_cb_called = 0;
-	user_data.sent_frame_type = 0;
+	user_data.sent_frame_type = FrameType.init;
 	assert(0 == session.send());
 	assert(1 == user_data.frame_send_cb_called);
 	assert(FrameType.PUSH_PROMISE == user_data.sent_frame_type);
@@ -3389,7 +3395,7 @@ void test_submit_push_promise() {
 	assert(&user_data == session.getStreamUserData(2));
 	
 	/* submit PUSH_PROMISE while associated stream is not opened */
-	assert(4 == submitPushPromise(session, FrameFlags.NONE, 3, reqhf, &user_data));
+	assert(4 == submitPushPromise(session, 3, reqhf, &user_data));
 	
 	user_data.frame_not_send_cb_called = 0;
 	
@@ -3399,7 +3405,7 @@ void test_submit_push_promise() {
 	
 	stream = session.getStream(4);
 	
-	assert(null == stream);
+	assert(!stream);
 	
 	session.free();
 }
@@ -3416,33 +3422,33 @@ void test_submit_window_update() {
 	
 	session = new Session(CLIENT, *callbacks);
 	stream = session.openStream(2, StreamFlags.NONE, pri_spec_default, StreamState.OPENED, null);
-	stream.recv_window_size = 4096;
+	stream.recvWindowSize = 4096;
 	
-	assert(0 == submitWindowUpdate(session, FrameFlags.NONE, 2, 1024));
+	assert(0 == submitWindowUpdate(session, 2, 1024));
 	item = session.getNextOutboundItem();
 	assert(FrameType.WINDOW_UPDATE == item.frame.hd.type);
 	assert(1024 == item.frame.window_update.window_size_increment);
 	assert(0 == session.send());
-	assert(3072 == stream.recv_window_size);
+	assert(3072 == stream.recvWindowSize);
 	
-	assert(0 == submitWindowUpdate(session, FrameFlags.NONE, 2, 4096));
+	assert(0 == submitWindowUpdate(session, 2, 4096));
 	item = session.getNextOutboundItem();
 	assert(FrameType.WINDOW_UPDATE == item.frame.hd.type);
 	assert(4096 == item.frame.window_update.window_size_increment);
 	assert(0 == session.send());
-	assert(0 == stream.recv_window_size);
+	assert(0 == stream.recvWindowSize);
 	
-	assert(0 == submitWindowUpdate(session, FrameFlags.NONE, 2, 4096));
+	assert(0 == submitWindowUpdate(session, 2, 4096));
 	item = session.getNextOutboundItem();
 	assert(FrameType.WINDOW_UPDATE == item.frame.hd.type);
 	assert(4096 == item.frame.window_update.window_size_increment);
 	assert(0 == session.send());
-	assert(0 == stream.recv_window_size);
+	assert(0 == stream.recvWindowSize);
 	
-	assert(0 == submitWindowUpdate(session, FrameFlags.NONE, 2, 0));
+	assert(0 == submitWindowUpdate(session, 2, 0));
 	/* It is ok if stream is closed or does not exist at the call
      time */
-	assert(0 == submitWindowUpdate(session, FrameFlags.NONE, 4, 4096));
+	assert(0 == submitWindowUpdate(session, 4, 4096));
 	
 	session.free();
 }
@@ -3457,11 +3463,11 @@ void test_submit_window_update_local_window_size() {
 	
 	session = new Session(CLIENT, *callbacks);
 	stream = session.openStream(2, StreamFlags.NONE, pri_spec_default, StreamState.OPENED, null);
-	stream.recv_window_size = 4096;
+	stream.recvWindowSize = 4096;
 	
-	assert(0 == submitWindowUpdate(session, FrameFlags.NONE, 2, stream.recv_window_size + 1));
-	assert(INITIAL_WINDOW_SIZE + 1 == stream.local_window_size);
-	assert(0 == stream.recv_window_size);
+	assert(0 == submitWindowUpdate(session, 2, stream.recvWindowSize + 1));
+	assert(INITIAL_WINDOW_SIZE + 1 == stream.localWindowSize);
+	assert(0 == stream.recvWindowSize);
 	item = session.getNextOutboundItem();
 	assert(FrameType.WINDOW_UPDATE == item.frame.hd.type);
 	assert(4097 == item.frame.window_update.window_size_increment);
@@ -3469,29 +3475,29 @@ void test_submit_window_update_local_window_size() {
 	assert(0 == session.send());
 	
 	/* Let's decrement local window size */
-	stream.recv_window_size = 4096;
-	assert(0 == submitWindowUpdate(session, FrameFlags.NONE, 2, -stream.local_window_size / 2));
-	assert(32768 == stream.local_window_size);
-	assert(-28672 == stream.recv_window_size);
-	assert(32768 == stream.recv_reduction);
+	stream.recvWindowSize = 4096;
+	assert(0 == submitWindowUpdate(session, 2, -stream.localWindowSize / 2));
+	assert(32768 == stream.localWindowSize);
+	assert(-28672 == stream.recvWindowSize);
+	assert(32768 == stream.recvReduction);
 
 	item = session.getNextOutboundItem();
-	assert(item == null);
+	assert(!item);
 	
 	/* Increase local window size */
-	assert(0 == submitWindowUpdate(session, FrameFlags.NONE, 2, 16384));
-	assert(49152 == stream.local_window_size);
-	assert(-12288 == stream.recv_window_size);
-	assert(16384 == stream.recv_reduction);
-	assert(null == session.getNextOutboundItem());
+	assert(0 == submitWindowUpdate(session, 2, 16384));
+	assert(49152 == stream.localWindowSize);
+	assert(-12288 == stream.recvWindowSize);
+	assert(16384 == stream.recvReduction);
+	assert(!session.getNextOutboundItem());
 	
-	assert(ErrorCode.FLOW_CONTROL == submitWindowUpdate(session, FrameFlags.NONE, 2, MAX_WINDOW_SIZE));
+	assert(ErrorCode.FLOW_CONTROL == submitWindowUpdate(session, 2, MAX_WINDOW_SIZE));
 	
 	assert(0 == session.send());
 	
 	/* Check connection-level flow control */
 	session.recv_window_size = 4096;
-	assert(0 == submitWindowUpdate(session, FrameFlags.NONE, 0,	session.recv_window_size + 1));
+	assert(0 == submitWindowUpdate(session, 0,	session.recv_window_size + 1));
 	assert(INITIAL_CONNECTION_WINDOW_SIZE + 1 ==
 		session.local_window_size);
 	assert(0 == session.recv_window_size);
@@ -3503,21 +3509,21 @@ void test_submit_window_update_local_window_size() {
 	
 	/* Go decrement part */
 	session.recv_window_size = 4096;
-	assert(0 == submitWindowUpdate(session, FrameFlags.NONE, 0, -session.local_window_size / 2));
+	assert(0 == submitWindowUpdate(session, 0, -session.local_window_size / 2));
 	assert(32768 == session.local_window_size);
 	assert(-28672 == session.recv_window_size);
 	assert(32768 == session.recv_reduction);
 	item = session.getNextOutboundItem();
-	assert(item == null);
+	assert(!item);
 	
 	/* Increase local window size */
-	assert(0 == submitWindowUpdate(session, FrameFlags.NONE, 0, 16384));
+	assert(0 == submitWindowUpdate(session, 0, 16384));
 	assert(49152 == session.local_window_size);
 	assert(-12288 == session.recv_window_size);
 	assert(16384 == session.recv_reduction);
-	assert(null == session.getNextOutboundItem());
+	assert(!session.getNextOutboundItem());
 	
-	assert(ErrorCode.FLOW_CONTROL == submitWindowUpdate(session, FrameFlags.NONE, 0, MAX_WINDOW_SIZE));
+	assert(ErrorCode.FLOW_CONTROL == submitWindowUpdate(session, 0, MAX_WINDOW_SIZE));
 	
 	session.free();
 }
@@ -3593,9 +3599,9 @@ void test_submit_invalid_hf() {
 	assert(0 < submitHeaders(session, FrameFlags.NONE, -1, pri_spec_default, empty_name_hfa));
 	
 	/* submitPushPromise */
-	session.openStream(1);
+	openStream(session, 1);
 	
-	assert(0 < submitPushPromise(session, FrameFlags.NONE, 1, empty_name_hfa, null));
+	assert(0 < submitPushPromise(session, 1, empty_name_hfa, null));
 	
 	session.free();
 }
@@ -3616,47 +3622,47 @@ void test_session_open_stream() {
 	assert(0 == session.num_outgoing_streams);
 	assert(StreamState.OPENED == stream.state);
 	assert(245 == stream.weight);
-	assert(null == stream.dep_prev);
-	assert(ShutdownFlag.NONE == stream.shut_flags);
+	assert(!stream.depPrev);
+	assert(ShutdownFlag.NONE == stream.shutFlags);
 	
 	stream = session.openStream(2, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
 	assert(1 == session.num_incoming_streams);
 	assert(1 == session.num_outgoing_streams);
-	assert(null == stream.dep_prev);
+	assert(!stream.depPrev);
 	assert(DEFAULT_WEIGHT == stream.weight);
-	assert(ShutdownFlag.NONE == stream.shut_flags);
+	assert(ShutdownFlag.NONE == stream.shutFlags);
 
 	stream = session.openStream(4, StreamFlags.NONE, pri_spec_default, StreamState.RESERVED, null);
 	assert(1 == session.num_incoming_streams);
 	assert(1 == session.num_outgoing_streams);
-	assert(null == stream.dep_prev);
+	assert(!stream.depPrev);
 	assert(DEFAULT_WEIGHT == stream.weight);
-	assert(ShutdownFlag.RD == stream.shut_flags);
+	assert(ShutdownFlag.RD == stream.shutFlags);
 	
 	pri_spec = PrioritySpec(1, 17, 1);
 	
 	stream = session.openStream(3, StreamFlags.NONE, pri_spec, StreamState.OPENED, null);
 	assert(17 == stream.weight);
-	assert(1 == stream.dep_prev.stream_id);
+	assert(1 == stream.depPrev.id);
 	
 	/* Dependency to idle stream */
 	pri_spec = PrioritySpec(1000000007, 240, 1);
 
 	stream = session.openStream(5, StreamFlags.NONE, pri_spec, StreamState.OPENED, null);
 	assert(240 == stream.weight);
-	assert(1000000007 == stream.dep_prev.stream_id);
+	assert(1000000007 == stream.depPrev.id);
 	
 	stream = session.getStreamRaw(1000000007);
 	
 	assert(DEFAULT_WEIGHT == stream.weight);
-	assert(null != stream.root_next);
+	assert(stream.root_next);
 	
 	/* Dependency to closed stream which is not in dependency tree */
 	session.last_recv_stream_id = 7;
 	
 	pri_spec = PrioritySpec(7, 10, 0);
 	
-	stream = session.openStream(9, FrameFlags.NONE, pri_spec, StreamState.OPENED, null);
+	stream = session.openStream(9, StreamFlags.NONE, pri_spec, StreamState.OPENED, null);
 	
 	assert(DEFAULT_WEIGHT == stream.weight);
 	
@@ -3666,9 +3672,9 @@ void test_session_open_stream() {
 	stream = session.openStream(4, StreamFlags.NONE, pri_spec_default, StreamState.RESERVED, null);
 	assert(0 == session.num_incoming_streams);
 	assert(0 == session.num_outgoing_streams);
-	assert(null == stream.dep_prev);
+	assert(!stream.depPrev);
 	assert(DEFAULT_WEIGHT == stream.weight);
-	assert(ShutdownFlag.WR == stream.shut_flags);
+	assert(ShutdownFlag.WR == stream.shutFlags);
 	
 	session.free();
 }
@@ -3688,7 +3694,7 @@ void test_session_open_stream_with_idle_stream_dep() {
 	stream = session.openStream(1, StreamFlags.NONE, pri_spec, StreamState.OPENED, null);
 	
 	assert(245 == stream.weight);
-	assert(101 == stream.dep_prev.stream_id);
+	assert(101 == stream.depPrev.id);
 	
 	stream = session.getStreamRaw(101);
 	
@@ -3701,7 +3707,7 @@ void test_session_open_stream_with_idle_stream_dep() {
 	stream = session.openStream(101, StreamFlags.NONE, pri_spec, StreamState.OPENED, null);
 	
 	assert(1 == stream.weight);
-	assert(211 == stream.dep_prev.stream_id);
+	assert(211 == stream.depPrev.id);
 
 	stream = session.getStreamRaw(211);
 	
@@ -3722,7 +3728,7 @@ void test_session_get_next_ob_item() {
 	session = new Session(SERVER, *callbacks);
 	session.remote_settings.max_concurrent_streams = 2;
 	
-	assert(null == session.getNextOutboundItem());
+	assert(!session.getNextOutboundItem());
 	submitPing(session, null);
 	assert(FrameType.PING == session.getNextOutboundItem().frame.hd.type);
 	
@@ -3730,7 +3736,7 @@ void test_session_get_next_ob_item() {
 	assert(FrameType.PING == session.getNextOutboundItem().frame.hd.type);
 	
 	assert(0 == session.send());
-	assert(null == session.getNextOutboundItem());
+	assert(!session.getNextOutboundItem());
 	
 	/* Incoming stream does not affect the number of outgoing max
      concurrent streams. */
@@ -3743,7 +3749,7 @@ void test_session_get_next_ob_item() {
 	assert(0 == session.send());
 	
 	submitRequest(session, pri_spec, null, DataProvider.init, null);
-	assert(null == session.getNextOutboundItem());
+	assert(!session.getNextOutboundItem());
 	
 	session.remote_settings.max_concurrent_streams = 3;
 	
@@ -3764,7 +3770,7 @@ void test_session_pop_next_ob_item() {
 	session = new Session(SERVER, *callbacks);
 	session.remote_settings.max_concurrent_streams = 1;
 	
-	assert(null == session.popNextOutboundItem());
+	assert(!session.popNextOutboundItem());
 	
 	submitPing(session, null);
 	
@@ -3775,14 +3781,14 @@ void test_session_pop_next_ob_item() {
 	item = session.popNextOutboundItem();
 	assert(FrameType.PING == item.frame.hd.type);
 	item.free();
-	free(item);
+	Mem.free(item);
 	
 	item = session.popNextOutboundItem();
 	assert(FrameType.HEADERS == item.frame.hd.type);
 	item.free();
-	free(item);
+	Mem.free(item);
 	
-	assert(null == session.popNextOutboundItem());
+	assert(!session.popNextOutboundItem());
 	
 	/* Incoming stream does not affect the number of outgoing max concurrent streams. */
 	session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
@@ -3803,16 +3809,16 @@ void test_session_pop_next_ob_item() {
 	detachItem(stream, session);
 	
 	item.free();
-	free(item);
+	Mem.free(item);
 	
-	assert(null == session.popNextOutboundItem());
+	assert(!session.popNextOutboundItem());
 	
 	session.remote_settings.max_concurrent_streams = 2;
 	
 	item = session.popNextOutboundItem();
 	assert(FrameType.HEADERS == item.frame.hd.type);
 	item.free();
-	free(item);
+	Mem.free(item);
 	
 	session.free();
 	
@@ -3821,7 +3827,7 @@ void test_session_pop_next_ob_item() {
 	session.remote_settings.max_concurrent_streams = 0;
 	session.openStream(2, StreamFlags.NONE, pri_spec_default, StreamState.RESERVED, null);
 	assert(0 == submitHeaders(session, FrameFlags.END_STREAM, 2));
-	assert(null == session.popNextOutboundItem());
+	assert(!session.popNextOutboundItem());
 	assert(1 == session.ob_ss_pq.length);
 	session.free();
 }
@@ -3916,7 +3922,7 @@ void test_session_stop_data_with_rst_stream() {
 	/* With RST_STREAM, stream is canceled and further DATA on that stream are not sent. */
 	assert(user_data.data_source_length == DATA_PAYLOADLEN * 2);
 	
-	assert(null == session.getStream(1));
+	assert(!session.getStream(1));
 	
 	session.free();
 }
@@ -3940,7 +3946,7 @@ void test_session_defer_data() {
 	stream = session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
 	
 	session.remote_window_size = 1 << 20;
-	stream.remote_window_size = 1 << 20;
+	stream.remoteWindowSize = 1 << 20;
 	
 	submitResponse(session, 1, null, data_prd);
 	
@@ -4040,9 +4046,9 @@ void test_session_flow_control() {
 	/* Change initial window size to 16KiB. The window_size becomes
      negative. */
 	new_initial_window_size = 16 * 1024;
-	stream.remote_window_size = new_initial_window_size - (session.remote_settings.initial_window_size - stream.remote_window_size);
+	stream.remoteWindowSize = new_initial_window_size - (session.remote_settings.initial_window_size - stream.remoteWindowSize);
 	session.remote_settings.initial_window_size = new_initial_window_size;
-	assert(-48 * 1024 == stream.remote_window_size);
+	assert(-48 * 1024 == stream.remoteWindowSize);
 	
 	/* Back 48KiB to stream window */
 	frame.hd.stream_id = 1;
@@ -4087,7 +4093,7 @@ void test_session_flow_control() {
 	/* Sends last 8KiB data */
 	assert(0 == session.send());
 	assert(0 == user_data.data_source_length);
-	assert(session.getStream(1).shut_flags & ShutdownFlag.WR);
+	assert(session.getStream(1).shutFlags & ShutdownFlag.WR);
 	
 	frame.window_update.free();
 	session.free();
@@ -4113,7 +4119,7 @@ void test_session_flow_control_data_recv() {
 	stream.shutdown(ShutdownFlag.WR);
 	
 	session.local_window_size = MAX_PAYLOADLEN;
-	stream.local_window_size = MAX_PAYLOADLEN;
+	stream.localWindowSize = MAX_PAYLOADLEN;
 	
 	/* Create DATA frame */
 	
@@ -4169,7 +4175,7 @@ void test_session_flow_control_data_with_padding_recv() {
 	
 	/* Create DATA frame */
 	
-	hd = FrameHeader(357, FrameType.DATA, FrameFlags.END_STREAM | FrameFlags.PADDED, 1);
+	hd = FrameHeader(357, FrameType.DATA, cast(FrameFlags)(FrameFlags.END_STREAM | FrameFlags.PADDED), 1);
 	
 	hd.pack(data[0 .. $]);
 	/* Set Pad Length field, which itself is padding */
@@ -4178,7 +4184,7 @@ void test_session_flow_control_data_with_padding_recv() {
 	assert(cast(size_t)(FRAME_HDLEN + hd.length) == session.memRecv(data[0 .. FRAME_HDLEN + hd.length]));
 	
 	assert(cast(int)hd.length == session.recv_window_size);
-	assert(cast(int)hd.length == stream.recv_window_size);
+	assert(cast(int)hd.length == stream.recvWindowSize);
 	assert(256 == session.consumed_size);
 	assert(256 == stream.consumed_size);
 	
@@ -4251,8 +4257,8 @@ void test_session_on_stream_close() {
 	
 	session = new Session(CLIENT, *callbacks);
 	stream = session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENED, &user_data);
-	assert(stream != null);
-	assert(closeStream(1, FrameError.NO_ERROR) == 0);
+	assert(stream);
+	assert(session.closeStream(1, FrameError.NO_ERROR) == 0);
 	assert(user_data.stream_close_cb_called == 1);
 	session.free();
 }
@@ -4266,8 +4272,8 @@ void test_session_on_ctrl_not_send() {
 	callbacks.on_frame_failure_cb = &user_data.cb_handlers.onFrameFailure;
 	callbacks.write_cb = toDelegate(&MyCallbacks.writeNull);
 	user_data.frame_not_send_cb_called = 0;
-	user_data.not_sent_frame_type = 0;
-	user_data.not_sent_error = 0;
+	user_data.not_sent_frame_type = FrameType.init;
+	user_data.not_sent_error = ErrorCode.OK;
 	
 	session = new Session(SERVER, *callbacks);
 	stream = session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, &user_data);
@@ -4282,18 +4288,18 @@ void test_session_on_ctrl_not_send() {
 	
 	user_data.frame_not_send_cb_called = 0;
 	/* Shutdown transmission */
-	stream.shut_flags |= ShutdownFlag.WR;
+	stream.shutFlags = cast(ShutdownFlag)(stream.shutFlags | ShutdownFlag.WR);
 	assert(0 == submitHeaders(session, FrameFlags.END_STREAM, 1));
 	assert(0 == session.send());
 	assert(1 == user_data.frame_not_send_cb_called);
 	assert(FrameType.HEADERS == user_data.not_sent_frame_type);
 	assert(ErrorCode.STREAM_SHUT_WR == user_data.not_sent_error);
 	
-	stream.shut_flags = ShutdownFlag.NONE;
+	stream.shutFlags = ShutdownFlag.NONE;
 	user_data.frame_not_send_cb_called = 0;
 	/* Queue RST_STREAM */
 	assert(0 == submitHeaders(session, FrameFlags.END_STREAM, 1));
-	assert(0 == submitRstStream(session, FrameFlags.NONE, 1, FrameError.INTERNAL_ERROR));
+	assert(0 == submitRstStream(session, 1, FrameError.INTERNAL_ERROR));
 	assert(0 == session.send());
 	assert(1 == user_data.frame_not_send_cb_called);
 	assert(FrameType.HEADERS == user_data.not_sent_frame_type);
@@ -4329,10 +4335,10 @@ void test_session_get_outbound_queue_size() {
 	session = new Session(CLIENT, *callbacks);
 	assert(0 == session.getOutboundQueueSize());
 
-	assert(0 == submitPing(session, null));
+	submitPing(session, null);
 	assert(1 == session.getOutboundQueueSize());
 	
-	assert(0 == submitGoAway(session, FrameFlags.NONE, 2, FrameError.NO_ERROR, null, 0));
+	assert(0 == submitGoAway(session, 2, FrameError.NO_ERROR, null));
 	assert(2 == session.getOutboundQueueSize());
 	
 	session.free();
@@ -4351,43 +4357,43 @@ void test_session_get_effective_local_window_size() {
 	assert(0 == session.getEffectiveRecvDataLength());
 	
 	assert(INITIAL_WINDOW_SIZE == session.getStreamEffectiveLocalWindowSize(1));
-	assert(0 == session.getStreamEffectiveDataLength(1));
+	assert(0 == session.getStreamEffectiveRecvDataLength(1));
 	
 	/* Check connection flow control */
 	session.recv_window_size = 100;
-	submitWindowUpdate(session, FrameFlags.NONE, 0, 1100);
+	submitWindowUpdate(session, 0, 1100);
 	
 	assert(INITIAL_CONNECTION_WINDOW_SIZE + 1000 == session.getEffectiveLocalWindowSize());
 	assert(0 == session.getEffectiveRecvDataLength());
 	
-	submitWindowUpdate(session, FrameFlags.NONE, 0, -50);
+	submitWindowUpdate(session, 0, -50);
 	/* Now session.recv_window_size = -50 */
 	assert(INITIAL_CONNECTION_WINDOW_SIZE + 950 == session.getEffectiveLocalWindowSize());
 	assert(0 == session.getEffectiveRecvDataLength());
 
 	session.recv_window_size += 50;
 	/* Now session.recv_window_size = 0 */
-	submitWindowUpdate(session, FrameFlags.NONE, 0, 100);
+	submitWindowUpdate(session, 0, 100);
 	assert(INITIAL_CONNECTION_WINDOW_SIZE + 1050 == session.getEffectiveLocalWindowSize());
 	assert(50 == session.getEffectiveRecvDataLength());
 	
 	/* Check stream flow control */
-	stream.recv_window_size = 100;
-	submitWindowUpdate(session, FrameFlags.NONE, 1, 1100);
+	stream.recvWindowSize = 100;
+	submitWindowUpdate(session, 1, 1100);
 	
 	assert(INITIAL_WINDOW_SIZE + 1000 == session.getStreamEffectiveLocalWindowSize(1));
-	assert(0 == session.getStreamEffectiveDataLength(1));
+	assert(0 == session.getStreamEffectiveRecvDataLength(1));
 
-	submitWindowUpdate(session, FrameFlags.NONE, 1, -50);
-	/* Now stream.recv_window_size = -50 */
+	submitWindowUpdate(session, 1, -50);
+	/* Now stream.recvWindowSize = -50 */
 	assert(INITIAL_WINDOW_SIZE + 950 == session.getStreamEffectiveLocalWindowSize(1));
-	assert(0 == session.getStreamEffectiveDataLength(1));
+	assert(0 == session.getStreamEffectiveRecvDataLength(1));
 	
-	stream.recv_window_size += 50;
-	/* Now stream.recv_window_size = 0 */
-	submitWindowUpdate(session, FrameFlags.NONE, 1, 100);
+	stream.recvWindowSize += 50;
+	/* Now stream.recvWindowSize = 0 */
+	submitWindowUpdate(session, 1, 100);
 	assert(INITIAL_WINDOW_SIZE + 1050 == session.getStreamEffectiveLocalWindowSize(1));
-	assert(50 == session.getStreamEffectiveDataLength(1));
+	assert(50 == session.getStreamEffectiveRecvDataLength(1));
 	
 	session.free();
 }
@@ -4440,7 +4446,7 @@ void test_session_data_backoff_by_high_pri_frame() {
 	assert(0 == session.send());
 	
 	stream = session.getStream(1);
-	stream.remote_window_size = 1 << 20;
+	stream.remoteWindowSize = 1 << 20;
 	
 	assert(FrameType.DATA == user_data.sent_frame_type);
 	/* data for DATA[1] is read from data_prd but it is not sent */
@@ -4458,7 +4464,7 @@ void test_session_data_backoff_by_high_pri_frame() {
 	/* Sends DATA[2..3] */
 	assert(0 == session.send());
 	
-	assert(stream.shut_flags & ShutdownFlag.WR);
+	assert(stream.shutFlags & ShutdownFlag.WR);
 	
 	session.free();
 }
@@ -4553,7 +4559,7 @@ void test_session_pack_headers_with_padding() {
 	user_data.frame_recv_cb_called = 0;
 	assert(cast(size_t)acc.length == sv_session.memRecv(acc[]));
 	assert(1 == user_data.frame_recv_cb_called);
-	assert(null == sv_session.getNextOutboundItem());
+	assert(!sv_session.getNextOutboundItem());
 	
 	sv_session.free();
 	session.free();
@@ -4585,11 +4591,11 @@ void test_session_pack_settings_payload() {
 	assert(ErrorCode.INSUFF_BUFSIZE == len);
 }
 
-void checkStreamDependencySiblings(Stream stream, Stream dep_prev, stream dep_next, Stream sib_prev, Stream sib_next) {
-	assert(dep_prev == stream.dep_prev);
+void checkStreamDependencySiblings(Stream stream, Stream dep_prev, Stream dep_next, Stream sib_prev, Stream sib_next) {
+	assert(dep_prev == stream.depPrev);
 	assert(dep_next == stream.dep_next);
-	assert(sib_prev == stream.sib_prev);
-	assert(sib_next == stream.sib_next);
+	assert(sib_prev == stream.sibPrev);
+	assert(sib_next == stream.sibNext);
 }
 
 /* http2_stream_dep_add() and its families functions should be
@@ -4602,7 +4608,7 @@ void test_session_stream_dep_add() {
 	
 	session = new Session(SERVER, *callbacks);
 	
-	a = session.openStream(1);
+	a = openStream(session, 1);
 	
 	c = openStreamWithDep(session, 5, a);
 	b = openStreamWithDep(session, 3, a);
@@ -4632,7 +4638,7 @@ void test_session_stream_dep_add() {
 	
 	assert(4 == session.roots.num_streams);
 	assert(a == session.roots.head);
-	assert(null == a.root_next);
+	assert(!a.root_next);
 	
 	e = openStreamWithDepExclusive(session, 9, a);
 	
@@ -4665,7 +4671,7 @@ void test_session_stream_dep_add() {
 	
 	assert(5 == session.roots.num_streams);
 	assert(a == session.roots.head);
-	assert(null == a.root_next);
+	assert(!a.root_next);
 	
 	session.free();
 }
@@ -4678,7 +4684,7 @@ void test_session_stream_dep_remove() {
 	/* Remove root */
 	session = new Session(SERVER, *callbacks);
 	
-	a = session.openStream(1);
+	a = openStream(session, 1);
 	b = openStreamWithDep(session, 3, a);
 	c = openStreamWithDep(session, 5, a);
 	d = openStreamWithDep(session, 7, c);
@@ -4716,14 +4722,14 @@ void test_session_stream_dep_remove() {
 	assert(3 == session.roots.num_streams);
 	assert(b == session.roots.head);
 	assert(c == b.root_next);
-	assert(null == c.root_next);
+	assert(!c.root_next);
 	
 	session.free();
 	
 	/* Remove left most stream */
 	session = new Session(SERVER, *callbacks);
 	
-	a = session.openStream(1);
+	a = openStream(session, 1);
 	b = openStreamWithDep(session, 3, a);
 	c = openStreamWithDep(session, 5, a);
 	d = openStreamWithDep(session, 7, c);
@@ -4762,14 +4768,14 @@ void test_session_stream_dep_remove() {
 	
 	assert(3 == session.roots.num_streams);
 	assert(a == session.roots.head);
-	assert(null == a.root_next);
+	assert(!a.root_next);
 	
 	session.free();
 	
 	/* Remove right most stream */
 	session = new Session(SERVER, *callbacks);
 	
-	a = session.openStream(1);
+	a = openStream(session, 1);
 	b = openStreamWithDep(session, 3, a);
 	c = openStreamWithDep(session, 5, a);
 	d = openStreamWithDep(session, 7, c);
@@ -4809,7 +4815,7 @@ void test_session_stream_dep_remove() {
 	/* Remove middle stream */
 	session = new Session(SERVER, *callbacks);
 	
-	a = session.openStream(1);
+	a = openStream(session, 1);
 	b = openStreamWithDep(session, 3, a);
 	c = openStreamWithDep(session, 5, a);
 	d = openStreamWithDep(session, 7, a);
@@ -4881,12 +4887,12 @@ void test_session_stream_dep_add_subtree() {
 	/* dep_stream has dep_next */
 	session = new Session(SERVER, *callbacks);
 	
-	a = session.openStream(1);
+	a = openStream(session, 1);
 	b = openStreamWithDep(session, 3, a);
 	c = openStreamWithDep(session, 5, a);
 	d = openStreamWithDep(session, 7, c);
 	
-	e = session.openStream(9);
+	e = openStream(session, 9);
 	f = openStreamWithDep(session, 11, e);
 	
 	/* a         e
@@ -4932,12 +4938,12 @@ void test_session_stream_dep_add_subtree() {
 	/* dep_stream has dep_next and now we insert subtree */
 	session = new Session(SERVER, *callbacks);
 	
-	a = session.openStream(1);
+	a = openStream(session, 1);
 	b = openStreamWithDep(session, 3, a);
 	c = openStreamWithDep(session, 5, a);
 	d = openStreamWithDep(session, 7, c);
 	
-	e = session.openStream(9);
+	e = openStream(session, 9);
 	f = openStreamWithDep(session, 11, e);
 	
 	/* a         e
@@ -4991,7 +4997,7 @@ void test_session_stream_dep_remove_subtree() {
 	/* Remove left most stream */
 	session = new Session(SERVER, *callbacks);
 	
-	a = session.openStream(1);
+	a = openStream(session, 1);
 	b = openStreamWithDep(session, 3, a);
 	c = openStreamWithDep(session, 5, a);
 	d = openStreamWithDep(session, 7, c);
@@ -5031,7 +5037,7 @@ void test_session_stream_dep_remove_subtree() {
 	/* Remove right most stream */
 	session = new Session(SERVER, *callbacks);
 	
-	a = session.openStream(1);
+	a = openStream(session, 1);
 	b = openStreamWithDep(session, 3, a);
 	c = openStreamWithDep(session, 5, a);
 	d = openStreamWithDep(session, 7, c);
@@ -5073,7 +5079,7 @@ void test_session_stream_dep_remove_subtree() {
 	/* Remove middle stream */
 	session = new Session(SERVER, *callbacks);
 	
-	a = session.openStream(1);
+	a = openStream(session, 1);
 	e = openStreamWithDep(session, 9, a);
 	c = openStreamWithDep(session, 5, a);
 	b = openStreamWithDep(session, 3, a);
@@ -5122,10 +5128,10 @@ void test_session_stream_dep_make_head_root() {
 
 	session = new Session(SERVER, *callbacks);
 	
-	a = session.openStream(1);
+	a = openStream(session, 1);
 	b = openStreamWithDep(session, 3, a);
 	
-	c = session.openStream(5);
+	c = openStream(session, 5);
 	
 	/* a     c
    * |
@@ -5159,11 +5165,11 @@ void test_session_stream_dep_make_head_root() {
 	
 	session = new Session(SERVER, *callbacks);
 	
-	a = session.openStream(1);
+	a = openStream(session, 1);
 	
-	b = session.openStream(3);
+	b = openStream(session, 3);
 	
-	c = session.openStream(5);
+	c = openStream(session, 5);
 	
 	/*
    * a  b   c
@@ -5194,10 +5200,10 @@ void test_session_stream_dep_make_head_root() {
 	
 	session = new Session(SERVER, *callbacks);
 	
-	a = session.openStream(1);
+	a = openStream(session, 1);
 	b = openStreamWithDep(session, 3, a);
 	
-	c = session.openStream(5);
+	c = openStream(session, 5);
 	d = openStreamWithDep(session, 7, c);
 	
 	/* a     c
@@ -5244,7 +5250,7 @@ void test_session_stream_attach_item() {
 	
 	session = new Session(SERVER, *callbacks);
 	
-	a = session.openStream(1);
+	a = openStream(session, 1);
 	b = openStreamWithDep(session, 3, a);
 	c = openStreamWithDep(session, 5, a);
 	d = openStreamWithDep(session, 7, c);
@@ -5357,12 +5363,12 @@ void test_session_stream_attach_item_subtree() {
 	
 	session = new Session(SERVER, *callbacks);
 	
-	a = session.openStream(1);
+	a = openStream(session, 1);
 	b = openStreamWithDep(session, 3, a);
 	c = openStreamWithDep(session, 5, a);
 	d = openStreamWithDep(session, 7, c);
 	
-	e = session.openStream(9);
+	e = openStream(session, 9);
 	f = openStreamWithDep(session, 11, e);
 	/*
    * a        e
@@ -5576,35 +5582,35 @@ void test_session_keep_closed_stream() {
 	
 	assert(0 == session.num_closed_streams);
 	
-	closeStream(1, FrameError.NO_ERROR);
+	session.closeStream(1, FrameError.NO_ERROR);
 	
 	assert(1 == session.num_closed_streams);
 	assert(1 == session.closed_stream_tail.stream_id);
 	assert(session.closed_stream_tail == session.closed_stream_head);
 	
-	closeStream(5, FrameError.NO_ERROR);
+	session.closeStream(5, FrameError.NO_ERROR);
 	
 	assert(2 == session.num_closed_streams);
 	assert(5 == session.closed_stream_tail.stream_id);
 	assert(1 == session.closed_stream_head.stream_id);
 	assert(session.closed_stream_head == session.closed_stream_tail.closed_prev);
-	assert(null == session.closed_stream_tail.closed_next);
+	assert(!session.closed_stream_tail.closed_next);
 	assert(session.closed_stream_tail == session.closed_stream_head.closed_next);
-	assert(null == session.closed_stream_head.closed_prev);
+	assert(!session.closed_stream_head.closed_prev);
 	
-	session.openStream(11);
+	openStream(session, 11);
 	
 	assert(1 == session.num_closed_streams);
 	assert(5 == session.closed_stream_tail.stream_id);
 	assert(session.closed_stream_tail == session.closed_stream_head);
-	assert(null == session.closed_stream_head.closed_prev);
-	assert(null == session.closed_stream_head.closed_next);
+	assert(!session.closed_stream_head.closed_prev);
+	assert(!session.closed_stream_head.closed_next);
 	
-	session.openStream(13);
+	openStream(session, 13);
 	
 	assert(0 == session.num_closed_streams);
-	assert(null == session.closed_stream_tail);
-	assert(null == session.closed_stream_head);
+	assert(!session.closed_stream_tail);
+	assert(!session.closed_stream_head);
 	
 	session.free();
 }
@@ -5621,7 +5627,7 @@ void test_session_keep_idle_stream() {
 	
 	session = new Session(SERVER, *callbacks);
 	
-	submitSettings(session, FrameFlags.NONE, (&iv)[0 .. 1]);
+	submitSettings(session, (&iv)[0 .. 1]);
 	
 	/* We at least allow 2 idle streams even if max concurrent streams
      is very low. */
@@ -5634,7 +5640,7 @@ void test_session_keep_idle_stream() {
 	assert(1 == session.idle_stream_head.stream_id);
 	assert(3 == session.idle_stream_tail.stream_id);
 	
-	session.openStream(5, FrameFlags.NONE, pri_spec_default, StreamState.IDLE, null);
+	session.openStream(5, StreamFlags.NONE, pri_spec_default, StreamState.IDLE, null);
 	
 	assert(2 == session.num_idle_streams);
 	
@@ -5673,8 +5679,8 @@ void test_session_detach_idle_stream() {
 	
 	assert(2 == session.num_idle_streams);
 	
-	assert(null == stream.closed_prev);
-	assert(null == stream.closed_next);
+	assert(!stream.closed_prev);
+	assert(!stream.closed_next);
 	
 	assert(session.idle_stream_head ==
 		session.idle_stream_tail.closed_prev);
@@ -5689,8 +5695,8 @@ void test_session_detach_idle_stream() {
 	assert(1 == session.num_idle_streams);
 	
 	assert(session.idle_stream_head == session.idle_stream_tail);
-	assert(null == session.idle_stream_head.closed_prev);
-	assert(null == session.idle_stream_head.closed_next);
+	assert(!session.idle_stream_head.closed_prev);
+	assert(!session.idle_stream_head.closed_next);
 	
 	/* Detach last stream */
 	
@@ -5700,8 +5706,8 @@ void test_session_detach_idle_stream() {
 	
 	assert(0 == session.num_idle_streams);
 	
-	assert(null == session.idle_stream_head);
-	assert(null == session.idle_stream_tail);
+	assert(!session.idle_stream_head);
+	assert(!session.idle_stream_tail);
 	
 	for (i = 4; i <= 5; ++i) {
 		session.openStream(i, StreamFlags.NONE, pri_spec_default, StreamState.IDLE, null);
@@ -5718,8 +5724,8 @@ void test_session_detach_idle_stream() {
 	assert(1 == session.num_idle_streams);
 	
 	assert(session.idle_stream_head == session.idle_stream_tail);
-	assert(null == session.idle_stream_head.closed_prev);
-	assert(null == session.idle_stream_head.closed_next);
+	assert(!session.idle_stream_head.closed_prev);
+	assert(!session.idle_stream_head.closed_next);
 	
 	session.free();
 }
@@ -5769,11 +5775,11 @@ void test_session_graceful_shutdown() {
 	
 	session = new Session(CLIENT, *callbacks);
 	
-	session.openStream(301);
-	session.openStream(302);
-	session.openStream(309);
-	session.openStream(311);
-	session.openStream(319);
+	openStream(session, 301);
+	openStream(session, 302);
+	openStream(session, 309);
+	openStream(session, 311);
+	openStream(session, 319);
 	
 	assert(0 == submitShutdownNotice(session));
 	
@@ -5784,7 +5790,7 @@ void test_session_graceful_shutdown() {
 	assert(1 == user_data.frame_send_cb_called);
 	assert((1u << 31) - 1 == session.local_last_stream_id);
 	
-	assert(0 == submitGoAway(session, FrameFlags.NONE, 311, FrameError.NO_ERROR, null, 0));
+	assert(0 == submitGoAway(session, 311, FrameError.NO_ERROR, null));
 	
 	user_data.frame_send_cb_called = 0;
 	user_data.stream_close_cb_called = 0;
@@ -5806,11 +5812,11 @@ void test_session_graceful_shutdown() {
 	assert(301 == session.local_last_stream_id);
 	assert(2 == user_data.stream_close_cb_called);
 	
-	assert(null != session.getStream(301));
-	assert(null != session.getStream(302));
-	assert(null == session.getStream(309));
-	assert(null == session.getStream(311));
-	assert(null == session.getStream(319));
+	assert(session.getStream(301));
+	assert(session.getStream(302));
+	assert(!session.getStream(309));
+	assert(!session.getStream(311));
+	assert(!session.getStream(319));
 	
 	session.free();
 }
@@ -5830,7 +5836,7 @@ void test_session_on_header_temporal_failure() {
 	FrameHeader hd;
 	OutboundItem item;
 		
-	callbacks.on_header_field_cb = toDelegate(&MyCallbacks.onHeaderFieldRstStream);
+	callbacks.on_header_field_cb = &user_data.cb_handlers.onHeaderFieldRstStream;
 	
 	session = new Session(CLIENT, *callbacks);
 		
@@ -5855,7 +5861,7 @@ void test_session_on_header_temporal_failure() {
 	
 	hd.pack(buf.pos[hdpos .. buf.available]);
 	
-	rv = session.memRecv(buf[]);
+	rv = session.memRecv((*buf)[]);
 	
 	assert(rv == bufs.length);
 	
@@ -5931,7 +5937,7 @@ void test_session_delete_data_item() {
 		
 	session = new Session(SERVER, *callbacks);
 	
-	a = session.openStream(1);
+	a = openStream(session, 1);
 	openStreamWithDep(session, 3, a);
 	
 	/* We don't care about these members, since we won't send data */
@@ -5965,8 +5971,8 @@ void test_session_open_idle_stream() {
 	stream = session.getStreamRaw(1);
 	
 	assert(StreamState.IDLE == stream.state);
-	assert(null == stream.closed_prev);
-	assert(null == stream.closed_next);
+	assert(!stream.closed_prev);
+	assert(!stream.closed_next);
 	assert(1 == session.num_idle_streams);
 	assert(session.idle_stream_head == stream);
 	assert(session.idle_stream_tail == stream);
@@ -5976,8 +5982,8 @@ void test_session_open_idle_stream() {
 	assert(stream == opened_stream);
 	assert(StreamState.OPENING == stream.state);
 	assert(0 == session.num_idle_streams);
-	assert(null == session.idle_stream_head);
-	assert(null == session.idle_stream_tail);
+	assert(!session.idle_stream_head);
+	assert(!session.idle_stream_tail);
 	
 	frame.priority.free();
 	
@@ -6006,7 +6012,7 @@ void test_session_cancel_reserved_remote() {
 	
 	session.last_recv_stream_id = 2;
 	
-	submitRstStream(session, FrameFlags.NONE, 2, FrameError.CANCEL);
+	submitRstStream(session, 2, FrameError.CANCEL);
 	
 	assert(StreamState.CLOSING == stream.state);
 	
@@ -6036,7 +6042,7 @@ void test_session_cancel_reserved_remote() {
 	
 	session.last_recv_stream_id = 4;
 	
-	submitRstStream(session, FrameFlags.NONE, 2, FrameError.CANCEL);
+	submitRstStream(session, 2, FrameError.CANCEL);
 	
 	bufs.reset();
 	
@@ -6077,7 +6083,7 @@ void test_session_reset_pending_headers() {
 	stream_id = submitRequest(session, pri_spec_default, null, DataProvider.init, null);
 	assert(stream_id >= 1);
 	
-	submitRstStream(session, FrameFlags.NONE, stream_id, FrameError.CANCEL);
+	submitRstStream(session, stream_id, FrameError.CANCEL);
 	
 	session.remote_settings.max_concurrent_streams = 0;
 	
@@ -6089,7 +6095,7 @@ void test_session_reset_pending_headers() {
 	
 	stream = session.getStream(stream_id);
 	
-	assert(null == stream);
+	assert(!stream);
 	
 	/* See HEADERS is not sent.  on_stream_close is called just like
      transmission failure. */
@@ -6105,7 +6111,7 @@ void test_session_reset_pending_headers() {
 	
 	stream = session.getStream(stream_id);
 	
-	assert(null == stream);
+	assert(!stream);
 	
 	session.free();
 }
@@ -6274,8 +6280,8 @@ void test_http_content_length() {
 	rv = session.memRecv(bufs.head.buf[]);
 	
 	assert(bufs.head.buf.length == rv);
-	assert(null == session.getNextOutboundItem());
-	assert(9000000000LL == stream.content_length);
+	assert(!session.getNextOutboundItem());
+	assert(9000000000L == stream.content_length);
 	assert(200 == stream.status_code);
 	
 	deflater.free();
@@ -6297,8 +6303,8 @@ void test_http_content_length() {
 	
 	stream = session.getStream(1);
 	
-	assert(null == session.getNextOutboundItem());
-	assert(9000000000LL == stream.content_length);
+	assert(!session.getNextOutboundItem());
+	assert(9000000000L == stream.content_length);
 	
 	deflater.free();
 	
@@ -6328,7 +6334,7 @@ void test_http_content_length_mismatch() {
 	deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
 	
 	/* header says content-length: 20, but HEADERS has END_STREAM flag set */
-	packHeaders(bufs, deflater, 1, FrameFlags.END_HEADERS | FrameFlags.END_STREAM, cl_reqhf);
+	packHeaders(bufs, deflater, 1, cast(FrameFlags)(FrameFlags.END_HEADERS | FrameFlags.END_STREAM), cl_reqhf);
 
 	rv = session.memRecv(bufs.head.buf[]);
 	
@@ -6406,7 +6412,7 @@ void test_http_non_final_response() {
 	/* non-final HEADERS with END_STREAM is illegal */
 	stream = session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
 	
-	packHeaders(bufs, deflater, 1, FrameFlags.END_HEADERS | FrameFlags.END_STREAM, nonfinal_reshf);
+	packHeaders(bufs, deflater, 1, cast(FrameFlags)(FrameFlags.END_HEADERS | FrameFlags.END_STREAM), nonfinal_reshf);
 
 	rv = session.memRecv(bufs.head.buf[]);
 	
@@ -6453,7 +6459,7 @@ void test_http_non_final_response() {
 	
 	assert(bufs.head.buf.length == rv);
 	
-	assert(null == session.getNextOutboundItem());
+	assert(!session.getNextOutboundItem());
 	
 	bufs.reset();
 	
@@ -6496,7 +6502,7 @@ void test_http_non_final_response() {
 	
 	assert(bufs.head.buf.length == rv);
 	
-	assert(null == session.getNextOutboundItem());
+	assert(!session.getNextOutboundItem());
 	
 	bufs.reset();
 	
@@ -6534,13 +6540,13 @@ void test_http_trailer_headers() {
 	
 	bufs.reset();
 	
-	packHeaders(bufs, deflater, 1, FrameFlags.END_HEADERS | FrameFlags.END_STREAM, trailer_reqhf);
+	packHeaders(bufs, deflater, 1, cast(FrameFlags)(FrameFlags.END_HEADERS | FrameFlags.END_STREAM), trailer_reqhf);
 
 	rv = session.memRecv(bufs.head.buf[]);
 	
 	assert(bufs.head.buf.length == rv);
 	
-	assert(null == session.getNextOutboundItem());
+	assert(!session.getNextOutboundItem());
 	
 	bufs.reset();
 	
@@ -6617,13 +6623,13 @@ void test_http_ignore_content_length() {
 	/* If status 304, content-length must be ignored */
 	session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
 	
-	packHeaders(bufs, deflater, 1, FrameFlags.END_HEADERS | FrameFlags.END_STREAM, cl_reshf);
+	packHeaders(bufs, deflater, 1, cast(FrameFlags)(FrameFlags.END_HEADERS | FrameFlags.END_STREAM), cl_reshf);
 	
 	rv = session.memRecv(bufs.head.buf[]);
 	
 	assert(bufs.head.buf.length == rv);
 	
-	assert(null == session.getNextOutboundItem());
+	assert(!session.getNextOutboundItem());
 	
 	bufs.reset();
 	
@@ -6641,7 +6647,7 @@ void test_http_ignore_content_length() {
 	
 	assert(bufs.head.buf.length == rv);
 	
-	assert(null == session.getNextOutboundItem());
+	assert(!session.getNextOutboundItem());
 	
 	stream = session.getStream(1);
 	
@@ -6719,10 +6725,10 @@ void test_http_push_promise() {
 	
 	assert(bufs.head.buf.length == rv);
 	
-	assert(null == session.getNextOutboundItem());
+	assert(!session.getNextOutboundItem());
 	
 	stream = session.getStream(2);
-	assert(null != stream);
+	assert(stream);
 	
 	bufs.reset();
 	
@@ -6732,7 +6738,7 @@ void test_http_push_promise() {
 	
 	assert(bufs.head.buf.length == rv);
 	
-	assert(null == session.getNextOutboundItem());
+	assert(!session.getNextOutboundItem());
 	
 	assert(200 == stream.status_code);
 	

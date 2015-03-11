@@ -15,6 +15,7 @@ version(unittest)
 	const TEST_ALL = true;
 else
 	const TEST_ALL = false;
+const DEBUG = true;
 
 /// Version of this library
 const VERSION = "0.2";
@@ -38,7 +39,7 @@ public static LibInfo g_lib_info;
 package:
 
 /// Enables READ_FIRST_SETTINGS in Session
-int ENABLE_FIRST_SETTING_CHECK = 1;
+const ENABLE_FIRST_SETTING_CHECK = true;
 
 /**
 * The seriazlied form of ALPN protocol identifier this library
@@ -47,9 +48,9 @@ int ENABLE_FIRST_SETTING_CHECK = 1;
 * extension <https://tools.ietf.org/html/rfc7301>`_.  This is useful
 * to process incoming ALPN tokens in wire format.
 */
-const PROTOCOL_ALPN = "\x5h2-14";
+const PROTOCOL_ALPN = `\x5h2-14`;
 
-const HTTP_1_1_ALPN = "\x8http/1.1";
+const HTTP_1_1_ALPN = `\x8http/1.1`;
 
 /// The protocol version identification string of this library supports. 
 /// This identifier is used if HTTP/2 is used over cleartext TCP.

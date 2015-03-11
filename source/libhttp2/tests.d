@@ -77,7 +77,7 @@ struct HeaderFields
 		
 		for (ci = bufs.head; ci; ci = ci.next) {
 			buf = &ci.buf;
-			is_final = buf.length == 0 || ci.next == null;
+			is_final = buf.length == 0 || !ci.next;
 			bp = *buf;
 			
 			if (offset) {

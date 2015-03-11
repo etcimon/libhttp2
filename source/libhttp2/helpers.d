@@ -13,18 +13,18 @@ module libhttp2.helpers;
 
 import libhttp2.constants;
 import std.bitmanip : bigEndianToNative, nativeToBigEndian;
-import libhttp2.types : Token, HeaderField, Setting, Mem, ErrorCode;
+import libhttp2.types;
 import std.c.string : memcpy;
 import std.string : toLowerInPlace;
 import core.exception : onRangeError;
 import std.algorithm : max, min;
 
-void write(T)(out ubyte* buf, T n) {
+void write(T)(ubyte* buf, T n) {
 	auto x = nativeToBigEndian(n);
-	memcpy(buf.ptr, x.ptr, T.sizeof);
+	memcpy(buf, x.ptr, T.sizeof);
 }
 
-void write(T)(out ubyte[] buf, T n) {
+void write(T)(ubyte[] buf, T n) {
 	if (buf.length < n) onRangeError();
 	auto x = nativeToBigEndian(n);
 	memcpy(buf.ptr, x.ptr, T.sizeof);
@@ -36,19 +36,20 @@ T read(T = uint)(in ubyte* buf) {
 
 T read(T = uint)(in ubyte[] buf) {
 	if (buf.length < T.sizeof) onRangeError();
-	return bigEndianToNative!T(buf);
+	return bigEndianToNative!T(cast(ubyte[T.sizeof])buf[0 .. T.sizeof]);
 }
 
-HeaderField[] copy(ref HeaderField[] hfa) {
+HeaderField[] copy()(auto const ref HeaderField[] hfa) {
 	if (hfa.length == 0)
 		return null;
 
 	HeaderField[] ret = Mem.alloc!(HeaderField[])(hfa.length);
 
-	foreach (size_t i, ref HeaderField hf; hfa) {
+	foreach (size_t i, const ref HeaderField hf; hfa) {
 		ret[i].flag = hf.flag;
-		ret[i].name = Mem.copy(hf.name);
-		toLowerInPlace(ret[i].name);
+		char[] copy = cast(char[])Mem.copy(hf.name);
+		toLowerInPlace(copy);
+		ret[i].name = cast(string) copy;
 		ret[i].value = Mem.copy(hf.value);
 	}
 	return ret;
@@ -62,20 +63,21 @@ Setting[] copy(in Setting[] iv) {
 	if (iv.length == 0)
 		return null;
 
-	return Mem.copy(iv);
+	return cast(Setting[]) Mem.copy(iv);
 }
 
 
-bool equals(HeaderField[] hfa, HeaderField[] other) 
+bool equals(in HeaderField[] hfa, in HeaderField[] other) 
 {
+	import libhttp2.tests : sort;
 	auto hfa2 = hfa.copy();
 	auto other2 = other.copy();
 	scope(exit) {
 		Mem.free(hfa2);
 		Mem.free(other2);
 	}
-	hfa2.sort();
-	other2.sort();
+	sort(hfa2);
+	sort(other2);
 	foreach(i, hf; hfa2)
 		if (other2[i] != hf)
 			return false;
@@ -96,6 +98,7 @@ Token parseToken(in ubyte[] name) {
 						return TE;
 					}
 					break;
+				default: break;
 			}
 			break;
 		case 4:
@@ -105,6 +108,7 @@ Token parseToken(in ubyte[] name) {
 						return HOST;
 					}
 					break;
+				default: break;
 			}
 			break;
 		case 5:
@@ -114,6 +118,7 @@ Token parseToken(in ubyte[] name) {
 						return _PATH;
 					}
 					break;
+				default: break;
 			}
 			break;
 		case 7:
@@ -136,6 +141,7 @@ Token parseToken(in ubyte[] name) {
 						return _STATUS;
 					}
 					break;
+				default: break;
 			}
 			break;
 		case 10:
@@ -155,6 +161,7 @@ Token parseToken(in ubyte[] name) {
 						return _AUTHORITY;
 					}
 					break;
+				default: break;
 			}
 			break;
 		case 14:
@@ -164,6 +171,7 @@ Token parseToken(in ubyte[] name) {
 						return CONTENT_LENGTH;
 					}
 					break;
+				default: break;
 			}
 			break;
 		case 16:
@@ -173,6 +181,7 @@ Token parseToken(in ubyte[] name) {
 						return PROXY_CONNECTION;
 					}
 					break;
+				default: break;
 			}
 			break;
 		case 17:
@@ -182,10 +191,12 @@ Token parseToken(in ubyte[] name) {
 						return TRANSFER_ENCODING;
 					}
 					break;
+				default: break;
 			}
 			break;
+		default: break;
 	}
-	return Token.UNKNOWN;
+	return Token.ERROR;
 }
 
 
@@ -225,7 +236,7 @@ ErrorCode adjustLocalWindowSize(ref int local_window_size_ptr, ref int recv_wind
 		if (new_recv_window_size >= 0) 
 		{
 			recv_window_size_ptr = new_recv_window_size;
-			return 0;
+			return ErrorCode.OK;
 		}
 		
 		delta = -new_recv_window_size;
@@ -258,8 +269,8 @@ ErrorCode adjustLocalWindowSize(ref int local_window_size_ptr, ref int recv_wind
 		/* recv_reduction_delta must be paied from delta_ptr, since it
        	   was added in window size reduction (see below). */
 		delta_ptr -= recv_reduction_delta;
-		
-		return 0;
+
+		return ErrorCode.OK;
 	}
 
 	if (local_window_size_ptr + delta_ptr < 0 ||
@@ -278,7 +289,7 @@ ErrorCode adjustLocalWindowSize(ref int local_window_size_ptr, ref int recv_wind
 	recv_reduction_ptr -= delta_ptr;
 	delta_ptr = 0;
 	
-	return 0;
+	return ErrorCode.OK;
 }
 
 bool shouldSendWindowUpdate(int local_window_size, int recv_window_size) {

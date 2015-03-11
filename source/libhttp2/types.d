@@ -17,13 +17,20 @@ import memutils.refcounted;
 import memutils.utils;
 
 alias Mem = ThreadMem;
+void LOGF(ARGS...)(ARGS args) {
+	import std.stdio: writefln;
+	static if (DEBUG)
+		writefln("D: ", args);
+}
 
 /// Return values used in this library.  The code range is [-999, -500], inclusive.
 enum ErrorCode : int {
     OK = 0,
 
 	ERROR = -1,
-
+	CREDENTIAL_PENDING = -101,
+	IGN_HEADER_BLOCK = -103,
+	IGN_PAYLOAD = -104,
 	/// Invalid argument passed.
     INVALID_ARGUMENT = -501,
 
@@ -230,11 +237,12 @@ enum HeaderFlag : ubyte
 /// The header field, which mainly used to represent HTTP headers.
 struct HeaderField 
 {
-	char[] name;
-	char[] value;
+	immutable(char)[] name;
+	immutable(char)[] value;
+
 	HeaderFlag flag = HeaderFlag.NONE;
 
-	bool opEquals(ref HeaderField other) {
+	bool opEquals()(auto ref HeaderField other) const {
 		return name == other.name && value == other.value;
 	}
 
@@ -427,7 +435,7 @@ struct HeaderField
 			stream.http_flags |= HTTPFlags.PSEUDO_HEADER_DISALLOWED;
 		}
 		
-		return 0;
+		return true;
 	}
 private:	
 	bool validatePseudoHeader(Stream stream, HTTPFlags flag) {
@@ -541,7 +549,7 @@ struct DataProvider {
 }
 
 
-/// The flags used to set in |data_flags| output parameter in http2_data_source_read_callback
+/// The flags used to set in |data_flags| output parameter in DataSource.read_callback
 enum DataFlags : ubyte
 {
 	/// No flag set.
@@ -699,7 +707,7 @@ enum Token : int {
 }
 
 struct Setting {
-	alias SettingCode = ubyte;
+	alias SettingCode = ushort;
 	/// Notes: If we add SETTINGS, update the capacity of HTTP2_INBOUND_NUM_IV as well
 	enum : SettingCode {
 		HEADER_TABLE_SIZE = 0x01,
@@ -721,3 +729,4 @@ struct Setting {
 }
 
 alias SettingsID = Setting.SettingCode;
+

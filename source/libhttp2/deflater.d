@@ -108,11 +108,11 @@ struct Deflater
 				goto fail;
 		}
 		
-		DEBUGF(fprintf(stderr, "deflatehd: all input header fields were deflated\n"));
+		LOGF("deflatehd: all input header fields were deflated\n");
 		
-		return 0;
+		return ErrorCode.OK;
 	fail:
-		DEBUGF(fprintf(stderr, "deflatehd: error return %d\n", rv));
+		LOGF("deflatehd: error return %d\n", rv);
 		
 		ctx.bad = 1;
 		return rv;
@@ -142,28 +142,19 @@ struct Deflater
 	 */
 	ErrorCode deflate(ubyte[] buf, in HeaderField[] hfa)
 	{
-		Buffers bufs;
+		Buffers bufs = Mem.alloc!Buffers(buf);
 		ErrorCode rv;
-		
-		mem = ctx.mem;
-		
-		bufs = Buffers(buf[0 .. buflen]);
 				
 		rv = deflate(bufs, hfa);
 		
-		buflen = bufs.length;
+		size_t buflen = bufs.length;
 		
 		bufs.free();
-		
-		if (rv == ErrorCode.BUFFER_ERROR) {
+		Mem.free(bufs);
+
+		if (rv == ErrorCode.BUFFER_ERROR)
 			return ErrorCode.INSUFF_BUFSIZE;
-		}
-		
-		if (rv != 0) {
-			return rv;
-		}
-		
-		return cast(int)buflen;
+		return rv;
 	}
 
 	/**
@@ -235,11 +226,7 @@ package:
 		uint name_hash = hf.name.hash();
 		uint value_hash = hf.value.hash();
 		
-		DEBUGF(fprintf(stderr, "deflatehd: deflating "));
-		DEBUGF(fwrite(hf.name, 1, stderr));
-		DEBUGF(fprintf(stderr, ": "));
-		DEBUGF(fwrite(hf.value, 1, stderr));
-		DEBUGF(fprintf(stderr, "\n"));		
+		LOGF("deflatehd: deflating %s: %s\n", hf.name, hf.value);		
 
 		res = ctx.search(hf, name_hash, value_hash, found);
 
@@ -247,18 +234,18 @@ package:
 		
 		if (found) {
 			
-			DEBUGF(fprintf(stderr, "deflatehd: name/value match index=%zd\n", idx));
+			LOGF("deflatehd: name/value match index=%zd\n", idx);
 			
 			rv = emitIndexedBlock(bufs, idx);
 
 			if (rv != 0)
 				return rv;
 			
-			return 0;
+			return ErrorCode.OK;
 		}
 		
 		if (idx != -1)
-			DEBUGF(fprintf(stderr, "deflatehd: name match index=%zd\n", res));
+			LOGF("deflatehd: name match index=%zd\n", res);
 
 		
 		if (shouldIndex(hf)) 
@@ -288,7 +275,7 @@ package:
 			return rv;
 
 		
-		return 0;
+		return ErrorCode.OK;
 	}
 
 	bool shouldIndex(in HeaderField hf)
@@ -304,7 +291,9 @@ package:
 				!name_match(hf, "if-none-match") && !name_match(hf, "location") &&
 				!name_match(hf, "age");
 	}
-
+	private bool name_match(in HeaderField hf, string name) {
+		return hf.name == name;
+	}
 }
 
 package:
@@ -323,10 +312,8 @@ ErrorCode emitIndexedNameBlock(Buffers bufs, size_t idx, const ref HeaderField h
 		prefixlen = 6;
 	else
 		prefixlen = 4;
-	
-	DEBUGF(fprintf(stderr, "deflatehd: emit indname index=%zu, valuelen=%zu, "
-			"indexing=%d, no_index=%d\n",
-			idx, hf.valuelen, inc_indexing, no_index));
+
+	LOGF("deflatehd: emit indname index=%zu, valuelen=%zu, indexing=%d, no_index=%d\n", idx, hf.value.length, inc_indexing, no_index);
 	
 	blocklen = countEncodedLength(idx + 1, prefixlen);
 	
@@ -340,7 +327,7 @@ ErrorCode emitIndexedNameBlock(Buffers bufs, size_t idx, const ref HeaderField h
 	
 	encodeLength(bufp, idx + 1, prefixlen);
 	
-	rv = bufs.add(sb[0 .. blocklen]);
+	rv = bufs.add(cast(string)sb[0 .. blocklen]);
 	if (rv != 0)
 		return rv;
 		
@@ -348,16 +335,16 @@ ErrorCode emitIndexedNameBlock(Buffers bufs, size_t idx, const ref HeaderField h
 	if (rv != 0) 
 		return rv;
 	
-	return 0;
+	return ErrorCode.OK;
 }
 
 ErrorCode emitNewNameBlock(Buffers bufs, in HeaderField hf, bool inc_indexing) {
-	int rv;
+	ErrorCode rv;
 	bool no_index;
 	
 	no_index = (hf.flag & HeaderFlag.NO_INDEX) != 0;
 	
-	DEBUGF(fprintf(stderr, "deflatehd: emit newname namelen=%zu, valuelen=%zu, indexing=%d, no_index=%d\n",	hf.name.length, hf.value.length, inc_indexing, no_index));
+	LOGF("deflatehd: emit newname namelen=%zu, valuelen=%zu, indexing=%d, no_index=%d\n",	hf.name.length, hf.value.length, inc_indexing, no_index);
 	
 	rv = bufs.add(packFirstByte(inc_indexing, no_index));
 	if (rv != 0) {
@@ -374,19 +361,19 @@ ErrorCode emitNewNameBlock(Buffers bufs, in HeaderField hf, bool inc_indexing) {
 		return rv;
 	}
 	
-	return 0;
+	return ErrorCode.OK;
 }
 
-int emitIndexedBlock(Buffers bufs, size_t idx) {
-	int rv;
+ErrorCode emitIndexedBlock(Buffers bufs, size_t idx) {
+	ErrorCode rv;
 	size_t blocklen;
 	ubyte[16] sb;
 	ubyte *bufp;
 	
 	blocklen = countEncodedLength(idx + 1, 7);
 	
-	DEBUGF(fprintf(stderr, "deflatehd: emit indexed index=%zu, %zu bytes\n", idx,
-			blocklen));
+	LOGF("deflatehd: emit indexed index=%zu, %zu bytes\n", idx,
+			blocklen);
 	
 	if (sb.length < blocklen) {
 		return ErrorCode.HEADER_COMP;
@@ -396,15 +383,15 @@ int emitIndexedBlock(Buffers bufs, size_t idx) {
 	*bufp = 0x80;
 	encodeLength(bufp, idx + 1, 7);
 	
-	rv = bufs.add(sb[0 .. blocklen]);
+	rv = bufs.add(cast(string)sb[0 .. blocklen]);
 	if (rv != 0) {
 		return rv;
 	}
 	
-	return 0;
+	return ErrorCode.OK;
 }
 
-ErrorCode emitString(Buffers bufs, in ubyte[] str) {
+ErrorCode emitString(Buffers bufs, in string str) {
 	ErrorCode rv;
 	size_t len = str.length;
 	ubyte[16] sb;
@@ -431,9 +418,7 @@ ErrorCode emitString(Buffers bufs, in ubyte[] str) {
 	
 	blocklen = countEncodedLength(enclen, 7);
 	
-	DEBUGF(fprintf(stderr, "deflatehd: emit string str="));
-	DEBUGF(fwrite(str, len, 1, stderr));
-	DEBUGF(fprintf(stderr, ", length=%zu, huffman=%d, encoded_length=%zu\n", len, huffman, enclen));
+	LOGF("deflatehd: emit string str=%s, length=%zu, huffman=%d, encoded_length=%zu\n", str, len, huffman, enclen);
 	
 	if (sb.length < blocklen) {
 		return ErrorCode.HEADER_COMP;
@@ -443,7 +428,7 @@ ErrorCode emitString(Buffers bufs, in ubyte[] str) {
 	*bufp = huffman ? 1 << 7 : 0;
 	encodeLength(bufp, enclen, 7);
 	
-	rv = bufs.add(sb[0 .. blocklen]);
+	rv = bufs.add(cast(string)sb[0 .. blocklen]);
 
 	if (rv != 0)
 		return rv;
@@ -465,7 +450,7 @@ ErrorCode emitTableSize(Buffers bufs, size_t table_size) {
 	size_t blocklen;
 	ubyte[16] sb;
 	
-	DEBUGF(fprintf(stderr, "deflatehd: emit table_size=%zu\n", table_size));
+	LOGF("deflatehd: emit table_size=%zu\n", table_size);
 	
 	blocklen = countEncodedLength(table_size, 5);
 	
@@ -479,11 +464,11 @@ ErrorCode emitTableSize(Buffers bufs, size_t table_size) {
 	
 	encodeLength(bufp, table_size, 5);
 	
-	rv = bufs.add(sb[0 .. blocklen]);
+	rv = bufs.add(cast(string)sb[0 .. blocklen]);
 	if (rv != 0)
 		return rv;
 	
-	return 0;
+	return ErrorCode.OK;
 }
 
 ubyte packFirstByte(bool inc_indexing, bool no_index) {
@@ -491,7 +476,7 @@ ubyte packFirstByte(bool inc_indexing, bool no_index) {
 		return 0x40;	
 	if (no_index)
 		return 0x10;	
-	return 0;
+	return 0x00;
 }
 
 size_t encodeLength(ubyte* buf, size_t n, size_t prefix) {
@@ -528,7 +513,8 @@ size_t encodeLength(ubyte* buf, size_t n, size_t prefix) {
  * ErrorCode.BUFFER_ERROR
  *     Out of buffer space.
  */
-ErrorCode encodeHuffman(Buffers bufs, in ubyte[] src) {
+ErrorCode encodeHuffman(Buffers bufs, in string src)
+{
 	ErrorCode rv;
 	int rembits = 8;
 	size_t i;
@@ -538,7 +524,7 @@ ErrorCode encodeHuffman(Buffers bufs, in ubyte[] src) {
 	
 	for (i = 0; i < src.length; ++i) 
 	{
-		const Symbol sym = symbol_table[src[i]];
+		Symbol sym = symbol_table[src[i]];
 		if (rembits == 8) {
 			if (avail) {
 				bufs.addHold(0);
@@ -561,10 +547,10 @@ ErrorCode encodeHuffman(Buffers bufs, in ubyte[] src) {
 		const Symbol sym = symbol_table[256];
 		assert(avail);
 		/* Caution we no longer adjust avail here */
-		bufs.fastOr(sym.code >> (sym.nbits - rembits));
+		bufs.fastOr(cast(ubyte)(sym.code >> (sym.nbits - rembits)));
 	}
 	
-	return 0;
+	return ErrorCode.OK;
 }
 
 size_t countEncodedLength(size_t n, size_t prefix) {

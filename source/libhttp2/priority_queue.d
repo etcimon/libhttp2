@@ -11,8 +11,8 @@
  */
 module libhttp2.priority_queue;
 
-import libhttp2.session : OutboundItem;
 import libhttp2.types;
+import libhttp2.frame : OutboundItem;
 import memutils.utils;
 
 /// Implementation of priority queue
@@ -87,7 +87,7 @@ public:
 	 */
 	@property OutboundItem top()
 	{
-		if (pq.length == 0) {
+		if (length == 0) {
 			return null;
 		} else {
 			return m_queue[0];
@@ -117,7 +117,7 @@ public:
 		
 		// assume the ordering will change
 		scope(exit) {
-			for (i = m_queue.length; i > 0; --i) {
+			for (size_t i = m_queue.length; i > 0; --i) {
 				bubbleDown(i - 1);
 			}
 		}

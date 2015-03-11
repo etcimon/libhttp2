@@ -22,6 +22,7 @@ import libhttp2.types;
 import libhttp2.frame;
 import libhttp2.helpers;
 import libhttp2.tests;
+import std.c.string : memcmp, memset;
 
 void test_hd_deflate() {
 	Deflater deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
@@ -255,7 +256,7 @@ void test_hd_inflate_indname_inc_eviction() {
 	HeaderFields output;
 	HeaderField hf;
 
-	hf.value = value;
+	hf.value = cast(string)value;
 	hf.flag = HeaderFlag.NONE;
 
 	assert(0 == bufs.emitIndexedNameBlock(14, hf, true));
@@ -271,7 +272,7 @@ void test_hd_inflate_indname_inc_eviction() {
 	
 	assert(4 == output.length);
 	assert(14 == output.hfa_raw[0].name.length);
-	assert(0 == memcmp("accept-charset", output.hfa_raw[0].name, output.hfa_raw[0].name.length));
+	assert("accept-charset" == output.hfa_raw[0].name);
 	assert(value.length == output.hfa_raw[0].value.length);
 	
 	output.reset();
@@ -352,10 +353,10 @@ void test_hd_inflate_clearall_inc() {
 
 	/* Total 4097 bytes space required to hold this entry */
 	hf.name = "alpha";
-	hf.value = value;
+	hf.value = cast(string)value;
 	hf.flag = HeaderFlag.NONE;
 		
-	assert(0 == bufs.emitNewNameBlock(hf, 1));
+	assert(0 == bufs.emitNewNameBlock(hf, true));
 	
 	blocklen = bufs.length;
 	
@@ -379,7 +380,7 @@ void test_hd_inflate_clearall_inc() {
 	bufs.reset();
 	
 	/* This time, 4096 bytes space required, which is just fits in the header table */	
-	assert(0 == bufs.emitNewNameBlock(nv, 1));
+	assert(0 == bufs.emitNewNameBlock(hf, true));
 	
 	blocklen = bufs.length;
 	
@@ -404,7 +405,7 @@ void test_hd_inflate_zero_length_huffman() {
 	ubyte[] data = [0x40, 0x01, 0x78 /* 'x' */, 0x80];
 	HeaderFields output;
 
-	bufs.add(data);
+	bufs.add(cast(string)data);
 	
 	/* /\* Literal header without indexing - new name *\/ */
 	/* ptr[0] = 0x40; */
@@ -438,9 +439,9 @@ void test_hd_ringbuf_reserve() {
 		
 	hf.flag = HeaderFlag.NONE;
 	hf.name = "a";
-	hf.value = Mem.alloc!(char[])(4);
-	memset(hf.value.ptr, 0, hf.value.length);
-	
+	char[] value = Mem.alloc!(char[])(4);
+	memset(value.ptr, 0, value.length);
+	hf.value = cast(string) value;
 	deflater = Deflater(8000);
 	
 	
@@ -448,7 +449,7 @@ void test_hd_ringbuf_reserve() {
 	deflater.changeTableSize(8000);
 	
 	for (i = 0; i < 150; ++i) {
-		memcpy(hf.value, &i, i.sizeof);
+		memcpy(value.ptr, &i, i.sizeof);
 		rv = deflater.deflate(bufs, hf);
 		blocklen = bufs.length;
 		
@@ -491,7 +492,7 @@ void test_hd_change_table_size() {
 	assert(8000 == inflater.settings_hd_table_bufsize_max);
 	
 	/* This will emit encoding context update with header table size 4096 */
-	rv = deflater.deflate(bufs, hfa, 2);
+	rv = deflater.deflate(bufs, hfa[0 .. 2]);
 	blocklen = bufs.length;
 	
 	assert(0 == rv);
@@ -516,7 +517,7 @@ void test_hd_change_table_size() {
 	assert(1024 == inflater.ctx.hd_table_bufsize_max);
 	assert(1024 == inflater.settings_hd_table_bufsize_max);
 	
-	rv = deflater.deflate(bufs, hfa, 2);
+	rv = deflater.deflate(bufs, hfa[0 .. 2]);
 	blocklen = bufs.length;
 	
 	assert(0 == rv);
@@ -543,7 +544,7 @@ void test_hd_change_table_size() {
 	assert(0 == inflater.ctx.hd_table_bufsize_max);
 	assert(0 == inflater.settings_hd_table_bufsize_max);
 	
-	rv = deflater.deflate(bufs, hfa, 2);
+	rv = deflater.deflate(bufs, hfa[0 .. 2]);
 	blocklen = bufs.length;
 	
 	assert(0 == rv);
@@ -578,7 +579,7 @@ void test_hd_change_table_size() {
 	assert(8000 == inflater.ctx.hd_table_bufsize_max);
 	assert(8000 == inflater.settings_hd_table_bufsize_max);
 	
-	rv = deflater.deflate(bufs, hfa, 2);
+	rv = deflater.deflate(bufs, hfa[0 .. 2]);
 	blocklen = bufs.length;
 	
 	assert(0 == rv);
@@ -602,7 +603,7 @@ void test_hd_change_table_size() {
 	assert(16383 == inflater.ctx.hd_table_bufsize_max);
 	assert(16383 == inflater.settings_hd_table_bufsize_max);
 	
-	rv = deflater.deflate(bufs, hfa, 2);
+	rv = deflater.deflate(bufs, hfa[0 .. 2]);
 	blocklen = bufs.length;
 	
 	assert(0 == rv);
@@ -638,7 +639,7 @@ void test_hd_change_table_size() {
 	assert(1024 == deflater.ctx.hd_table_bufsize_max);
 	
 	/* This emits context update with buffer size 1024 */
-	rv = deflater.deflate(bufs, hfa, 2);
+	rv = deflater.deflate(bufs, hfa[0 .. 2]);
 	blocklen = bufs.length;
 	
 	assert(0 == rv);
@@ -664,7 +665,7 @@ void test_hd_change_table_size() {
 	inflater.changeTableSize(uint.max);
 	deflater.changeTableSize(uint.max);
 	
-	rv = deflater.deflate(bufs, hfa, 2);
+	rv = deflater.deflate(bufs, hfa[0 .. 2]);
 	blocklen = bufs.length;
 	
 	assert(0 == rv);
@@ -693,7 +694,7 @@ void test_hd_change_table_size() {
 	assert(0 == deflater.min_hd_table_bufsize_max);
 	assert(3000 == deflater.ctx.hd_table_bufsize_max);
 	
-	rv = deflater.deflate(bufs, hfa2, 1);
+	rv = deflater.deflate(bufs, hfa2[0 .. 1]);
 	blocklen = bufs.length;
 	
 	assert(0 == rv);
@@ -729,7 +730,7 @@ void check_deflate_inflate(ref Deflater deflater, ref Inflater inflater, HeaderF
 	
 	assert(blocklen == output.inflate(inflater, bufs, 0));
 	
-	assert(nvlen == output.length);
+	assert(hfa.length == output.length);
 	assert(hfa.equals(output[]));
 	
 	output.reset();
@@ -1024,7 +1025,7 @@ void test_hd_decode_length() {
 	size_t rv;
 	size_t i;
 
-	len = encodeLength(buf, uint.max, 7);
+	len = encodeLength(buf.ptr, uint.max, 7);
 
 	rv = output.decodeLength(shift, is_final, 0, 0, buf.ptr, buf.ptr + len, 7);
 	
@@ -1052,8 +1053,8 @@ void test_hd_decode_length() {
 	assert(uint.max == output);
 	
 	/* Check overflow case */
-	memset(buf, 0, buf.length);
-	len = encodeLength(buf, 1L << 32, 7);
+	memset(buf.ptr, 0, buf.length);
+	len = encodeLength(buf.ptr, 1L << 32, 7);
 	
 	rv = output.decodeLength(shift, is_final, 0, 0, buf.ptr, buf.ptr + len, 7);
 	
@@ -1070,7 +1071,7 @@ void test_hd_huff_encode() {
 	bufs = framePackBuffers();
 	outbufs = framePackBuffers();
 
-	rv = bufs.encodeHuffman(t1);
+	rv = bufs.encodeHuffman(cast(string)t1);
 	
 	assert(rv == 0);
 		

@@ -21,6 +21,7 @@ const MAX_DEP_TREE_LENGTH = 100;
 
 struct StreamRoots
 {
+	void free() { }
 
     void add(Stream stream) {
         if (head) {
@@ -89,7 +90,9 @@ class Stream {
 		initialize(stream_id, flags, initial_state, weight, roots, remote_initial_window_size, local_initial_window_size, stream_user_data);
 	}
 
-    void initialize(int stream_id,
+	void free() { } // We don't free stream.item. It is deleted in ActiveOutboundItem.reset(), Sessioin.free() or PriorityQueue
+
+    private void initialize(int stream_id,
 		 StreamFlags flags,
 		 StreamState initial_state,
 		 int weight,
@@ -155,8 +158,8 @@ class Stream {
         assert((m_flags & StreamFlags.DEFERRED_ALL) == 0);
         assert(!m_item);
         
-        DEBUGF(fprintf(stderr, "stream: stream=%d attach item=%p\n",
-                m_stream_id, item));
+        LOGF("stream: stream=%d attach item=%p\n",
+                m_stream_id, item);
         
         m_item = item;
         
@@ -170,8 +173,8 @@ class Stream {
 	 */
     void detachItem(Session session) 
 	{
-        DEBUGF(fprintf(stderr, "stream: stream=%d detach item=%p\n",
-                m_stream_id, m_item));
+        LOGF("stream: stream=%d detach item=%p\n",
+                m_stream_id, m_item);
         
         m_item = null;
         m_flags &= ~StreamFlags.DEFERRED_ALL;
@@ -190,8 +193,8 @@ class Stream {
 	{
         assert(m_item);
         
-        DEBUGF(fprintf(stderr, "stream: stream=%d defer item=%p cause=%02x\n",
-                m_stream_id, m_item, flags));
+        LOGF("stream: stream=%d defer item=%p cause=%02x\n",
+                m_stream_id, m_item, flags);
         
         m_flags |= flags;
         
@@ -210,8 +213,8 @@ class Stream {
 	{
         assert(m_item);
         
-        DEBUGF(fprintf(stderr, "stream: stream=%d resume item=%p flags=%02x\n",
-                m_stream_id, m_item, flags));
+        LOGF("stream: stream=%d resume item=%p flags=%02x\n",
+                m_stream_id, m_item, flags);
         
         m_flags &= ~flags;
         
@@ -329,9 +332,7 @@ class Stream {
         
         assert(!m_item);
         
-        DEBUGF(fprintf(stderr,
-                "stream: dep_insert dep_stream(%p)=%d, stream(%p)=%d\n",
-				this, m_stream_id, stream, stream.m_stream_id));
+		LOGF("stream: dep_insert dep_stream(%p)=%d, stream(%p)=%d\n", this, m_stream_id, stream, stream.m_stream_id);
         
 		stream.m_sum_dep_weight = m_sum_dep_weight;
 		m_sum_dep_weight = stream.m_weight;
@@ -366,7 +367,7 @@ class Stream {
         
         assert(!stream.m_item);
         
-        DEBUGF(fprintf(stderr, "stream: dep_add dep_stream(%p)=%d, stream(%p)=%d\n", this, m_stream_id, stream, stream.m_stream_id));
+        LOGF("stream: dep_add dep_stream(%p=%d, stream(%p)=%d\n", this, m_stream_id, stream, stream.m_stream_id);
         
         root_stream = updateLength(1);
         
@@ -392,7 +393,7 @@ class Stream {
         Stream prev, next, dep_prev, si, root_stream;
         int sum_dep_weight_delta;
         
-        DEBUGF(fprintf(stderr, "stream: dep_remove stream(%p)=%d\n", this, m_stream_id));
+        LOGF("stream: dep_remove stream(%p=%d\n", this, m_stream_id);
         
         /* Distribute weight of $(D Stream) to direct descendants */
         sum_dep_weight_delta = -m_weight;
@@ -465,9 +466,9 @@ class Stream {
         Stream root_stream;
         size_t delta_substreams;
         
-        DEBUGF(fprintf(stderr, "stream: dep_insert_subtree dep_stream(%p)=%d "
+        LOGF("stream: dep_insert_subtree dep_stream(%p=%d "
                 "stream(%p)=%d\n",
-                this, m_stream_id, stream, stream.m_stream_id));
+                this, m_stream_id, stream, stream.m_stream_id);
         
 		delta_substreams = stream.m_num_substreams;
         
@@ -521,9 +522,9 @@ class Stream {
 	{
         Stream root_stream;
         
-        DEBUGF(fprintf(stderr, "stream: dep_add_subtree dep_stream(%p)=%d "
+        LOGF("stream: dep_add_subtree dep_stream(%p=%d "
                 "stream(%p)=%d\n",
-                this, m_stream_id, stream, stream.m_stream_id));
+                this, m_stream_id, stream, stream.m_stream_id);
         
         stream.updateSetRest();
         
@@ -557,7 +558,7 @@ class Stream {
 	{
         Stream prev, next, dep_prev, root_stream;
         
-        DEBUGF(fprintf(stderr, "stream: dep_remove_subtree stream(%p)=%d\n", this, m_stream_id));
+        LOGF("stream: dep_remove_subtree stream(%p=%d\n", this, m_stream_id);
         
         if (m_sib_prev) {
             prev = m_sib_prev;
@@ -609,7 +610,7 @@ class Stream {
      */
     void makeRoot(Session session)
 	{
-        DEBUGF(fprintf(stderr, "stream: dep_make_root stream(%p)=%d\n", this, m_stream_id));
+        LOGF("stream: dep_make_root stream(%p=%d\n", this, m_stream_id);
         
 		m_roots.add(this);
         
@@ -633,7 +634,7 @@ class Stream {
     {
         Stream first, si;
         
-        DEBUGF(fprintf(stderr, "stream: ALL YOUR STREAM ARE BELONG TO US stream(%p)=%d\n", stream, m_stream_id));
+        LOGF("stream: ALL YOUR STREAM ARE BELONG TO US stream(%p=%d\n", stream, m_stream_id);
         
         first = m_roots.head;
         
@@ -645,7 +646,7 @@ class Stream {
             
             prev = first;
             
-            DEBUGF(fprintf(stderr, "stream: root stream(%p)=%d\n", first, first.m_stream_id));
+            LOGF("stream: root stream(%p=%d\n", first, first.m_stream_id);
             
             m_sum_dep_weight += first.m_weight;
             m_num_substreams += first.m_num_substreams;
@@ -654,7 +655,7 @@ class Stream {
                 
                 assert(si !is stream);
                 
-                DEBUGF(fprintf(stderr, "stream: root stream(%p)=%d\n", si, si.m_stream_id));
+                LOGF("stream: root stream(%p=%d\n", si, si.m_stream_id);
                 
                 m_sum_dep_weight += si.m_weight;
                 m_num_substreams += si.m_num_substreams;
@@ -756,11 +757,11 @@ private:
 	{
 		Stream si;
 		
-		DEBUGF(fprintf(stderr, "stream: update_dep_effective_weight "
-				"stream(%p)=%d, weight=%d, sum_norest_weight=%d, "
+		LOGF("stream: update_dep_effective_weight "
+				"stream(%p=%d, weight=%d, sum_norest_weight=%d, "
 				"sum_top_weight=%d\n",
 				this, m_stream_id, m_weight,
-				m_sum_norest_weight, m_sum_top_weight));
+				m_sum_norest_weight, m_sum_top_weight);
 		
 		/* m_sum_norest_weight == 0 means there is no StreamDPRI.TOP under stream */
 		if (m_dpri != StreamDPRI.NO_ITEM ||
@@ -789,18 +790,18 @@ private:
 		for (si = m_dep_next; si; si = si.m_sib_next) {
 			if (si.m_dpri == StreamDPRI.TOP) {
 				si.m_effective_weight = distributedTopEffectiveWeight(si.m_weight);				
-				DEBUGF(fprintf(stderr, "stream: stream=%d top eweight=%d\n", si.m_stream_id, si.m_effective_weight));
+				LOGF("stream: stream=%d top eweight=%d\n", si.m_stream_id, si.m_effective_weight);
 				
 				continue;
 			}
 			
 			if (si.m_dpri == StreamDPRI.NO_ITEM) {
-				DEBUGF(fprintf(stderr, "stream: stream=%d no_item, ignored\n", si.m_stream_id));
+				LOGF("stream: stream=%d no_item, ignored\n", si.m_stream_id);
 				
 				/* Since we marked StreamDPRI.TOP under si, we make them StreamDPRI.REST again. */
 				si.m_dep_next.updateSetRest();
 			} else {
-				DEBUGF(fprintf(stderr, "stream: stream=%d rest, ignored\n", si.m_stream_id));
+				LOGF("stream: stream=%d rest, ignored\n", si.m_stream_id);
 			}
 		}
 	}
@@ -808,7 +809,7 @@ private:
 	void updateSetRest() 
 	{
 		
-		DEBUGF(fprintf(stderr, "stream: stream=%d is rest\n", m_stream_id));
+		LOGF("stream: stream=%d is rest\n", m_stream_id);
 		
 		if (m_dpri == StreamDPRI.REST)
 			return;
@@ -839,7 +840,7 @@ private:
 		
 		if (m_dpri == StreamDPRI.REST) 
 		{
-			DEBUGF(fprintf(stderr, "stream: stream=%d item is top\n", m_stream_id));
+			LOGF("stream: stream=%d item is top\n", m_stream_id);
 			
 			m_dpri = StreamDPRI.TOP;
 			
@@ -864,7 +865,7 @@ private:
 		
 		if (m_dpri == StreamDPRI.TOP) {
 			if (!m_item.queued) {
-				DEBUGF(fprintf(stderr, "stream: stream=%d enqueue\n", m_stream_id));
+				LOGF("stream: stream=%d enqueue\n", m_stream_id);
 				pushItem(session);
 			}
 			
@@ -931,7 +932,7 @@ private:
 		
 		root_stream = getRoot();
 		
-		DEBUGF(fprintf(stderr, "root=%p, stream=%p\n", root_stream, this));
+		LOGF("root=%p, stream=%p\n", root_stream, this);
 		
 		root_stream.updateSetTop();
 		
@@ -1316,22 +1317,32 @@ package: // used by Session
 	@property int id() { return m_stream_id; }
 	@property StreamDPRI dpri() { return m_dpri; }
 	@property StreamState state() { return m_state; }
+	@property void state(StreamState state) { m_state = state; }
 	@property OutboundItem item() { return m_item; }
 	@property int effectiveWeight() { return m_effective_weight; }
 	@property int remoteWindowSize() { return m_remote_window_size; }
-	@property int localWindowSize() { return m_local_window_size; }
+	@property void remoteWindowSize(int rws) { m_remote_window_size = rws; }
+	@property ref int localWindowSize() { return m_local_window_size; }
 	@property ref int recvWindowSize() { return m_recv_window_size; }
+	@property ref int recvReduction() { return m_recv_reduction; }
 	@property void recvWindowSize(int sz) { m_recv_window_size = sz; }
-	@property int consumedSize() { return m_consumed_size; }
+	@property ref int consumedSize() { return m_consumed_size; }
+	@property void consumedSize(int sz) { m_consumed_size = sz; }
 	@property void* userData() { return m_stream_user_data; }
 	@property void userData(void* ptr) { m_stream_user_data = ptr; }
 	@property ShutdownFlag shutFlags() { return m_shut_flags; }
+	@property void shutFlags(ShutdownFlag sf) { m_shut_flags = sf; }
 	@property HTTPFlags httpFlags() { return m_http_flags; }
 	@property StreamFlags flags() { return m_flags; }
+	@property void flags(StreamFlags f) { m_flags = f; }
 	@property int subStreams() { return m_num_substreams; }
 	@property void weight(int w) { m_weight = w; }
+	@property int weight() { return m_weight; }
 	@property Stream closedPrev() { return m_closed_prev; }
 	@property Stream closedNext() { return m_closed_next; } 
+	@property Stream depPrev() { return m_dep_prev; } 
+	@property Stream sibPrev() { return m_sib_prev; }
+	@property Stream sibNext() { return m_sib_next; } 
 	@property void closedPrev(Stream s) { m_closed_prev = s; }
 	@property void closedNext(Stream s) { m_closed_next = s; } 
 }

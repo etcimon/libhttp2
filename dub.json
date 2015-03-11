@@ -7,5 +7,5 @@
 	"targetType": "staticLibrary",
 	"targetPath": "build",
 	"workingDirectory": "build",
-	"dependencies": { "memutils": "~master" } 
+	"dependencies": { "memutils": { "version": "~master", "path": "../memutils" } }
 }
