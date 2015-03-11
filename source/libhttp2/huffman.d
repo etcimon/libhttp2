@@ -1,26 +1,13 @@
-/*
- * nghttp2 - HTTP/2 C Library
+/**
+ * Huffman
+ * 
+ * Copyright:
+ * (C) 2012-2015 Tatsuhiro Tsujikawa
+ * (C) 2014-2015 Etienne Cimon
  *
- * Copyright (c) 2013 Tatsuhiro Tsujikawa
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ * License: 
+ * Distributed under the terms of the MIT license with an additional section 1.2 of the curl/libcurl project. 
+ * Consult the provided LICENSE.md file for details
  */
 module libhttp2.huffman;
 import libhttp2.types;
@@ -42,7 +29,6 @@ const MAX_HF_LEN = 65536;
 const DEFAULT_MAX_DEFLATE_BUFFER_SIZE = (1 << 12);
 
 
-// http2_hd_inflate_flag
 /// The flags for header inflation.
 enum InflateFlag : ubyte
 {
@@ -55,9 +41,9 @@ enum InflateFlag : ubyte
 	/// Indicates a header was emitted.
 	EMIT = 0x02
 }
+
 package:
 
-//http2_hd_flags
 enum HDFlags 
 {
 	NONE = 0,
@@ -75,7 +61,6 @@ enum HDFlags
 
 alias HDEntry = RefCounted!HDEntryImpl;
 
-//http2_hd_entry
 class HDEntryImpl {
 	HeaderField hf;
 	uint name_hash;
@@ -140,13 +125,11 @@ class HDEntryImpl {
 	}
 }
 
-//http2_hd_static_entry
 struct StaticEntry {
 	HDEntry ent;
 	size_t index;
 }
 
-//http2_hd_opcode
 enum OpCode 
 {
 	NONE,
@@ -155,7 +138,6 @@ enum OpCode
 	INDNAME
 }
 
-//http2_hd_inflate_state
 enum InflateState 
 {
 	OPCODE,
@@ -171,7 +153,6 @@ enum InflateState
 	READ_VALUE
 }
 
-//http2_hd_context
 class HDTable
 {
 	/// dynamic header table
@@ -221,7 +202,7 @@ class HDTable
 		return new_ent;
 	}
 
-	HDTable get(size_t idx) {
+	HDEntry get(size_t idx) {
 		assert(idx < hd_table.length + static_table.length);
 
 		if (idx >= static_table.length) 
@@ -288,7 +269,6 @@ class HDTable
 	}
 }
 
-//http2_huff_decode_flag
 enum DecodeFlag {
 	/// FSA accepts this state as the end of huffman encoding sequence.
 	ACCEPTED = 1,
@@ -298,7 +278,6 @@ enum DecodeFlag {
 	FAIL = (1 << 2)
 }
 
-//http2_huff_decode
 struct Decode {
 	/* huffman decoding state, which is actually the node ID of internal
      huffman tree.  We have 257 leaf nodes, but they are identical to
@@ -313,7 +292,6 @@ struct Decode {
 
 alias DecodeTable = Decode[16];
 
-//http2_hd_huff_decode_context
 struct Decoder
 {
 	/* Current huffman decoding state. We stripped leaf nodes, so the value range is [0..255], inclusive. */
@@ -462,7 +440,6 @@ int decodeLength(ref uint res, ref size_t shift_ptr, ref bool is_final, // <-- o
 	return cast(int)(input + 1 - start);
 }
 
-//http2_huff_sym
 struct Symbol 
 {
 	/// The number of bits in this code

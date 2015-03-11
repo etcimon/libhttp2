@@ -1,4 +1,15 @@
-﻿module libhttp2.buffers;
+﻿/**
+ * Buffers
+ * 
+ * Copyright:
+ * (C) 2012-2015 Tatsuhiro Tsujikawa
+ * (C) 2014-2015 Etienne Cimon
+ *
+ * License: 
+ * Distributed under the terms of the MIT license with an additional section 1.2 of the curl/libcurl project. 
+ * Consult the provided LICENSE.md file for details
+ */
+module libhttp2.buffers;
 
 import libhttp2.types;
 import std.algorithm : max;

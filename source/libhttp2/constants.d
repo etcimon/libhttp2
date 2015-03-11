@@ -1,4 +1,20 @@
-﻿module libhttp2.constants;
+﻿/**
+ * Constants
+ * 
+ * Copyright:
+ * (C) 2012-2015 Tatsuhiro Tsujikawa
+ * (C) 2014-2015 Etienne Cimon
+ *
+ * License: 
+ * Distributed under the terms of the MIT license with an additional section 1.2 of the curl/libcurl project. 
+ * Consult the provided LICENSE.md file for details
+ */
+module libhttp2.constants;
+
+version(unittest)
+	const TEST_ALL = true;
+else
+	const TEST_ALL = false;
 
 /// Version of this library
 const VERSION = "0.2";

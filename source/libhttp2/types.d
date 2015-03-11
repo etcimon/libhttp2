@@ -1,11 +1,13 @@
-﻿/*
- * libhttp2 - HTTP/2 D Library
- *
- *
- * Copyright (c) 2013, 2014 Tatsuhiro Tsujikawa
- * Copyright (c) 2015 Etienne Cimon
+﻿/**
+ * Types
  * 
- * License: MIT
+ * Copyright:
+ * (C) 2012-2015 Tatsuhiro Tsujikawa
+ * (C) 2014-2015 Etienne Cimon
+ *
+ * License: 
+ * Distributed under the terms of the MIT license with an additional section 1.2 of the curl/libcurl project. 
+ * Consult the provided LICENSE.md file for details
  */
 module libhttp2.types;
 
@@ -225,7 +227,6 @@ enum HeaderFlag : ubyte
 	NO_INDEX = 0x01
 }
 
-//http2_nv
 /// The header field, which mainly used to represent HTTP headers.
 struct HeaderField 
 {
@@ -450,7 +451,6 @@ private:
 }
 
 
-//http2_frame_type
 /// The frame types in HTTP/2 specification.
 enum FrameType : ubyte
 {
@@ -466,7 +466,6 @@ enum FrameType : ubyte
 	CONTINUATION = 0x09
 }
 
-//http2_flag
 /// The flags for HTTP/2 frames.  This enum defines all flags for all frames.
 enum FrameFlags : ubyte 
 {
@@ -478,18 +477,7 @@ enum FrameFlags : ubyte
 	PRIORITY = 0x20
 }
 
-//http2_ext_frame_type
-/// The extension frame types.
- /*
- * TODO: The assigned frame types were carried from draft-12, and now
- * actually TBD.
- */
-enum ExtFrameType : ubyte {
-	/// The ALTSVC extension frame.
-	ALTSVC = 0x0a
-}
 
-// http2_error_code
 /// The status codes for the RST_STREAM and GOAWAY frames.
 enum FrameError : uint
 {
@@ -510,7 +498,6 @@ enum FrameError : uint
 }
 
 
-//http2_data_source
 /// This union represents the some kind of data source passed to nghttp2_data_source_read_callback
 union DataSource
 {
@@ -564,7 +551,6 @@ enum DataFlags : ubyte
 	EOF = 0x01
 }
 
-//http2_headers_category
 /**
  * The category of HEADERS, which indicates the role of the frame.  In
  * HTTP/2 spec, request, response, push response and other arbitrary
@@ -626,7 +612,6 @@ enum StreamState : ubyte {
 	IDLE
 }
 
-//http2_shut_flag
 enum ShutdownFlag {
 	NONE = 0,
 	
@@ -640,7 +625,6 @@ enum ShutdownFlag {
 	RDWR = RD | WR
 }
 
-//http2_stream_flag
 enum StreamFlags : ubyte {
 	NONE = 0,
 	
@@ -660,7 +644,6 @@ enum StreamFlags : ubyte {
 	DEFERRED_ALL = 0x0c    
 }
 
-//http2_http_flag
 /// HTTP related flags to enforce HTTP semantics
 enum HTTPFlags {
 	NONE = 0,
@@ -715,8 +698,6 @@ enum Token : int {
 	MAXIDX,
 }
 
-
-//http2_settings_entry
 struct Setting {
 	alias SettingCode = ubyte;
 	/// Notes: If we add SETTINGS, update the capacity of HTTP2_INBOUND_NUM_IV as well

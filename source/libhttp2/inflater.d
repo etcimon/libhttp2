@@ -1,11 +1,21 @@
-﻿module libhttp2.inflater;
+﻿/**
+ * Inflater
+ * 
+ * Copyright:
+ * (C) 2012-2015 Tatsuhiro Tsujikawa
+ * (C) 2014-2015 Etienne Cimon
+ *
+ * License: 
+ * Distributed under the terms of the MIT license with an additional section 1.2 of the curl/libcurl project. 
+ * Consult the provided LICENSE.md file for details
+ */
+module libhttp2.inflater;
 
 import libhttp2.types;
 import libhttp2.buffers;
 import libhttp2.huffman;
 import std.algorithm : min;
 
-//http2_hd_inflater
 struct Inflater
 {
 	HDTable ctx;

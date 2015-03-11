@@ -1,6 +1,7 @@
 The MIT License
 
-Copyright (c) 2012, 2014 Tatsuhiro Tsujikawa
+Copyright (c) 2012-2015 Tatsuhiro Tsujikawa (nghttp2)
+Copyright (c) 2014-2015 Etienne Cimon (libhttp2)
 
 Permission is hereby granted, free of charge, to any person obtaining
 a copy of this software and associated documentation files (the
@@ -33,7 +34,7 @@ the original file(s).  The copyright will still be owned by the
 original creator(s) or those who have been assigned copyright by the
 original author(s).
 
-By submitting a patch to the nghttp2 project, you are assumed to have
+By submitting a patch to the libhttp2 project, you are assumed to have
 the right to the code and to be allowed by your employer or whatever
 to hand over that patch/code to us.  We will credit you for your
 changes as far as possible, to give credit but also to keep a trace

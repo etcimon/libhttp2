@@ -1,11 +1,13 @@
-/*
- * libhttp2 - HTTP/2 D Library
- *
- *
- * Copyright (c) 2013, 2014 Tatsuhiro Tsujikawa
- * Copyright (c) 2015 Etienne Cimon
+/**
+ * Session
  * 
- * License: MIT
+ * Copyright:
+ * (C) 2012-2015 Tatsuhiro Tsujikawa
+ * (C) 2014-2015 Etienne Cimon
+ *
+ * License: 
+ * Distributed under the terms of the MIT license with an additional section 1.2 of the curl/libcurl project. 
+ * Consult the provided LICENSE.md file for details
  */
 module libhttp2.session;
 
@@ -26,20 +28,17 @@ import memutils.hashmap;
 
 import std.algorithm : min, max;
 
-//http2_optmask
 enum OptionsMask {
     NO_AUTO_WINDOW_UPDATE = 1 << 0,
     RECV_CLIENT_PREFACE = 1 << 1,
     NO_HTTP_MESSAGING = 1 << 2,
 }
 
-//http2_outbound_state
 enum OutboundState {
     POP_ITEM,
     SEND_DATA
 }
 
-//http2_active_outbound_item
 struct ActiveOutboundItem {
     OutboundItem item;
     Buffers framebufs;
@@ -56,7 +55,6 @@ struct ActiveOutboundItem {
 	}
 }
 
-//http2_inbound_state
 /// Internal state when receiving incoming frame
 enum InboundState : ubyte {
     /* Receiving frame header */
@@ -78,12 +76,8 @@ enum InboundState : ubyte {
     IGN_ALL,
 }
 
-//http2_inbound_frame
 struct InboundFrame {
     Frame frame;
-    /* Storage for extension frame payload.  frame.ext.payload points
-     to this structure to avoid frequent memory allocation. */
-    ExtFramePayload ext_frame_payload;
 
     /* The received SETTINGS entry. The protocol says that we only cares
 	   about the defined settings ID. If unknown ID is received, it is
@@ -246,7 +240,6 @@ struct InboundFrame {
 	}
 }
 
-//http2_settings_storage
 struct SettingsStorage {
 	uint header_table_size = HD_DEFAULT_MAX_BUFFER_SIZE;
 	uint enable_push = 1;
@@ -256,7 +249,6 @@ struct SettingsStorage {
 	uint max_header_list_size = uint.max;
 }
 
-//http2_goaway_flag
 enum GoAwayFlags {
     NONE = 0,
     /* Flag means that connection should be terminated after sending GOAWAY. */
@@ -269,14 +261,12 @@ enum GoAwayFlags {
     RECV = 0x8,
 }
 
-//http2_update_window_size_arg
 /// Struct used when updating initial window size of each active stream.
 struct UpdateWindowSizeArgs{
     Session session;
     int new_window_size, old_window_size;
 }
 
-//http2_close_stream_on_goaway_arg
 struct CloseStreamOnGoAwayArgs {
     Session session;
 
@@ -3951,8 +3941,7 @@ private:
 		}
 		
 		destroy(iframe.frame);
-		destroy(iframe.ext_frame_payload);
-		
+
 		iframe.state = InboundState.IB_READ_HEAD;
 		
 		iframe.sbuf = Buffer(iframe.raw_sbuf.ptr[0 .. iframe.raw_sbuf.sizeof]);
@@ -6901,7 +6890,6 @@ enum OptionFlags {
 	NO_HTTP_MESSAGING = 1 << 3,
 }
 
-//http2_option
 /// Struct to store option values for http2_session.
 struct Options {
 private:

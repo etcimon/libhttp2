@@ -1,28 +1,19 @@
-/*
- * nghttp2 - HTTP/2 C Library
+/**
+ * Session Tests
+ * 
+ * Copyright:
+ * (C) 2012-2015 Tatsuhiro Tsujikawa
+ * (C) 2014-2015 Etienne Cimon
  *
- * Copyright (c) 2013 Tatsuhiro Tsujikawa
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ * License: 
+ * Distributed under the terms of the MIT license with an additional section 1.2 of the curl/libcurl project. 
+ * Consult the provided LICENSE.md file for details
  */
 module libhttp2.session_tests;
+
+import libhttp2.constants;
+static if (TEST_ALL):
+
 import libhttp2.session;
 import libhttp2.policy;
 import libhttp2.frame;
@@ -56,20 +47,19 @@ struct ScriptedDataFeed {
 		Buffer* buf;
 		ubyte* ptr;
 		size_t len;
-		
-		memset(df, 0, sizeof(ScriptedDataFeed));
-		ptr = df.data.ptr;
+
+		ptr = data.ptr;
 		len = 0;
 		
 		for (ci = bufs.head; ci; ci = ci.next) {
 			buf = &ci.buf;
-			ptr = memcpy(ptr, buf.pos, buf.length);
+			memcpy(ptr, buf.pos, buf.length);
 			len += buf.length;
 		}
 		
-		df.datamark = df.data.ptr;
-		df.datalimit = df.data.ptr + len;
-		df.feedseq[0] = len;
+		datamark = data.ptr;
+		datalimit = data.ptr + len;
+		feedseq[0] = len;
 	}
 }
 
@@ -333,16 +323,9 @@ struct MyDataSource
 	}
 }
 
+private immutable PrioritySpec pri_spec_default;
 
-
-private Setting[] dup_iv(in Setting[] iva) 
-{
-	iva.copy();
-}
-
-private PrioritySpec pri_spec_default;
-
-void test_session_recv() {
+void test_session_read() {
 	Session session;
 	Callbacks callbacks;
 	ScriptedDataFeed df;
@@ -369,7 +352,7 @@ void test_session_recv() {
 	
 	
 	hfa = reqhf.copy();
-	frame.headers = Headers(FrameFlags.END_HEADERS, 1, HeadersCategory.HEADERS, PrioritySpec.init, hfa);
+	frame.headers = Headers(FrameFlags.END_HEADERS, 1, HeadersCategory.HEADERS, pri_spec_default, hfa);
 	rv = frame.headers.pack(bufs, deflater);
 
 	assert(0 == rv);
@@ -455,7 +438,7 @@ void test_session_recv() {
 	session.free();
 }
 
-void test_session_recv_invalid_stream_id() {
+void test_session_read_invalid_stream_id() {
 	Session session;
 	Callbacks callbacks;
 	ScriptedDataFeed df;
@@ -478,7 +461,7 @@ void test_session_recv_invalid_stream_id() {
 	
 	hfa = reqhf.copy();
 	frame.headers = Headers(FrameFlags.END_HEADERS, 2,
-		HeadersCategory.HEADERS, PrioritySpec.init, hfa);
+		HeadersCategory.HEADERS, pri_spec_default, hfa);
 	rv = frame.headers.pack(bufs, deflater);
 	
 	assert(0 == rv);
@@ -495,7 +478,7 @@ void test_session_recv_invalid_stream_id() {
 	session.free();
 }
 
-void test_session_recv_invalid_frame() {
+void test_session_read_invalid_frame() {
 	Session session;
 	Callbacks callbacks;
 	ScriptedDataFeed df;
@@ -517,7 +500,7 @@ void test_session_recv_invalid_frame() {
 	
 	hfa = reqhf.copy();
 	frame.headers = Headers(FrameFlags.END_HEADERS, 1,
-		HeadersCategory.HEADERS, PrioritySpec.init, hfa);
+		HeadersCategory.HEADERS, pri_spec_default, hfa);
 	rv = frame.headers.pack(bufs, deflater);
 	
 	assert(0 == rv);
@@ -545,7 +528,7 @@ void test_session_recv_invalid_frame() {
 	session.free();
 }
 
-void test_session_recv_eof() {
+void test_session_read_eof() {
 	Session session;
 	Callbacks callbacks;
 	
@@ -559,7 +542,7 @@ void test_session_recv_eof() {
 	session.free();
 }
 
-void test_session_recv_data() {
+void test_session_read_data() {
 	Session session;
 	Callbacks callbacks;
 	MyUserData user_data = MyUserData(&session);
@@ -681,7 +664,7 @@ void test_session_recv_data() {
 	session.free();
 }
 
-void test_session_recv_continuation() {
+void test_session_read_continuation() {
 	Session session;
 	Callbacks callbacks;
 	HeaderField[] hfa;
@@ -709,7 +692,7 @@ void test_session_recv_continuation() {
 	
 	hfa = reqhf.copy();
 	frame.headers = Headers(FrameFlags.NONE, 1,
-		HeadersCategory.HEADERS, PrioritySpec.init, hfa);
+		HeadersCategory.HEADERS, pri_spec_default, hfa);
 	rv = frame.headers.pack(bufs, deflater);
 	
 	assert(0 == rv);
@@ -768,7 +751,7 @@ void test_session_recv_continuation() {
 
 	/* HEADERS without END_HEADERS flag */
 	hfa = reqhf.copy();
-	frame.headers = Headers(FrameFlags.NONE, 1, HeadersCategory.HEADERS, PrioritySpec.init, hfa);
+	frame.headers = Headers(FrameFlags.NONE, 1, HeadersCategory.HEADERS, pri_spec_default, hfa);
 	bufs.reset();
 	rv = frame.headers.pack(bufs, deflater);
 	
@@ -785,7 +768,7 @@ void test_session_recv_continuation() {
 	datalen = buf.length;
 	
 	/* Followed by PRIORITY */
-	pri_spec = PrioritySpec.init;
+	pri_spec = pri_spec_default;
 	
 	frame.priority = Priority(1, pri_spec);
 	bufs.reset();
@@ -810,7 +793,7 @@ void test_session_recv_continuation() {
 	session.free();
 }
 
-void test_session_recv_headers_with_priority() {
+void test_session_read_headers_with_priority() {
 	Session session;
 	Callbacks callbacks;
 	HeaderField[] hfa;
@@ -952,7 +935,7 @@ void test_session_recv_headers_with_priority() {
 	session.free();
 }
 
-void test_session_recv_premature_headers() {
+void test_session_read_premature_headers() {
 	Session session;
 	Callbacks callbacks;
 	HeaderField[] hfa;
@@ -971,7 +954,7 @@ void test_session_recv_premature_headers() {
 	
 	
 	hfa = reqhf.copy();
-	frame.headers = Headers(FrameFlags.END_HEADERS, 1, HeadersCategory.HEADERS, PrioritySpec.init, hfa);
+	frame.headers = Headers(FrameFlags.END_HEADERS, 1, HeadersCategory.HEADERS, pri_spec_default, hfa);
 	rv = frame.headers.pack(bufs, deflater);
 	
 	assert(0 == rv);
@@ -998,7 +981,7 @@ void test_session_recv_premature_headers() {
 	session.free();
 }
 
-void test_session_recv_unknown_frame() {
+void test_session_read_unknown_frame() {
 	Session session;
 	Callbacks callbacks;
 	MyUserData user_data = MyUserData(&session);
@@ -1029,7 +1012,7 @@ void test_session_recv_unknown_frame() {
 	session.free();
 }
 
-void test_session_recv_unexpected_continuation() {
+void test_session_read_unexpected_continuation() {
 	Session session;
 	Callbacks callbacks;
 	MyUserData user_data = MyUserData(&session);
@@ -1066,7 +1049,7 @@ void test_session_recv_unexpected_continuation() {
 	session.free();
 }
 
-void test_session_recv_settings_header_table_size() {
+void test_session_read_settings_header_table_size() {
 	Session session;
 	Callbacks callbacks;
 	Frame frame;
@@ -1147,7 +1130,7 @@ void test_session_recv_settings_header_table_size() {
 	bufs.reset();
 	
 	/* 2 SettingsID.HEADER_TABLE_SIZE; first entry clears dynamic header table. */	
-	submitRequest(session, PrioritySpec.init, iva[0 .. 1], DataProvider.init, null);
+	submitRequest(session, pri_spec_default, iva[0 .. 1], DataProvider.init, null);
 	session.send();
 	
 	assert(0 < session.hd_deflater.ctx.hd_table.len);
@@ -1189,7 +1172,7 @@ void test_session_recv_settings_header_table_size() {
 	/* 2 SettingsID.HEADER_TABLE_SIZE; second entry clears dynamic header
      table. */
 	
-	submitRequest(session, PrioritySpec.init, iva[0 .. 1], DataProvider.init, null);
+	submitRequest(session, pri_spec_default, iva[0 .. 1], DataProvider.init, null);
 	session.send();
 	
 	assert(0 < session.hd_deflater.ctx.hd_table.len);
@@ -1232,7 +1215,7 @@ void test_session_recv_settings_header_table_size() {
 	session.free();
 }
 
-void test_session_recv_too_large_frame_length() {
+void test_session_read_too_large_frame_length() {
 	Session session;
 	Callbacks callbacks;
 	ubyte[FRAME_HDLEN] buf;
@@ -1246,7 +1229,7 @@ void test_session_recv_too_large_frame_length() {
 	
 	hd.pack(buf);
 	
-	assert(sizeof(buf) == session.memRecv(buf, sizeof(buf)));
+	assert(buf.length == session.memRecv(buf));
 	
 	item = session.getNextOutboundItem();
 	
@@ -1291,7 +1274,7 @@ void test_session_continue() {
 	
 	/* Make 2 HEADERS frames */
 	hfa = hf1.copy();
-	frame.headers = Headers(FrameFlags.END_HEADERS, 1, HeadersCategory.HEADERS, PrioritySpec.init, hfa);
+	frame.headers = Headers(FrameFlags.END_HEADERS, 1, HeadersCategory.HEADERS, pri_spec_default, hfa);
 	rv = frame.headers.pack(bufs, deflater);
 	
 	assert(0 == rv);
@@ -1306,7 +1289,7 @@ void test_session_continue() {
 	memcpy(databuf.last, buf.pos, buf.length);
 	
 	hfa = hf2.copy();
-	frame.headers = Headers(FrameFlags.END_HEADERS, 3, HeadersCategory.HEADERS, PrioritySpec.init, hfa);
+	frame.headers = Headers(FrameFlags.END_HEADERS, 3, HeadersCategory.HEADERS, pri_spec_default, hfa);
 	bufs.reset();
 	rv = frame.headers.pack(bufs, deflater);
 	
@@ -1449,7 +1432,7 @@ void test_session_add_frame() {
 	
 	hfa = reqhf.copy();
 	
-	frame.headers = Headers(FrameFlags.END_HEADERS | FrameFlags.PRIORITY, session.next_stream_id, HeadersCategory.REQUEST, PrioritySpec.init, hfa);
+	frame.headers = Headers(FrameFlags.END_HEADERS | FrameFlags.PRIORITY, session.next_stream_id, HeadersCategory.REQUEST, pri_spec_default, hfa);
 	
 	session.next_stream_id += 2;
 	
@@ -1471,7 +1454,7 @@ void test_session_on_request_headers_received() {
 	Frame frame;
 	Stream stream;
 	int stream_id = 1;
-	HeaderField[] malformed_nva = [HeaderField(":path", "\x01")];
+	HeaderField[] malformed_hfa = [HeaderField(":path", "\x01")];
 	HeaderField[] hfa;
 	
 	PrioritySpec pri_spec;
@@ -1498,7 +1481,7 @@ void test_session_on_request_headers_received() {
 	
 	/* More than un-ACKed max concurrent streams leads REFUSED_STREAM */
 	session.pending_local_max_concurrent_stream = 1;
-	frame.headers = Headers(FrameFlags.END_HEADERS | FrameFlags.PRIORITY, 3, HeadersCategory.HEADERS, PrioritySpec.init, null);
+	frame.headers = Headers(FrameFlags.END_HEADERS | FrameFlags.PRIORITY, 3, HeadersCategory.HEADERS, pri_spec_default, null);
 	user_data.invalid_frame_recv_cb_called = 0;
 	assert(ErrorCode.IGN_HEADER_BLOCK == session.onRequestHeaders(frame));
 	assert(1 == user_data.invalid_frame_recv_cb_called);
@@ -1508,7 +1491,7 @@ void test_session_on_request_headers_received() {
 	session.local_settings.max_concurrent_streams = INITIAL_MAX_CONCURRENT_STREAMS;
 
 	/* Stream ID less than or equal to the previouly received request HEADERS is just ignored due to race condition */
-	frame.headers = Headers(FrameFlags.END_HEADERS | FrameFlags.PRIORITY, 3, HeadersCategory.HEADERS, PrioritySpec.init, null);
+	frame.headers = Headers(FrameFlags.END_HEADERS | FrameFlags.PRIORITY, 3, HeadersCategory.HEADERS, pri_spec_default, null);
 	user_data.invalid_frame_recv_cb_called = 0;
 	assert(ErrorCode.IGN_HEADER_BLOCK == session.onRequestHeaders(frame));
 	assert(0 == user_data.invalid_frame_recv_cb_called);
@@ -1517,7 +1500,7 @@ void test_session_on_request_headers_received() {
 	frame.headers.free();
 	
 	/* Stream ID is our side and it is idle stream ID, then treat it as connection error */
-	frame.headers = Headers(FrameFlags.END_HEADERS | FrameFlags.PRIORITY, 2, HeadersCategory.HEADERS, PrioritySpec.init, null);
+	frame.headers = Headers(FrameFlags.END_HEADERS | FrameFlags.PRIORITY, 2, HeadersCategory.HEADERS, pri_spec_default, null);
 	user_data.invalid_frame_recv_cb_called = 0;
 	assert(ErrorCode.IGN_HEADER_BLOCK == session.onRequestHeaders(frame));
 	assert(1 == user_data.invalid_frame_recv_cb_called);
@@ -1530,9 +1513,9 @@ void test_session_on_request_headers_received() {
 	/* Check malformed headers. The library accept it. */
 	session = new Session(SERVER, *callbacks);
 	
-	hfa = malformed_nva.copy();
+	hfa = malformed_hfa.copy();
 
-	frame.headers = Headers(FrameFlags.END_HEADERS | FrameFlags.PRIORITY, 1, HeadersCategory.HEADERS, PrioritySpec.init, hfa);
+	frame.headers = Headers(FrameFlags.END_HEADERS | FrameFlags.PRIORITY, 1, HeadersCategory.HEADERS, pri_spec_default, hfa);
 	user_data.begin_headers_cb_called = 0;
 	user_data.invalid_frame_recv_cb_called = 0;
 	assert(0 == session.onRequestHeaders(frame));
@@ -1547,7 +1530,7 @@ void test_session_on_request_headers_received() {
 	session = new Session(CLIENT, *callbacks);
 	
 	/* Receiving peer's idle stream ID is subject to connection error */
-	frame.headers = Headers(FrameFlags.END_HEADERS, 2, HeadersCategory.REQUEST, PrioritySpec.init, null);
+	frame.headers = Headers(FrameFlags.END_HEADERS, 2, HeadersCategory.REQUEST, pri_spec_default, null);
 	
 	user_data.invalid_frame_recv_cb_called = 0;
 	assert(ErrorCode.IGN_HEADER_BLOCK ==
@@ -1562,7 +1545,7 @@ void test_session_on_request_headers_received() {
 	session = new Session(CLIENT, *callbacks);
 	
 	/* Receiving our's idle stream ID is subject to connection error */
-	frame.headers = Headers(FrameFlags.END_HEADERS, 1, HeadersCategory.REQUEST, PrioritySpec.init, null);
+	frame.headers = Headers(FrameFlags.END_HEADERS, 1, HeadersCategory.REQUEST, pri_spec_default, null);
 	
 	user_data.invalid_frame_recv_cb_called = 0;
 	assert(ErrorCode.IGN_HEADER_BLOCK == session.onRequestHeaders(frame));
@@ -1578,7 +1561,7 @@ void test_session_on_request_headers_received() {
 	session.next_stream_id = 5;
 	
 	/* Stream ID which is not idle and not in stream map is just ignored */
-	frame.headers = Headers(FrameFlags.END_HEADERS, 3, HeadersCategory.REQUEST, PrioritySpec.init, null);
+	frame.headers = Headers(FrameFlags.END_HEADERS, 3, HeadersCategory.REQUEST, pri_spec_default, null);
 	
 	user_data.invalid_frame_recv_cb_called = 0;
 	assert(ErrorCode.IGN_HEADER_BLOCK == session.onRequestHeaders(frame));
@@ -1594,14 +1577,14 @@ void test_session_on_request_headers_received() {
 	/* Stream ID which is equal to local_last_stream_id is ok. */
 	session.local_last_stream_id = 3;
 	
-	frame.headers = Headers(FrameFlags.END_HEADERS, 3, HeadersCategory.REQUEST, PrioritySpec.init, null);
+	frame.headers = Headers(FrameFlags.END_HEADERS, 3, HeadersCategory.REQUEST, pri_spec_default, null);
 	
 	assert(0 == session.onRequestHeaders(frame));
 	
 	frame.headers.free();
 	
 	/* If GOAWAY has been sent, new stream is ignored */
-	frame.headers = Headers(FrameFlags.END_HEADERS, 5, HeadersCategory.REQUEST, PrioritySpec.init, null);
+	frame.headers = Headers(FrameFlags.END_HEADERS, 5, HeadersCategory.REQUEST, pri_spec_default, null);
 	
 	session.goaway_flags |= GoAwayFlags.SENT;
 	user_data.invalid_frame_recv_cb_called = 0;
@@ -1626,7 +1609,7 @@ void test_session_on_response_headers_received() {
 	
 	session = new Session(CLIENT, *callbacks);
 	stream = session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
-	frame.headers = Headers(FrameFlags.END_HEADERS, 1, HeadersCategory.HEADERS, PrioritySpec.init, null);
+	frame.headers = Headers(FrameFlags.END_HEADERS, 1, HeadersCategory.HEADERS, pri_spec_default, null);
 	
 	user_data.begin_headers_cb_called = 0;
 	user_data.invalid_frame_recv_cb_called = 0;
@@ -1652,7 +1635,7 @@ void test_session_on_headers_received() {
 	session = new Session(CLIENT, *callbacks);
 	stream = session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENED, null);
 	stream.shutdown(ShutdownFlag.WR);
-	frame.headers = Headers(FrameFlags.END_HEADERS, 1, HeadersCategory.HEADERS, PrioritySpec.init, null);
+	frame.headers = Headers(FrameFlags.END_HEADERS, 1, HeadersCategory.HEADERS, pri_spec_default, null);
 	
 	user_data.begin_headers_cb_called = 0;
 	user_data.invalid_frame_recv_cb_called = 0;
@@ -1712,7 +1695,7 @@ void test_session_on_push_response_headers_received() {
 	
 	session = new Session(CLIENT, *callbacks);
 	stream = session.openStream(2, StreamFlags.NONE, pri_spec_default, StreamState.RESERVED, null);
-	frame.headers = Headers(FrameFlags.END_HEADERS, 2, HeadersCategory.HEADERS, PrioritySpec.init, null);
+	frame.headers = Headers(FrameFlags.END_HEADERS, 2, HeadersCategory.HEADERS, pri_spec_default, null);
 	/* session.onPushResponseHeaders assumes stream's state is StreamState.RESERVED and session.server is 0. */
 	
 	user_data.begin_headers_cb_called = 0;
@@ -1931,7 +1914,7 @@ void test_session_on_settings_received() {
      and header table size is once cleared to 0. */
 	session = new Session(CLIENT, *callbacks);
 	
-	submitRequest(session, PrioritySpec.init, iva[0 .. 1], DataProvider.init, null);
+	submitRequest(session, pri_spec_default, iva[0 .. 1], DataProvider.init, null);
 	
 	session.send();
 	
@@ -1980,7 +1963,7 @@ void test_session_on_push_promise_received() {
 	Frame frame;
 	Stream stream, promised_stream;
 	OutboundItem item;
-	HeaderField[] malformed_nva = [HeaderField(":path", "\x01")];
+	HeaderField[] malformed_hfa = [HeaderField(":path", "\x01")];
 	HeaderField[] hfa;
 
 	
@@ -2127,7 +2110,7 @@ void test_session_on_push_promise_received() {
 	session = new Session(CLIENT, *callbacks);
 	
 	stream = session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
-	hfa = malformed_nva.copy();
+	hfa = malformed_hfa.copy();
 	frame.push_promise = PushPromise(FrameFlags.END_HEADERS, 1, 2, hfa);
 	user_data.begin_headers_cb_called = 0;
 	user_data.invalid_frame_recv_cb_called = 0;
@@ -2335,7 +2318,7 @@ void test_session_on_data_received() {
 	session.free();
 }
 
-void test_session_send_headers_start_stream() {
+void test_session_write_headers_start_stream() {
 	Session session;
 	Callbacks callbacks;
 	OutboundItem item;
@@ -2351,7 +2334,7 @@ void test_session_send_headers_start_stream() {
 
 	frame = &item.frame;
 	
-	frame.headers = Headers(FrameFlags.END_HEADERS,	session.next_stream_id, HeadersCategory.REQUEST, PrioritySpec.init, null, 0);
+	frame.headers = Headers(FrameFlags.END_HEADERS,	session.next_stream_id, HeadersCategory.REQUEST, pri_spec_default, null, 0);
 	session.next_stream_id += 2;
 	
 	session.addItem(item);
@@ -2362,7 +2345,7 @@ void test_session_send_headers_start_stream() {
 	session.free();
 }
 
-void test_session_send_headers_reply() {
+void test_session_write_headers_reply() {
 	Session session;
 	Callbacks callbacks;
 	OutboundItem item;
@@ -2379,7 +2362,7 @@ void test_session_send_headers_reply() {
 	
 	frame = &item.frame;
 	
-	frame.headers = Headers(FrameFlags.END_HEADERS, 2, HeadersCategory.HEADERS, PrioritySpec.init, null);
+	frame.headers = Headers(FrameFlags.END_HEADERS, 2, HeadersCategory.HEADERS, pri_spec_default, null);
 	session.addItem(item);
 	assert(0 == session.send());
 	stream = session.getStream(2);
@@ -2388,7 +2371,7 @@ void test_session_send_headers_reply() {
 	session.free();
 }
 
-void test_session_send_headers_frame_size_error() {
+void test_session_write_headers_frame_size_error() {
 	Session session;
 	Callbacks callbacks;
 	OutboundItem item;
@@ -2417,7 +2400,7 @@ void test_session_send_headers_frame_size_error() {
 	
 	frame = &item.frame;
 	
-	frame.headers = Headers(FrameFlags.END_HEADERS,	session.next_stream_id, HeadersCategory.REQUEST, PrioritySpec.init, hfa_copy);
+	frame.headers = Headers(FrameFlags.END_HEADERS,	session.next_stream_id, HeadersCategory.REQUEST, pri_spec_default, hfa_copy);
 	
 	session.next_stream_id += 2;
 	
@@ -2439,7 +2422,7 @@ void test_session_send_headers_frame_size_error() {
 	session.free();
 }
 
-void test_session_send_headers_push_reply() {
+void test_session_write_headers_push_reply() {
 	Session session;
 	Callbacks callbacks;
 	OutboundItem item;
@@ -2455,7 +2438,7 @@ void test_session_send_headers_push_reply() {
 	
 	frame = &item.frame;
 	
-	frame.headers = Headers(FrameFlags.END_HEADERS, 2, HeadersCategory.HEADERS, PrioritySpec.init, null);
+	frame.headers = Headers(FrameFlags.END_HEADERS, 2, HeadersCategory.HEADERS, pri_spec_default, null);
 	session.addItem(item);
 	assert(0 == session.num_outgoing_streams);
 	assert(0 == session.send());
@@ -2466,7 +2449,7 @@ void test_session_send_headers_push_reply() {
 	session.free();
 }
 
-void test_session_send_rst_stream() {
+void test_session_write_rst_stream() {
 	Session session;
 	Callbacks callbacks;
 	MyUserData user_data = MyUserData(&session);
@@ -2490,7 +2473,7 @@ void test_session_send_rst_stream() {
 	session.free();
 }
 
-void test_session_send_push_promise() {
+void test_session_write_push_promise() {
 	Session session;
 	Callbacks callbacks;
 	OutboundItem item;
@@ -2926,9 +2909,9 @@ void test_submit_request_with_data() {
 	data_prd.read_callback = &user_data.datasrc.readFixedLength;
 	user_data.data_source_length = 64 * 1024 - 1;
 	session = new Session(CLIENT, *callbacks);
-	assert(1 == submitRequest(session, PrioritySpec.init, reqhf, data_prd, null));
+	assert(1 == submitRequest(session, pri_spec_default, reqhf, data_prd, null));
 	item = session.getNextOutboundItem();
-	assert(ARRLEN(reqhf) == item.frame.headers.hfa.length);
+	assert(reqhf.length == item.frame.headers.hfa.length);
 	assert(reqhf.equals(item.frame.headers.hfa));
 	assert(0 == session.send());
 	assert(0 == user_data.data_source_length);
@@ -2954,9 +2937,9 @@ void test_submit_request_without_data() {
 	callbacks.write_cb = &user_data.cb_handlers.writeToAccumulator;
 	session = new Session(CLIENT, *callbacks);
 
-	assert(1 == submitRequest(session, PrioritySpec.init, reqhf, data_prd, null));
+	assert(1 == submitRequest(session, pri_spec_default, reqhf, data_prd, null));
 	item = session.getNextOutboundItem();
-	assert(ARRLEN(reqhf) == item.frame.headers.hfa.length);
+	assert(reqhf.length == item.frame.headers.hfa.length);
 	assert(reqhf.equals(item.frame.headers.hfa));
 	assert(item.frame.hd.flags & FrameFlags.END_STREAM);
 	
@@ -2966,7 +2949,7 @@ void test_submit_request_without_data() {
 	bufs.add(acc[]);
 	output.inflate(inflater, bufs, FRAME_HDLEN);
 	
-	assert(ARRLEN(reqhf) == output.length);
+	assert(reqhf.length == output.length);
 	assert(reqhf.equals(output.hfa));
 	frame.headers.free();
 	HeaderFields_reset(&output);
@@ -2991,7 +2974,7 @@ void test_submit_response_with_data() {
 	session.openStream(1, FrameFlags.END_STREAM, pri_spec_default, StreamState.OPENING, null);
 	assert(0 == submitResponse(session, 1, reshf, data_prd));
 	item = session.getNextOutboundItem();
-	assert(ARRLEN(reshf) == item.frame.headers.hfa.length);
+	assert(reshf.length == item.frame.headers.hfa.length);
 	assert(reshf.equals(item.frame.headers.hfa));
 	assert(0 == session.send());
 	assert(0 == user_data.data_source_length);
@@ -3020,7 +3003,7 @@ void test_submit_response_without_data() {
 	session.openStream(1, FrameFlags.END_STREAM, pri_spec_default, StreamState.OPENING, null);
 	assert(0 == submitResponse(session, 1, reshf, data_prd));
 	item = session.getNextOutboundItem();
-	assert(ARRLEN(reshf) == item.frame.headers.hfa.length);
+	assert(reshf.length == item.frame.headers.hfa.length);
 	assert(reshf.equals(item.frame.headers.hfa));
 	assert(item.frame.hd.flags & FrameFlags.END_STREAM);
 	
@@ -3028,9 +3011,9 @@ void test_submit_response_without_data() {
 	frame.unpack(acc[]);
 	
 	bufs.add(acc[]);
-	inflate_hd(&inflater, &output, &bufs, FRAME_HDLEN);
+	output.inflate(inflater, bufs, FRAME_HDLEN);
 	
-	assert(ARRLEN(reshf) == output.length);
+	assert(reshf.length == output.length);
 	assert(reshf.equals(output.hfa));
 	
 	HeaderFields_reset(&output);
@@ -3046,9 +3029,9 @@ void test_submit_headers_start_stream() {
 	OutboundItem item;
 
 	session = new Session(CLIENT, *callbacks);
-	assert(1 == submitHeaders(session, FrameFlags.END_STREAM, -1, PrioritySpec.init, reqhf));
+	assert(1 == submitHeaders(session, FrameFlags.END_STREAM, -1, pri_spec_default, reqhf));
 	item = session.getNextOutboundItem();
-	assert(ARRLEN(reqhf) == item.frame.headers.hfa.length);
+	assert(reqhf.length == item.frame.headers.hfa.length);
 	assert(reqhf.equals(item.frame.headers.hfa));
 	assert((FrameFlags.END_HEADERS | FrameFlags.END_STREAM) == item.frame.hd.flags);
 	assert(0 == (item.frame.hd.flags & FrameFlags.PRIORITY));
@@ -3067,9 +3050,9 @@ void test_submit_headers_reply() {
 	callbacks.on_frame_sent_cb = &user_data.cb_handlers.onFrameSent;
 	
 	session = new Session(SERVER, *callbacks);
-	submitHeaders(session, FrameFlags.END_STREAM, 1, PrioritySpec.init, reshf);
+	submitHeaders(session, FrameFlags.END_STREAM, 1, pri_spec_default, reshf);
 	item = session.getNextOutboundItem();
-	assert(ARRLEN(reshf) == item.frame.headers.hfa.length);
+	assert(reshf.length == item.frame.headers.hfa.length);
 	assert(reshf.equals(item.frame.headers.hfa));
 	assert((FrameFlags.END_STREAM | FrameFlags.END_HEADERS) == item.frame.hd.flags);
 	
@@ -3082,7 +3065,7 @@ void test_submit_headers_reply() {
 	
 	stream = session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
 	
-	assert(0 == submitHeaders(session, FrameFlags.END_STREAM, 1, PrioritySpec.init, reshf));
+	assert(0 == submitHeaders(session, FrameFlags.END_STREAM, 1, pri_spec_default, reshf));
 	assert(0 == session.send());
 	assert(1 == user_data.frame_send_cb_called);
 	assert(FrameType.HEADERS == user_data.sent_frame_type);
@@ -3103,7 +3086,7 @@ void test_submit_headers_push_reply() {
 	
 	session = new Session(SERVER, *callbacks);
 	stream = session.openStream(2, StreamFlags.NONE, pri_spec_default, StreamState.RESERVED, null);
-	assert(0 == submitHeaders(session, FrameFlags.NONE, 2, PrioritySpec.init, reshf, &foo));
+	assert(0 == submitHeaders(session, FrameFlags.NONE, 2, pri_spec_default, reshf, &foo));
 	
 	user_data.frame_send_cb_called = 0;
 	user_data.sent_frame_type = 0;
@@ -3119,7 +3102,7 @@ void test_submit_headers_push_reply() {
      error */
 	session = new Session(CLIENT, *callbacks);
 	stream = session.openStream(2, StreamFlags.NONE, pri_spec_default, StreamState.RESERVED, null);
-	assert(0 == submitHeaders(session, FrameFlags.NONE, 2, PrioritySpec.init, reqhf, null));
+	assert(0 == submitHeaders(session, FrameFlags.NONE, 2, pri_spec_default, reqhf, null));
 	
 	user_data.frame_send_cb_called = 0;
 	user_data.sent_frame_type = 0;
@@ -3149,9 +3132,9 @@ void test_submit_headers() {
 	
 	session = new Session(CLIENT, *callbacks);
 
-	assert(0 == submitHeaders(session, FrameFlags.END_STREAM, 1, PrioritySpec.init, reqhf));
+	assert(0 == submitHeaders(session, FrameFlags.END_STREAM, 1, pri_spec_default, reqhf));
 	item = session.getNextOutboundItem();
-	assert(ARRLEN(reqhf) == item.frame.headers.hfa.length);
+	assert(reqhf.length == item.frame.headers.hfa.length);
 	assert(reqhf.equals(item.frame.headers.hfa));
 	assert((FrameFlags.END_STREAM | FrameFlags.END_HEADERS) == item.frame.hd.flags);
 	
@@ -3163,7 +3146,7 @@ void test_submit_headers() {
 	
 	stream = session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
 	
-	assert(0 == submitHeaders(session, FrameFlags.END_STREAM, 1, PrioritySpec.init, reqhf));
+	assert(0 == submitHeaders(session, FrameFlags.END_STREAM, 1, pri_spec_default, reqhf));
 	assert(0 == session.send());
 	assert(1 == user_data.frame_send_cb_called);
 	assert(FrameType.HEADERS == user_data.sent_frame_type);
@@ -3174,7 +3157,7 @@ void test_submit_headers() {
 	bufs.add(acc[]);
 	output.inflate(inflater, bufs, FRAME_HDLEN);
 	
-	assert(ARRLEN(reqhf) == output.length);
+	assert(reqhf.length == output.length);
 	assert(reqhf.equals(output.hfa));
 	
 	HeaderFields_reset(&output);
@@ -3203,7 +3186,7 @@ void test_submit_headers_continuation() {
 	callbacks.on_frame_sent_cb = &user_data.cb_handlers.onFrameSent;
 	
 	session = new Session(CLIENT, *callbacks);
-	assert(1 == submitHeaders(session, FrameFlags.END_STREAM, -1, PrioritySpec.init, hfa, null));
+	assert(1 == submitHeaders(session, FrameFlags.END_STREAM, -1, pri_spec_default, hfa, null));
 	item = session.getNextOutboundItem();
 	assert(FrameType.HEADERS == item.frame.hd.type);
 	assert((FrameFlags.END_STREAM | FrameFlags.END_HEADERS) == item.frame.hd.flags);
@@ -3592,27 +3575,27 @@ void test_submit_shutdown_notice() {
 	session.free();
 }
 
-void test_submit_invalid_nv() {
+void test_submit_invalid_hf() {
 	Session session;
 	Callbacks callbacks;
-	HeaderField[] empty_name_nv = [HeaderField("Version", "HTTP/1.1"), HeaderField("", "empty name")];
+	HeaderField[] empty_name_hfa = [HeaderField("Version", "HTTP/1.1"), HeaderField("", "empty name")];
 	
 	/* Now invalid header field from HTTP/1.1 is accepted in libhttp2 */
 	session = new Session(SERVER, *callbacks);
 
 	/* submitRequest */
-	assert(0 < submitRequest(session, PrioritySpec.init, empty_name_nv, DataProvider.init, null));
+	assert(0 < submitRequest(session, pri_spec_default, empty_name_hfa, DataProvider.init, null));
 	
 	/* submitResponse */
-	assert(0 == submitResponse(session, 2, empty_name_nv, DataProvider.init));
+	assert(0 == submitResponse(session, 2, empty_name_hfa, DataProvider.init));
 	
 	/* submitHeaders */
-	assert(0 < submitHeaders(session, FrameFlags.NONE, -1, PrioritySpec.init, empty_name_nv));
+	assert(0 < submitHeaders(session, FrameFlags.NONE, -1, pri_spec_default, empty_name_hfa));
 	
 	/* submitPushPromise */
 	session.openStream(1);
 	
-	assert(0 < submitPushPromise(session, FrameFlags.NONE, 1, empty_name_nv, null));
+	assert(0 < submitPushPromise(session, FrameFlags.NONE, 1, empty_name_hfa, null));
 	
 	session.free();
 }
@@ -3743,7 +3726,7 @@ void test_session_get_next_ob_item() {
 	submitPing(session, null);
 	assert(FrameType.PING == session.getNextOutboundItem().frame.hd.type);
 	
-	submitRequest(session, PrioritySpec.init, null, DataProvider.init, null);
+	submitRequest(session, pri_spec_default, null, DataProvider.init, null);
 	assert(FrameType.PING == session.getNextOutboundItem().frame.hd.type);
 	
 	assert(0 == session.send());
@@ -3872,7 +3855,7 @@ void test_session_max_concurrent_streams() {
 	session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENED, null);
 	
 	/* Check un-ACKed Setting.MAX_CONCURRENT_STREAMS */
-	frame.headers = Headers(FrameFlags.END_HEADERS, 3, HeadersCategory.HEADERS, PrioritySpec.init, null);
+	frame.headers = Headers(FrameFlags.END_HEADERS, 3, HeadersCategory.HEADERS, pri_spec_default, null);
 	session.pending_local_max_concurrent_stream = 1;
 	
 	assert(ErrorCode.IGN_HEADER_BLOCK == session.onRequestHeaders(frame));
@@ -4031,7 +4014,7 @@ void test_session_flow_control() {
 	session.remote_window_size = 64 * 1024;
 	session.remote_settings.initial_window_size = 64 * 1024;
 	
-	submitRequest(session, PrioritySpec.init, null, data_prd, null);
+	submitRequest(session, pri_spec_default, null, data_prd, null);
 	
 	/* Sends 64KiB - 1 data */
 	assert(0 == session.send());
@@ -4220,7 +4203,7 @@ void test_session_data_read_temporal_failure() {
 	
 	/* Initial window size is 64KiB - 1 */
 	session = new Session(CLIENT, *callbacks);
-	submitRequest(session, PrioritySpec.init, null, data_prd, null);
+	submitRequest(session, pri_spec_default, null, data_prd, null);
 	
 	/* Sends INITIAL_WINDOW_SIZE data, assuming, it is equal to
      or smaller than INITIAL_CONNECTION_WINDOW_SIZE */
@@ -4250,7 +4233,7 @@ void test_session_data_read_temporal_failure() {
 	assert(FrameType.RST_STREAM == user_data.sent_frame_type);
 	
 	data_prd.read_callback = toDelegate(&MyDataSource.readFailure);
-	submitRequest(session, PrioritySpec.init, null, data_prd, null);
+	submitRequest(session, pri_spec_default, null, data_prd, null);
 	/* Sending data will fail (hard fail) and session tear down */
 	assert(ErrorCode.CALLBACK_FAILURE == session.send());
 	
@@ -4448,7 +4431,7 @@ void test_session_data_backoff_by_high_pri_frame() {
 	user_data.data_source_length = DATA_PAYLOADLEN * 4;
 	
 	session = new Session(CLIENT, *callbacks);
-	submitRequest(session, PrioritySpec.init, null, data_prd, null);
+	submitRequest(session, pri_spec_default, null, data_prd, null);
 	
 	session.remote_window_size = 1 << 20;
 	
@@ -4480,7 +4463,7 @@ void test_session_data_backoff_by_high_pri_frame() {
 	session.free();
 }
 
-private void check_session_recv_data_with_padding(Buffers bufs, size_t datalen) {
+private void check_session_read_data_with_padding(Buffers bufs, size_t datalen) {
 	Session session;
 	MyUserData user_data = MyUserData(&session);
 	Callbacks callbacks;
@@ -4525,7 +4508,7 @@ void test_session_pack_data_with_padding() {
 	
 	user_data.padlen = 63;
 	
-	submitRequest(session, PrioritySpec.init, null, data_prd, null);
+	submitRequest(session, pri_spec_default, null, data_prd, null);
 	user_data.block_count = 1;
 	user_data.data_source_length = datalen;
 	/* Sends HEADERS */
@@ -4538,7 +4521,7 @@ void test_session_pack_data_with_padding() {
 	assert(frame.hd.flags & FrameFlags.PADDED);
 	
 	/* Check reception of this DATA frame */
-	check_session_recv_data_with_padding(session.aob.framebufs, datalen);
+	check_session_read_data_with_padding(session.aob.framebufs, datalen);
 	
 	session.free();
 }
@@ -4563,7 +4546,7 @@ void test_session_pack_headers_with_padding() {
 	
 	user_data.padlen = 163;
 
-	assert(1 == submitRequest(session, PrioritySpec.init, reqhf, DataProvider.init, null));
+	assert(1 == submitRequest(session, pri_spec_default, reqhf, DataProvider.init, null));
 	assert(0 == session.send());
 	
 	assert(acc.length < MAX_PAYLOADLEN);
@@ -4576,7 +4559,7 @@ void test_session_pack_headers_with_padding() {
 	session.free();
 }
 
-void test_packSettingsPayload() {
+void test_session_pack_settings_payload() {
 	Setting[2] iva;
 	ubyte[64] buf;
 	int len;
@@ -5855,7 +5838,7 @@ void test_session_on_header_temporal_failure() {
 
 	hfa_copy = reqhf.copy();
 	
-	frame.headers = Headers(FrameFlags.END_STREAM, 1, HeadersCategory.REQUEST, PrioritySpec.init, hfa_copy);
+	frame.headers = Headers(FrameFlags.END_STREAM, 1, HeadersCategory.REQUEST, pri_spec_default, hfa_copy);
 	frame.headers.pack(bufs, deflater);
 	frame.headers.free();
 	
@@ -5889,7 +5872,7 @@ void test_session_on_header_temporal_failure() {
 	session.free();
 }
 
-void test_session_recv_client_preface() {
+void test_session_read_client_preface() {
 	Session session;
 	Callbacks callbacks;
 	Options options;
@@ -6031,7 +6014,7 @@ void test_session_cancel_reserved_remote() {
 	
 	hfa = reshf.copy();
 	
-	frame.headers = Headers(FrameFlags.END_HEADERS, 2, HeadersCategory.PUSH_RESPONSE, PrioritySpec.init, hfa);
+	frame.headers = Headers(FrameFlags.END_HEADERS, 2, HeadersCategory.PUSH_RESPONSE, pri_spec_default, hfa);
 	rv = frame.headers.pack(bufs, deflater);
 	
 	assert(0 == rv);
@@ -6091,7 +6074,7 @@ void test_session_reset_pending_headers() {
 	
 	session = new Session(CLIENT, *callbacks);
 	
-	stream_id = submitRequest(session, PrioritySpec.init, null, DataProvider.init, null);
+	stream_id = submitRequest(session, pri_spec_default, null, DataProvider.init, null);
 	assert(stream_id >= 1);
 	
 	submitRstStream(session, FrameFlags.NONE, stream_id, FrameError.CANCEL);
@@ -6687,7 +6670,7 @@ void test_http_record_request_method() {
 	
 	deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
 	
-	assert(1 == submitRequest(session, PrioritySpec.init, conn_reqhf, DataProvider.init, null));
+	assert(1 == submitRequest(session, pri_spec_default, conn_reqhf, DataProvider.init, null));
 	
 	assert(0 == session.send());
 	
@@ -6772,4 +6755,111 @@ void test_http_push_promise() {
 	deflater.free();
 	session.free();
 	bufs.free();
+}
+
+unittest {
+	test_session_read();
+	test_session_read_invalid_stream_id();
+	test_session_read_invalid_frame();
+	test_session_read_eof();
+	test_session_read_data();
+	test_session_read_continuation();
+	test_session_read_headers_with_priority();
+	test_session_read_premature_headers();
+	test_session_read_unknown_frame();
+	test_session_read_unexpected_continuation();
+	test_session_read_settings_header_table_size();
+	test_session_read_too_large_frame_length();
+	test_session_continue();
+	test_session_add_frame();
+	test_session_on_request_headers_received();
+	test_session_on_response_headers_received();
+	test_session_on_headers_received();
+	test_session_on_push_response_headers_received();
+	test_session_on_priority_received();
+	test_session_on_rst_stream_received();
+	test_session_on_settings_received();
+	test_session_on_push_promise_received();
+	test_session_on_ping_received();
+	test_session_on_goaway_received();
+	test_session_on_window_update_received();
+	test_session_on_data_received();
+	test_session_write_headers_start_stream();
+	test_session_write_headers_reply();
+	test_session_write_headers_frame_size_error();
+	test_session_write_headers_push_reply();
+	test_session_write_rst_stream();
+	test_session_write_push_promise();
+	test_session_is_my_stream_id();
+	test_session_upgrade();
+	test_session_reprioritize_stream();
+	test_session_reprioritize_stream_with_idle_stream_dep();
+	test_submit_data();
+	test_submit_data_read_length_too_large();
+	test_submit_data_read_length_smallest();
+	test_submit_data_twice();
+	test_submit_request_with_data();
+	test_submit_request_without_data();
+	test_submit_response_with_data();
+	test_submit_response_without_data();
+	test_submit_headers_start_stream();
+	test_submit_headers_reply();
+	test_submit_headers_push_reply();
+	test_submit_headers();
+	test_submit_headers_continuation();
+	test_submit_priority();
+	test_submit_settings();
+	test_submit_settings_update_local_window_size();
+	test_submit_push_promise();
+	test_submit_window_update();
+	test_submit_window_update_local_window_size();
+	test_submit_shutdown_notice();
+	test_submit_invalid_hf();
+	test_session_open_stream();
+	test_session_open_stream_with_idle_stream_dep();
+	test_session_get_next_ob_item();
+	test_session_pop_next_ob_item();
+	test_session_reply_fail();
+	test_session_max_concurrent_streams();
+	test_session_stop_data_with_rst_stream();
+	test_session_defer_data();
+	test_session_flow_control();
+	test_session_flow_control_data_recv();
+	test_session_flow_control_data_with_padding_recv();
+	test_session_data_read_temporal_failure();
+	test_session_on_stream_close();
+	test_session_on_ctrl_not_send();
+	test_session_get_outbound_queue_size();
+	test_session_get_effective_local_window_size();
+	test_session_set_option();
+	test_session_data_backoff_by_high_pri_frame();
+	test_session_pack_data_with_padding();
+	test_session_pack_headers_with_padding();
+	test_session_pack_settings_payload();
+	test_session_stream_dep_add();
+	test_session_stream_dep_remove();
+	test_session_stream_dep_add_subtree();
+	test_session_stream_dep_remove_subtree();
+	test_session_stream_dep_make_head_root();
+	test_session_stream_attach_item();
+	test_session_stream_attach_item_subtree();
+	test_session_keep_closed_stream();
+	test_session_keep_idle_stream();
+	test_session_detach_idle_stream();
+	test_session_large_dep_tree();
+	test_session_graceful_shutdown();
+	test_session_on_header_temporal_failure();
+	test_session_read_client_preface();
+	test_session_delete_data_item();
+	test_session_open_idle_stream();
+	test_session_cancel_reserved_remote();
+	test_session_reset_pending_headers();
+	test_http_mandatory_headers();
+	test_http_content_length();
+	test_http_content_length_mismatch();
+	test_http_non_final_response();
+	test_http_trailer_headers();
+	test_http_ignore_content_length();
+	test_http_record_request_method();
+	test_http_push_promise();
 }

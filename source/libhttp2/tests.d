@@ -1,4 +1,15 @@
-﻿module libhttp2.tests;
+﻿/**
+ * Tests
+ * 
+ * Copyright:
+ * (C) 2012-2015 Tatsuhiro Tsujikawa
+ * (C) 2014-2015 Etienne Cimon
+ *
+ * License: 
+ * Distributed under the terms of the MIT license with an additional section 1.2 of the curl/libcurl project. 
+ * Consult the provided LICENSE.md file for details
+ */
+module libhttp2.tests;
 
 import std.c.stdlib;
 import std.c.string;
@@ -102,10 +113,6 @@ struct HeaderFields
 
 	HeaderField[256] hfa_raw;
 	size_t length;
-}
-
-size_t ARRLEN(ARR) {
-	return (sizeof(ARR) / sizeof(ARR[0]));
 }
 
 int compareBytes(in ubyte[] a, in ubyte[] b) {

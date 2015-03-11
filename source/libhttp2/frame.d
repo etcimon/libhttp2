@@ -1,26 +1,13 @@
-/*
- * nghttp2 - HTTP/2 C Library
+/**
+ * Frame
+ * 
+ * Copyright:
+ * (C) 2012-2015 Tatsuhiro Tsujikawa
+ * (C) 2014-2015 Etienne Cimon
  *
- * Copyright (c) 2013 Tatsuhiro Tsujikawa
- *
- * Permission is hereby granted, free of charge, to any person obtaining
- * a copy of this software and associated documentation files (the
- * "Software"), to deal in the Software without restriction, including
- * without limitation the rights to use, copy, modify, merge, publish,
- * distribute, sublicense, and/or sell copies of the Software, and to
- * permit persons to whom the Software is furnished to do so, subject to
- * the following conditions:
- *
- * The above copyright notice and this permission notice shall be
- * included in all copies or substantial portions of the Software.
- *
- * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
- * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
- * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
- * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
- * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ * License: 
+ * Distributed under the terms of the MIT license with an additional section 1.2 of the curl/libcurl project. 
+ * Consult the provided LICENSE.md file for details
  */
 module libhttp2.frame;
 import libhttp2.constants;
@@ -29,7 +16,6 @@ import libhttp2.stream;
 import libhttp2.buffers;
 import libhttp2.huffman_decoder;
 
-//http2_frame_hd
 struct FrameHeader 
 {
 	/// The length after this header
@@ -178,7 +164,6 @@ struct FrameHeader
 	void free(){}
 }
 
-// http2_headers
 /// The HEADERS frame.  It has the following members:
 struct Headers
 {    
@@ -288,7 +273,6 @@ struct Headers
 
 
 
-// http2_data
 /// The DATA frame.  The received data is delivered via http2_on_data_chunk_recv_callback
 struct Data
 {
@@ -307,7 +291,6 @@ struct Data
 }
 
 
-//http2_priority_spec
 /// The structure to specify stream dependency.
 struct PrioritySpec
 {
@@ -363,7 +346,6 @@ struct PrioritySpec
 
 
 
-//http2_priority
 /// The PRIORITY frame.  It has the following members:
 struct Priority {
 	FrameHeader hd;
@@ -411,7 +393,6 @@ struct Priority {
 
 }
 
-//http2_rst_stream
 /// The RST_STREAM frame.  It has the following members:
 struct RstStream {	
 	FrameHeader hd;
@@ -572,7 +553,6 @@ struct Settings {
 
 }
 
-//http2_push_promise
 /// The PUSH_PROMISE frame.  
 struct PushPromise {    
 	FrameHeader hd;
@@ -664,7 +644,6 @@ struct PushPromise {
 	}
 }
 
-// http2_ping
 /// The PING frame.
 struct Ping {    
 	FrameHeader hd;
@@ -720,7 +699,6 @@ struct Ping {
 	}
 }
 
-//http2_goaway
 /// The GOAWAY frame. 
 struct GoAway {
 	FrameHeader hd;
@@ -830,7 +808,6 @@ struct GoAway {
 
 }
 
-//http2_window_update
 /// The WINDOW_UPDATE frame.
 struct WindowUpdate {    
 	FrameHeader hd;	
@@ -878,31 +855,7 @@ struct WindowUpdate {
 
 }
 
-//http2_extension
-/// The extension frame.
-struct Extension {    
-	FrameHeader hd;
-	
-	/**
-   * The pointer to extension payload.  The exact pointer type is
-   * determined by hd.type.
-   *
-   * If hd.type == ALTSVC it is a pointer to http2_ext_altsvc
-   */
-	void *payload;
-}
 
-// http2_ext_altsvc
-/// The ALTSVC extension frame payload.  It has following members:
-struct ExtALTSVC {
-	ubyte[] protocol_id;
-	ubyte[] host;
-	ubyte[] origin;
-	uint max_age;
-	ushort port;
-}
-
-//http2_frame
 /*
  * This union includes all frames to pass them to various function
  * calls as http2_frame type.  The CONTINUATION frame is omitted
@@ -920,7 +873,6 @@ union Frame
 	Ping ping;
 	GoAway goaway;
 	WindowUpdate window_update;
-	Extension ext;
 
 	/*
 	 * Returns the number of padding bytes after payload.  The total
@@ -978,15 +930,6 @@ union Frame
 	}
 }
 
-
-//http2_ext_frame_payload
-/// Union of extension frame payload
-union ExtFramePayload 
-{ 
-	ExtALTSVC altsvc; 
-}
-
-//http2_headers_aux_data
 /// struct used for HEADERS and PUSH_PROMISE frame
 struct HeadersAuxData {
 	DataProvider data_prd;
@@ -1002,7 +945,6 @@ struct HeadersAuxData {
 	bool attach_stream;
 }
 
-//http2_data_aux_data
 /// struct used for DATA frame
 struct DataAuxData {
 	/// The data to be sent for this DATA frame.
@@ -1030,13 +972,11 @@ enum GoAwayAuxFlags {
 	SHUTDOWN_NOTICE = 0x2,
 }
 
-// http2_goaway_aux_data
 /// struct used for GOAWAY frame
 struct GoAwayAuxData {
 	GoAwayAuxFlags flags;
 }
 
-//http2_aux_data
 /// Additional data which cannot be stored in Frame struct
 union AuxData {
 	DataAuxData data;
@@ -1044,7 +984,6 @@ union AuxData {
 	GoAwayAuxData goaway;
 }
 
-//http2_outbound_item
 class OutboundItem {
 	import libhttp2.session : Session;
 	Frame frame;
