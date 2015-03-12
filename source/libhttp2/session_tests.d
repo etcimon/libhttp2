@@ -3655,7 +3655,7 @@ void test_session_open_stream() {
 	stream = session.getStreamRaw(1000000007);
 	
 	assert(DEFAULT_WEIGHT == stream.weight);
-	assert(stream.root_next);
+	assert(stream.rootNext);
 	
 	/* Dependency to closed stream which is not in dependency tree */
 	session.last_recv_stream_id = 7;
@@ -3806,7 +3806,7 @@ void test_session_pop_next_ob_item() {
 	
 	stream = session.getStream(1);
 	
-	detachItem(stream, session);
+	stream.detachItem(session);
 	
 	item.free();
 	Mem.free(item);
@@ -3838,7 +3838,7 @@ void test_session_reply_fail() {
 	DataProvider data_prd;
 	MyUserData user_data = MyUserData(&session);
 
-	callbacks.write_cb = &user_data.cb_handlers.writeFailure;
+	callbacks.write_cb = toDelegate(&MyCallbacks.writeFailure);
 	
 	data_prd.read_callback = &user_data.datasrc.readFixedLength;
 	user_data.data_source_length = 4 * 1024;
@@ -4186,7 +4186,7 @@ void test_session_flow_control_data_with_padding_recv() {
 	assert(cast(int)hd.length == session.recv_window_size);
 	assert(cast(int)hd.length == stream.recvWindowSize);
 	assert(256 == session.consumed_size);
-	assert(256 == stream.consumed_size);
+	assert(256 == stream.consumedSize);
 	
 	session.free();
 }
@@ -4593,7 +4593,7 @@ void test_session_pack_settings_payload() {
 
 void checkStreamDependencySiblings(Stream stream, Stream dep_prev, Stream dep_next, Stream sib_prev, Stream sib_next) {
 	assert(dep_prev == stream.depPrev);
-	assert(dep_next == stream.dep_next);
+	assert(dep_next == stream.depNext);
 	assert(sib_prev == stream.sibPrev);
 	assert(sib_next == stream.sibNext);
 }
@@ -4621,15 +4621,15 @@ void test_session_stream_dep_add() {
    *    d
    */
 	
-	assert(4 == a.num_substreams);
-	assert(1 == b.num_substreams);
-	assert(2 == c.num_substreams);
-	assert(1 == d.num_substreams);
+	assert(4 == a.subStreams);
+	assert(1 == b.subStreams);
+	assert(2 == c.subStreams);
+	assert(1 == d.subStreams);
 	
-	assert(DEFAULT_WEIGHT * 2 == a.sum_dep_weight);
-	assert(0 == b.sum_dep_weight);
-	assert(DEFAULT_WEIGHT == c.sum_dep_weight);
-	assert(0 == d.sum_dep_weight);
+	assert(DEFAULT_WEIGHT * 2 == a.sumDepWeight);
+	assert(0 == b.sumDepWeight);
+	assert(DEFAULT_WEIGHT == c.sumDepWeight);
+	assert(0 == d.sumDepWeight);
 	
 	checkStreamDependencySiblings(a, null, b, null, null);
 	checkStreamDependencySiblings(b, a, null, null, c);
@@ -4638,7 +4638,7 @@ void test_session_stream_dep_add() {
 	
 	assert(4 == session.roots.num_streams);
 	assert(a == session.roots.head);
-	assert(!a.root_next);
+	assert(!a.rootNext);
 	
 	e = openStreamWithDepExclusive(session, 9, a);
 	
@@ -4651,17 +4651,17 @@ void test_session_stream_dep_add() {
    *    d
    */
 	
-	assert(5 == a.num_substreams);
-	assert(4 == e.num_substreams);
-	assert(1 == b.num_substreams);
-	assert(2 == c.num_substreams);
-	assert(1 == d.num_substreams);
+	assert(5 == a.subStreams);
+	assert(4 == e.subStreams);
+	assert(1 == b.subStreams);
+	assert(2 == c.subStreams);
+	assert(1 == d.subStreams);
 	
-	assert(DEFAULT_WEIGHT == a.sum_dep_weight);
-	assert(DEFAULT_WEIGHT * 2 == e.sum_dep_weight);
-	assert(0 == b.sum_dep_weight);
-	assert(DEFAULT_WEIGHT == c.sum_dep_weight);
-	assert(0 == d.sum_dep_weight);
+	assert(DEFAULT_WEIGHT == a.sumDepWeight);
+	assert(DEFAULT_WEIGHT * 2 == e.sumDepWeight);
+	assert(0 == b.sumDepWeight);
+	assert(DEFAULT_WEIGHT == c.sumDepWeight);
+	assert(0 == d.sumDepWeight);
 	
 	checkStreamDependencySiblings(a, null, e, null, null);
 	checkStreamDependencySiblings(e, a, b, null, null);
@@ -4671,7 +4671,7 @@ void test_session_stream_dep_add() {
 	
 	assert(5 == session.roots.num_streams);
 	assert(a == session.roots.head);
-	assert(!a.root_next);
+	assert(!a.rootNext);
 	
 	session.free();
 }
@@ -4704,15 +4704,15 @@ void test_session_stream_dep_remove() {
    *      d
    */
 	
-	assert(1 == a.num_substreams);
-	assert(1 == b.num_substreams);
-	assert(2 == c.num_substreams);
-	assert(1 == d.num_substreams);
+	assert(1 == a.subStreams);
+	assert(1 == b.subStreams);
+	assert(2 == c.subStreams);
+	assert(1 == d.subStreams);
 	
-	assert(0 == a.sum_dep_weight);
-	assert(0 == b.sum_dep_weight);
-	assert(DEFAULT_WEIGHT == c.sum_dep_weight);
-	assert(0 == d.sum_dep_weight);
+	assert(0 == a.sumDepWeight);
+	assert(0 == b.sumDepWeight);
+	assert(DEFAULT_WEIGHT == c.sumDepWeight);
+	assert(0 == d.sumDepWeight);
 	
 	checkStreamDependencySiblings(a, null, null, null, null);
 	checkStreamDependencySiblings(b, null, null, null, null);
@@ -4721,8 +4721,8 @@ void test_session_stream_dep_remove() {
 	
 	assert(3 == session.roots.num_streams);
 	assert(b == session.roots.head);
-	assert(c == b.root_next);
-	assert(!c.root_next);
+	assert(c == b.rootNext);
+	assert(!c.rootNext);
 	
 	session.free();
 	
@@ -4751,15 +4751,15 @@ void test_session_stream_dep_remove() {
    * d
    */
 	
-	assert(3 == a.num_substreams);
-	assert(1 == b.num_substreams);
-	assert(2 == c.num_substreams);
-	assert(1 == d.num_substreams);
+	assert(3 == a.subStreams);
+	assert(1 == b.subStreams);
+	assert(2 == c.subStreams);
+	assert(1 == d.subStreams);
 	
-	assert(DEFAULT_WEIGHT == a.sum_dep_weight);
-	assert(DEFAULT_WEIGHT == c.sum_dep_weight);
-	assert(0 == d.sum_dep_weight);
-	assert(0 == b.sum_dep_weight);
+	assert(DEFAULT_WEIGHT == a.sumDepWeight);
+	assert(DEFAULT_WEIGHT == c.sumDepWeight);
+	assert(0 == d.sumDepWeight);
+	assert(0 == b.sumDepWeight);
 	
 	checkStreamDependencySiblings(a, null, c, null, null);
 	checkStreamDependencySiblings(b, null, null, null, null);
@@ -4768,7 +4768,7 @@ void test_session_stream_dep_remove() {
 	
 	assert(3 == session.roots.num_streams);
 	assert(a == session.roots.head);
-	assert(!a.root_next);
+	assert(!a.rootNext);
 	
 	session.free();
 	
@@ -4795,15 +4795,15 @@ void test_session_stream_dep_remove() {
    * d--b
    */
 	
-	assert(3 == a.num_substreams);
-	assert(1 == b.num_substreams);
-	assert(1 == c.num_substreams);
-	assert(1 == d.num_substreams);
+	assert(3 == a.subStreams);
+	assert(1 == b.subStreams);
+	assert(1 == c.subStreams);
+	assert(1 == d.subStreams);
 	
-	assert(DEFAULT_WEIGHT * 2 == a.sum_dep_weight);
-	assert(0 == b.sum_dep_weight);
-	assert(0 == d.sum_dep_weight);
-	assert(0 == c.sum_dep_weight);
+	assert(DEFAULT_WEIGHT * 2 == a.sumDepWeight);
+	assert(0 == b.sumDepWeight);
+	assert(0 == d.sumDepWeight);
+	assert(0 == c.sumDepWeight);
 	
 	checkStreamDependencySiblings(a, null, d, null, null);
 	checkStreamDependencySiblings(b, null, null, d, null);
@@ -4829,19 +4829,19 @@ void test_session_stream_dep_remove() {
    *    f--e
    */
 	
-	assert(6 == a.num_substreams);
-	assert(1 == b.num_substreams);
-	assert(3 == c.num_substreams);
-	assert(1 == d.num_substreams);
-	assert(1 == e.num_substreams);
-	assert(1 == f.num_substreams);
+	assert(6 == a.subStreams);
+	assert(1 == b.subStreams);
+	assert(3 == c.subStreams);
+	assert(1 == d.subStreams);
+	assert(1 == e.subStreams);
+	assert(1 == f.subStreams);
 	
-	assert(DEFAULT_WEIGHT * 3 == a.sum_dep_weight);
-	assert(0 == b.sum_dep_weight);
-	assert(DEFAULT_WEIGHT * 2 == c.sum_dep_weight);
-	assert(0 == d.sum_dep_weight);
-	assert(0 == e.sum_dep_weight);
-	assert(0 == f.sum_dep_weight);
+	assert(DEFAULT_WEIGHT * 3 == a.sumDepWeight);
+	assert(0 == b.sumDepWeight);
+	assert(DEFAULT_WEIGHT * 2 == c.sumDepWeight);
+	assert(0 == d.sumDepWeight);
+	assert(0 == e.sumDepWeight);
+	assert(0 == f.sumDepWeight);
 	
 	c.remove();
 	
@@ -4851,21 +4851,21 @@ void test_session_stream_dep_remove() {
    * d--f--e--b
    */
 	
-	assert(5 == a.num_substreams);
-	assert(1 == b.num_substreams);
-	assert(1 == c.num_substreams);
-	assert(1 == d.num_substreams);
-	assert(1 == e.num_substreams);
-	assert(1 == f.num_substreams);
+	assert(5 == a.subStreams);
+	assert(1 == b.subStreams);
+	assert(1 == c.subStreams);
+	assert(1 == d.subStreams);
+	assert(1 == e.subStreams);
+	assert(1 == f.subStreams);
 	
 	/* c's weight 16 is distributed evenly to e and f.  Each weight of e
      and f becomes 8. */
-	assert(DEFAULT_WEIGHT * 2 + 8 * 2 == a.sum_dep_weight);
-	assert(0 == b.sum_dep_weight);
-	assert(0 == c.sum_dep_weight);
-	assert(0 == d.sum_dep_weight);
-	assert(0 == e.sum_dep_weight);
-	assert(0 == f.sum_dep_weight);
+	assert(DEFAULT_WEIGHT * 2 + 8 * 2 == a.sumDepWeight);
+	assert(0 == b.sumDepWeight);
+	assert(0 == c.sumDepWeight);
+	assert(0 == d.sumDepWeight);
+	assert(0 == e.sumDepWeight);
+	assert(0 == f.sumDepWeight);
 	
 	checkStreamDependencySiblings(a, null, d, null, null);
 	checkStreamDependencySiblings(b, null, null, e, null);
@@ -4902,7 +4902,7 @@ void test_session_stream_dep_add_subtree() {
    * d
    */
 	
-	addSubtree(a, e, session);
+	a.addSubtree(e, session);
 	
 	/* becomes
    * a
@@ -4912,19 +4912,19 @@ void test_session_stream_dep_add_subtree() {
    * f  d
    */
 	
-	assert(6 == a.num_substreams);
-	assert(1 == b.num_substreams);
-	assert(2 == c.num_substreams);
-	assert(1 == d.num_substreams);
-	assert(2 == e.num_substreams);
-	assert(1 == f.num_substreams);
+	assert(6 == a.subStreams);
+	assert(1 == b.subStreams);
+	assert(2 == c.subStreams);
+	assert(1 == d.subStreams);
+	assert(2 == e.subStreams);
+	assert(1 == f.subStreams);
 	
-	assert(DEFAULT_WEIGHT * 3 == a.sum_dep_weight);
-	assert(0 == b.sum_dep_weight);
-	assert(DEFAULT_WEIGHT == c.sum_dep_weight);
-	assert(0 == d.sum_dep_weight);
-	assert(DEFAULT_WEIGHT == e.sum_dep_weight);
-	assert(0 == f.sum_dep_weight);
+	assert(DEFAULT_WEIGHT * 3 == a.sumDepWeight);
+	assert(0 == b.sumDepWeight);
+	assert(DEFAULT_WEIGHT == c.sumDepWeight);
+	assert(0 == d.sumDepWeight);
+	assert(DEFAULT_WEIGHT == e.sumDepWeight);
+	assert(0 == f.sumDepWeight);
 	
 	checkStreamDependencySiblings(a, null, e, null, null);
 	checkStreamDependencySiblings(b, null, null, c, null);
@@ -4953,7 +4953,7 @@ void test_session_stream_dep_add_subtree() {
    * d
    */
 	
-	insertSubtree(a, e, session);
+	a.insertSubtree(e, session);
 	
 	/* becomes
    * a
@@ -4965,19 +4965,19 @@ void test_session_stream_dep_add_subtree() {
    *    d
    */
 	
-	assert(6 == a.num_substreams);
-	assert(1 == b.num_substreams);
-	assert(2 == c.num_substreams);
-	assert(1 == d.num_substreams);
-	assert(5 == e.num_substreams);
-	assert(1 == f.num_substreams);
+	assert(6 == a.subStreams);
+	assert(1 == b.subStreams);
+	assert(2 == c.subStreams);
+	assert(1 == d.subStreams);
+	assert(5 == e.subStreams);
+	assert(1 == f.subStreams);
 	
-	assert(DEFAULT_WEIGHT == a.sum_dep_weight);
-	assert(0 == b.sum_dep_weight);
-	assert(DEFAULT_WEIGHT == c.sum_dep_weight);
-	assert(0 == d.sum_dep_weight);
-	assert(DEFAULT_WEIGHT * 3 == e.sum_dep_weight);
-	assert(0 == f.sum_dep_weight);
+	assert(DEFAULT_WEIGHT == a.sumDepWeight);
+	assert(0 == b.sumDepWeight);
+	assert(DEFAULT_WEIGHT == c.sumDepWeight);
+	assert(0 == d.sumDepWeight);
+	assert(DEFAULT_WEIGHT * 3 == e.sumDepWeight);
+	assert(0 == f.sumDepWeight);
 	
 	checkStreamDependencySiblings(a, null, e, null, null);
 	checkStreamDependencySiblings(e, a, f, null, null);
@@ -5009,7 +5009,7 @@ void test_session_stream_dep_remove_subtree() {
    * d
    */
 	
-	removeSubtree(c);
+	c.removeSubtree();
 	
 	/* becomes
    * a  c
@@ -5017,15 +5017,15 @@ void test_session_stream_dep_remove_subtree() {
    * b  d
    */
 	
-	assert(2 == a.num_substreams);
-	assert(1 == b.num_substreams);
-	assert(2 == c.num_substreams);
-	assert(1 == d.num_substreams);
+	assert(2 == a.subStreams);
+	assert(1 == b.subStreams);
+	assert(2 == c.subStreams);
+	assert(1 == d.subStreams);
 	
-	assert(DEFAULT_WEIGHT == a.sum_dep_weight);
-	assert(0 == b.sum_dep_weight);
-	assert(DEFAULT_WEIGHT == c.sum_dep_weight);
-	assert(0 == d.sum_dep_weight);
+	assert(DEFAULT_WEIGHT == a.sumDepWeight);
+	assert(0 == b.sumDepWeight);
+	assert(DEFAULT_WEIGHT == c.sumDepWeight);
+	assert(0 == d.sumDepWeight);
 	
 	checkStreamDependencySiblings(a, null, b, null, null);
 	checkStreamDependencySiblings(b, a, null, null, null);
@@ -5049,7 +5049,7 @@ void test_session_stream_dep_remove_subtree() {
    * d
    */
 	
-	removeSubtree(b);
+	b.removeSubtree();
 	
 	/* becomes
    * a  b
@@ -5059,15 +5059,15 @@ void test_session_stream_dep_remove_subtree() {
    * d
    */
 	
-	assert(3 == a.num_substreams);
-	assert(1 == b.num_substreams);
-	assert(2 == c.num_substreams);
-	assert(1 == d.num_substreams);
+	assert(3 == a.subStreams);
+	assert(1 == b.subStreams);
+	assert(2 == c.subStreams);
+	assert(1 == d.subStreams);
 	
-	assert(DEFAULT_WEIGHT == a.sum_dep_weight);
-	assert(0 == b.sum_dep_weight);
-	assert(DEFAULT_WEIGHT == c.sum_dep_weight);
-	assert(0 == d.sum_dep_weight);
+	assert(DEFAULT_WEIGHT == a.sumDepWeight);
+	assert(0 == b.sumDepWeight);
+	assert(DEFAULT_WEIGHT == c.sumDepWeight);
+	assert(0 == d.sumDepWeight);
 	
 	checkStreamDependencySiblings(a, null, c, null, null);
 	checkStreamDependencySiblings(c, a, d, null, null);
@@ -5092,7 +5092,7 @@ void test_session_stream_dep_remove_subtree() {
    *    d
    */
 	
-	removeSubtree(c);
+	c.removeSubtree();
 	
 	/* becomes
    * a     c
@@ -5100,17 +5100,17 @@ void test_session_stream_dep_remove_subtree() {
    * b--e  d
    */
 	
-	assert(3 == a.num_substreams);
-	assert(1 == b.num_substreams);
-	assert(1 == e.num_substreams);
-	assert(2 == c.num_substreams);
-	assert(1 == d.num_substreams);
+	assert(3 == a.subStreams);
+	assert(1 == b.subStreams);
+	assert(1 == e.subStreams);
+	assert(2 == c.subStreams);
+	assert(1 == d.subStreams);
 	
-	assert(DEFAULT_WEIGHT * 2 == a.sum_dep_weight);
-	assert(0 == b.sum_dep_weight);
-	assert(DEFAULT_WEIGHT == c.sum_dep_weight);
-	assert(0 == d.sum_dep_weight);
-	assert(0 == e.sum_dep_weight);
+	assert(DEFAULT_WEIGHT * 2 == a.sumDepWeight);
+	assert(0 == b.sumDepWeight);
+	assert(DEFAULT_WEIGHT == c.sumDepWeight);
+	assert(0 == d.sumDepWeight);
+	assert(0 == e.sumDepWeight);
 	
 	checkStreamDependencySiblings(a, null, b, null, null);
 	checkStreamDependencySiblings(b, a, null, null, e);
@@ -5138,8 +5138,8 @@ void test_session_stream_dep_make_head_root() {
    * b
    */
 	
-	removeSubtree(c);
-	assert(0 == c.makeTopmostRoot(session));
+	c.removeSubtree();
+	c.makeTopmostRoot(session);
 	
 	/*
    * c
@@ -5149,13 +5149,13 @@ void test_session_stream_dep_make_head_root() {
    * b
    */
 	
-	assert(3 == c.num_substreams);
-	assert(2 == a.num_substreams);
-	assert(1 == b.num_substreams);
+	assert(3 == c.subStreams);
+	assert(2 == a.subStreams);
+	assert(1 == b.subStreams);
 	
-	assert(DEFAULT_WEIGHT == c.sum_dep_weight);
-	assert(DEFAULT_WEIGHT == a.sum_dep_weight);
-	assert(0 == b.sum_dep_weight);
+	assert(DEFAULT_WEIGHT == c.sumDepWeight);
+	assert(DEFAULT_WEIGHT == a.sumDepWeight);
+	assert(0 == b.sumDepWeight);
 	
 	checkStreamDependencySiblings(c, null, a, null, null);
 	checkStreamDependencySiblings(a, c, b, null, null);
@@ -5175,8 +5175,8 @@ void test_session_stream_dep_make_head_root() {
    * a  b   c
    */
 	
-	removeSubtree(c);
-	assert(0 == c.makeTopmostRoot(session));
+	c.removeSubtree();
+	c.makeTopmostRoot(session);
 	
 	/*
    * c
@@ -5184,13 +5184,13 @@ void test_session_stream_dep_make_head_root() {
    * b--a
    */
 	
-	assert(3 == c.num_substreams);
-	assert(1 == a.num_substreams);
-	assert(1 == b.num_substreams);
+	assert(3 == c.subStreams);
+	assert(1 == a.subStreams);
+	assert(1 == b.subStreams);
 	
-	assert(DEFAULT_WEIGHT * 2 == c.sum_dep_weight);
-	assert(0 == b.sum_dep_weight);
-	assert(0 == a.sum_dep_weight);
+	assert(DEFAULT_WEIGHT * 2 == c.sumDepWeight);
+	assert(0 == b.sumDepWeight);
+	assert(0 == a.sumDepWeight);
 	
 	checkStreamDependencySiblings(c, null, b, null, null);
 	checkStreamDependencySiblings(b, c, null, null, a);
@@ -5211,8 +5211,8 @@ void test_session_stream_dep_make_head_root() {
    * b     d
    */
 	
-	removeSubtree(c);
-	assert(0 == c.makeTopmostRoot(session));
+	c.removeSubtree();
+	c.makeTopmostRoot(session);
 	
 	/*
    * c
@@ -5222,15 +5222,15 @@ void test_session_stream_dep_make_head_root() {
    * b
    */
 	
-	assert(4 == c.num_substreams);
-	assert(1 == d.num_substreams);
-	assert(2 == a.num_substreams);
-	assert(1 == b.num_substreams);
+	assert(4 == c.subStreams);
+	assert(1 == d.subStreams);
+	assert(2 == a.subStreams);
+	assert(1 == b.subStreams);
 	
-	assert(DEFAULT_WEIGHT * 2 == c.sum_dep_weight);
-	assert(0 == d.sum_dep_weight);
-	assert(DEFAULT_WEIGHT == a.sum_dep_weight);
-	assert(0 == b.sum_dep_weight);
+	assert(DEFAULT_WEIGHT * 2 == c.sumDepWeight);
+	assert(0 == d.sumDepWeight);
+	assert(DEFAULT_WEIGHT == a.sumDepWeight);
+	assert(0 == b.sumDepWeight);
 	
 	checkStreamDependencySiblings(c, null, a, null, null);
 	checkStreamDependencySiblings(d, null, null, a, null);
@@ -5264,91 +5264,91 @@ void test_session_stream_attach_item() {
 	
 	db = createDataOutboundItem();
 	
-	attachItem(b, db, session);
+	b.attachItem(db, session);
 	
-	assert(StreamState.DPRI_NO_ITEM == a.dpri);
-	assert(StreamState.DPRI_TOP == b.dpri);
-	assert(StreamState.DPRI_NO_ITEM == c.dpri);
-	assert(StreamState.DPRI_NO_ITEM == d.dpri);
+	assert(StreamDPRI.NO_ITEM == a.dpri);
+	assert(StreamDPRI.TOP == b.dpri);
+	assert(StreamDPRI.NO_ITEM == c.dpri);
+	assert(StreamDPRI.NO_ITEM == d.dpri);
 	
-	assert(16 == b.effective_weight);
+	assert(16 == b.effectiveWeight);
 	
-	assert(16 == a.sum_norest_weight);
+	assert(16 == a.sumNorestWeight);
 	
 	assert(1 == db.queued);
 	
 	dc = createDataOutboundItem();
 	
-	attachItem(c, dc, session);
+	c.attachItem(dc, session);
 	
-	assert(StreamState.DPRI_NO_ITEM == a.dpri);
-	assert(StreamState.DPRI_TOP == b.dpri);
-	assert(StreamState.DPRI_TOP == c.dpri);
-	assert(StreamState.DPRI_NO_ITEM == d.dpri);
+	assert(StreamDPRI.NO_ITEM == a.dpri);
+	assert(StreamDPRI.TOP == b.dpri);
+	assert(StreamDPRI.TOP == c.dpri);
+	assert(StreamDPRI.NO_ITEM == d.dpri);
 	
-	assert(16 * 16 / 32 == b.effective_weight);
-	assert(16 * 16 / 32 == c.effective_weight);
+	assert(16 * 16 / 32 == b.effectiveWeight);
+	assert(16 * 16 / 32 == c.effectiveWeight);
 	
-	assert(32 == a.sum_norest_weight);
+	assert(32 == a.sumNorestWeight);
 	
 	assert(1 == dc.queued);
 	
 	da = createDataOutboundItem();
 	
-	attachItem(a, da, session);
+	a.attachItem(da, session);
 	
-	assert(StreamState.DPRI_TOP == a.dpri);
-	assert(StreamState.DPRI_REST == b.dpri);
-	assert(StreamState.DPRI_REST == c.dpri);
-	assert(StreamState.DPRI_NO_ITEM == d.dpri);
+	assert(StreamDPRI.TOP == a.dpri);
+	assert(StreamDPRI.REST == b.dpri);
+	assert(StreamDPRI.REST == c.dpri);
+	assert(StreamDPRI.NO_ITEM == d.dpri);
 	
-	assert(16 == a.effective_weight);
+	assert(16 == a.effectiveWeight);
 	
 	assert(1 == da.queued);
 	
-	detachItem(a, session);
+	a.detachItem(session);
 	
-	assert(StreamState.DPRI_NO_ITEM == a.dpri);
-	assert(StreamState.DPRI_TOP == b.dpri);
-	assert(StreamState.DPRI_TOP == c.dpri);
-	assert(StreamState.DPRI_NO_ITEM == d.dpri);
+	assert(StreamDPRI.NO_ITEM == a.dpri);
+	assert(StreamDPRI.TOP == b.dpri);
+	assert(StreamDPRI.TOP == c.dpri);
+	assert(StreamDPRI.NO_ITEM == d.dpri);
 	
-	assert(16 * 16 / 32 == b.effective_weight);
-	assert(16 * 16 / 32 == c.effective_weight);
+	assert(16 * 16 / 32 == b.effectiveWeight);
+	assert(16 * 16 / 32 == c.effectiveWeight);
 	
 	dd = createDataOutboundItem();
 	
-	attachItem(d, dd, session);
+	d.attachItem(dd, session);
 	
-	assert(StreamState.DPRI_NO_ITEM == a.dpri);
-	assert(StreamState.DPRI_TOP == b.dpri);
-	assert(StreamState.DPRI_TOP == c.dpri);
-	assert(StreamState.DPRI_REST == d.dpri);
+	assert(StreamDPRI.NO_ITEM == a.dpri);
+	assert(StreamDPRI.TOP == b.dpri);
+	assert(StreamDPRI.TOP == c.dpri);
+	assert(StreamDPRI.REST == d.dpri);
 	
-	assert(16 * 16 / 32 == b.effective_weight);
-	assert(16 * 16 / 32 == c.effective_weight);
-	
-	assert(0 == dd.queued);
-	
-	detachItem(c, session);
-	
-	assert(StreamState.DPRI_NO_ITEM == a.dpri);
-	assert(StreamState.DPRI_TOP == b.dpri);
-	assert(StreamState.DPRI_NO_ITEM == c.dpri);
-	assert(StreamState.DPRI_REST == d.dpri);
-	
-	assert(16 * 16 / 16 == b.effective_weight);
+	assert(16 * 16 / 32 == b.effectiveWeight);
+	assert(16 * 16 / 32 == c.effectiveWeight);
 	
 	assert(0 == dd.queued);
 	
-	detachItem(b, session);
+	c.detachItem(session);
 	
-	assert(StreamState.DPRI_NO_ITEM == a.dpri);
-	assert(StreamState.DPRI_NO_ITEM == b.dpri);
-	assert(StreamState.DPRI_NO_ITEM == c.dpri);
-	assert(StreamState.DPRI_TOP == d.dpri);
+	assert(StreamDPRI.NO_ITEM == a.dpri);
+	assert(StreamDPRI.TOP == b.dpri);
+	assert(StreamDPRI.NO_ITEM == c.dpri);
+	assert(StreamDPRI.REST == d.dpri);
 	
-	assert(16 * 16 / 16 == d.effective_weight);
+	assert(16 * 16 / 16 == b.effectiveWeight);
+	
+	assert(0 == dd.queued);
+	
+	b.detachItem(session);
+	
+	assert(StreamDPRI.NO_ITEM == a.dpri);
+	assert(StreamDPRI.NO_ITEM == b.dpri);
+	assert(StreamDPRI.NO_ITEM == c.dpri);
+	assert(StreamDPRI.TOP == d.dpri);
+	
+	assert(16 * 16 / 16 == d.effectiveWeight);
 	
 	assert(1 == dd.queued);
 	
@@ -5380,26 +5380,26 @@ void test_session_stream_attach_item_subtree() {
 	
 	de = createDataOutboundItem();
 	
-	attachItem(e, de, session);
+	e.attachItem(de, session);
 	
 	db = createDataOutboundItem();
 	
-	attachItem(b, db, session);
+	b.attachItem(db, session);
 	
-	assert(StreamState.DPRI_NO_ITEM == a.dpri);
-	assert(StreamState.DPRI_TOP == b.dpri);
-	assert(StreamState.DPRI_NO_ITEM == c.dpri);
-	assert(StreamState.DPRI_NO_ITEM == d.dpri);
-	assert(StreamState.DPRI_TOP == e.dpri);
-	assert(StreamState.DPRI_NO_ITEM == f.dpri);
+	assert(StreamDPRI.NO_ITEM == a.dpri);
+	assert(StreamDPRI.TOP == b.dpri);
+	assert(StreamDPRI.NO_ITEM == c.dpri);
+	assert(StreamDPRI.NO_ITEM == d.dpri);
+	assert(StreamDPRI.TOP == e.dpri);
+	assert(StreamDPRI.NO_ITEM == f.dpri);
 	
-	assert(16 == b.effective_weight);
-	assert(16 == e.effective_weight);
+	assert(16 == b.effectiveWeight);
+	assert(16 == e.effectiveWeight);
 	
 	/* Insert subtree e under a */
 	
-	removeSubtree(e);
-	insertSubtree(a, e, session);
+	e.removeSubtree();
+	a.insertSubtree(e, session);
 	
 	/*
    * a
@@ -5411,18 +5411,18 @@ void test_session_stream_attach_item_subtree() {
    *    d
    */
 	
-	assert(StreamState.DPRI_NO_ITEM == a.dpri);
-	assert(StreamState.DPRI_REST == b.dpri);
-	assert(StreamState.DPRI_NO_ITEM == c.dpri);
-	assert(StreamState.DPRI_NO_ITEM == d.dpri);
-	assert(StreamState.DPRI_TOP == e.dpri);
-	assert(StreamState.DPRI_NO_ITEM == f.dpri);
+	assert(StreamDPRI.NO_ITEM == a.dpri);
+	assert(StreamDPRI.REST == b.dpri);
+	assert(StreamDPRI.NO_ITEM == c.dpri);
+	assert(StreamDPRI.NO_ITEM == d.dpri);
+	assert(StreamDPRI.TOP == e.dpri);
+	assert(StreamDPRI.NO_ITEM == f.dpri);
 	
-	assert(16 == e.effective_weight);
+	assert(16 == e.effectiveWeight);
 	
 	/* Remove subtree b */
 	
-	removeSubtree(b);
+	b.removeSubtree();
 	
 	b.makeRoot(session);
 	
@@ -5436,32 +5436,32 @@ void test_session_stream_attach_item_subtree() {
 	 *    d
    */
 	
-	assert(StreamState.DPRI_NO_ITEM == a.dpri);
-	assert(StreamState.DPRI_TOP == b.dpri);
-	assert(StreamState.DPRI_NO_ITEM == c.dpri);
-	assert(StreamState.DPRI_NO_ITEM == d.dpri);
-	assert(StreamState.DPRI_TOP == e.dpri);
-	assert(StreamState.DPRI_NO_ITEM == f.dpri);
+	assert(StreamDPRI.NO_ITEM == a.dpri);
+	assert(StreamDPRI.TOP == b.dpri);
+	assert(StreamDPRI.NO_ITEM == c.dpri);
+	assert(StreamDPRI.NO_ITEM == d.dpri);
+	assert(StreamDPRI.TOP == e.dpri);
+	assert(StreamDPRI.NO_ITEM == f.dpri);
 	
-	assert(16 == b.effective_weight);
-	assert(16 == e.effective_weight);
+	assert(16 == b.effectiveWeight);
+	assert(16 == e.effectiveWeight);
 	
 	/* Remove subtree a */
 	
-	removeSubtree(a);
+	a.removeSubtree();
 	
 	a.makeRoot(session);
 	
-	assert(StreamState.DPRI_NO_ITEM == a.dpri);
-	assert(StreamState.DPRI_TOP == b.dpri);
-	assert(StreamState.DPRI_NO_ITEM == c.dpri);
-	assert(StreamState.DPRI_NO_ITEM == d.dpri);
-	assert(StreamState.DPRI_TOP == e.dpri);
-	assert(StreamState.DPRI_NO_ITEM == f.dpri);
+	assert(StreamDPRI.NO_ITEM == a.dpri);
+	assert(StreamDPRI.TOP == b.dpri);
+	assert(StreamDPRI.NO_ITEM == c.dpri);
+	assert(StreamDPRI.NO_ITEM == d.dpri);
+	assert(StreamDPRI.TOP == e.dpri);
+	assert(StreamDPRI.NO_ITEM == f.dpri);
 	
 	/* Remove subtree c */
 	
-	removeSubtree(c);
+	c.removeSubtree();
 	
 	c.makeRoot(session);
 	
@@ -5473,21 +5473,21 @@ void test_session_stream_attach_item_subtree() {
    * f
    */
 	
-	assert(StreamState.DPRI_NO_ITEM == a.dpri);
-	assert(StreamState.DPRI_TOP == b.dpri);
-	assert(StreamState.DPRI_NO_ITEM == c.dpri);
-	assert(StreamState.DPRI_NO_ITEM == d.dpri);
-	assert(StreamState.DPRI_TOP == e.dpri);
-	assert(StreamState.DPRI_NO_ITEM == f.dpri);
+	assert(StreamDPRI.NO_ITEM == a.dpri);
+	assert(StreamDPRI.TOP == b.dpri);
+	assert(StreamDPRI.NO_ITEM == c.dpri);
+	assert(StreamDPRI.NO_ITEM == d.dpri);
+	assert(StreamDPRI.TOP == e.dpri);
+	assert(StreamDPRI.NO_ITEM == f.dpri);
 	
 	dd = createDataOutboundItem();
 	
-	attachItem(d, dd, session);
+	d.attachItem(dd, session);
 	
 	/* Add subtree c to a */
 	
-	removeSubtree(c);
-	addSubtree(a, c, session);
+	c.removeSubtree();
+	a.addSubtree(c, session);
 	
 	/*
    * a       b
@@ -5497,23 +5497,23 @@ void test_session_stream_attach_item_subtree() {
    * d  f
    */
 	
-	assert(StreamState.DPRI_NO_ITEM == a.dpri);
-	assert(StreamState.DPRI_TOP == b.dpri);
-	assert(StreamState.DPRI_NO_ITEM == c.dpri);
-	assert(StreamState.DPRI_REST == d.dpri);
-	assert(StreamState.DPRI_TOP == e.dpri);
-	assert(StreamState.DPRI_NO_ITEM == f.dpri);
+	assert(StreamDPRI.NO_ITEM == a.dpri);
+	assert(StreamDPRI.TOP == b.dpri);
+	assert(StreamDPRI.NO_ITEM == c.dpri);
+	assert(StreamDPRI.REST == d.dpri);
+	assert(StreamDPRI.TOP == e.dpri);
+	assert(StreamDPRI.NO_ITEM == f.dpri);
 	
-	assert(16 == b.effective_weight);
-	assert(16 * 16 / 16 == e.effective_weight);
+	assert(16 == b.effectiveWeight);
+	assert(16 * 16 / 16 == e.effectiveWeight);
 	
-	assert(32 == a.sum_norest_weight);
-	assert(16 == c.sum_norest_weight);
+	assert(32 == a.sumNorestWeight);
+	assert(16 == c.sumNorestWeight);
 	
 	/* Insert b under a */
 	
-	removeSubtree(b);
-	insertSubtree(a, b, session);
+	b.removeSubtree();
+	a.insertSubtree(b, session);
 	
 	/*
    * a
@@ -5525,21 +5525,21 @@ void test_session_stream_attach_item_subtree() {
    * f  d
    */
 	
-	assert(StreamState.DPRI_NO_ITEM == a.dpri);
-	assert(StreamState.DPRI_TOP == b.dpri);
-	assert(StreamState.DPRI_NO_ITEM == c.dpri);
-	assert(StreamState.DPRI_REST == d.dpri);
-	assert(StreamState.DPRI_REST == e.dpri);
-	assert(StreamState.DPRI_NO_ITEM == f.dpri);
+	assert(StreamDPRI.NO_ITEM == a.dpri);
+	assert(StreamDPRI.TOP == b.dpri);
+	assert(StreamDPRI.NO_ITEM == c.dpri);
+	assert(StreamDPRI.REST == d.dpri);
+	assert(StreamDPRI.REST == e.dpri);
+	assert(StreamDPRI.NO_ITEM == f.dpri);
 	
-	assert(16 == b.effective_weight);
+	assert(16 == b.effectiveWeight);
 	
-	assert(16 == a.sum_norest_weight);
-	assert(0 == b.sum_norest_weight);
+	assert(16 == a.sumNorestWeight);
+	assert(0 == b.sumNorestWeight);
 	
 	/* Remove subtree b */
 	
-	removeSubtree(b);
+	b.removeSubtree();
 	b.makeRoot(session);
 	
 	/*
@@ -5550,15 +5550,15 @@ void test_session_stream_attach_item_subtree() {
    * f  d
    */
 	
-	assert(StreamState.DPRI_NO_ITEM == a.dpri);
-	assert(StreamState.DPRI_TOP == b.dpri);
-	assert(StreamState.DPRI_NO_ITEM == c.dpri);
-	assert(StreamState.DPRI_REST == d.dpri);
-	assert(StreamState.DPRI_REST == e.dpri);
-	assert(StreamState.DPRI_NO_ITEM == f.dpri);
+	assert(StreamDPRI.NO_ITEM == a.dpri);
+	assert(StreamDPRI.TOP == b.dpri);
+	assert(StreamDPRI.NO_ITEM == c.dpri);
+	assert(StreamDPRI.REST == d.dpri);
+	assert(StreamDPRI.REST == e.dpri);
+	assert(StreamDPRI.NO_ITEM == f.dpri);
 	
-	assert(0 == a.sum_norest_weight);
-	assert(0 == b.sum_norest_weight);
+	assert(0 == a.sumNorestWeight);
+	assert(0 == b.sumNorestWeight);
 	
 	session.free();
 }
@@ -5577,7 +5577,7 @@ void test_session_keep_closed_stream() {
 	submitSettings(session, (&iv)[0 .. 1]);
 	
 	for (i = 0; i < max_concurrent_streams; ++i) {
-		session.openStream(cast(int)i * 2 + 1);
+		openStream(session, cast(int)i * 2 + 1);
 	}
 	
 	assert(0 == session.num_closed_streams);
@@ -5585,26 +5585,26 @@ void test_session_keep_closed_stream() {
 	session.closeStream(1, FrameError.NO_ERROR);
 	
 	assert(1 == session.num_closed_streams);
-	assert(1 == session.closed_stream_tail.stream_id);
+	assert(1 == session.closed_stream_tail.id);
 	assert(session.closed_stream_tail == session.closed_stream_head);
 	
 	session.closeStream(5, FrameError.NO_ERROR);
 	
 	assert(2 == session.num_closed_streams);
-	assert(5 == session.closed_stream_tail.stream_id);
-	assert(1 == session.closed_stream_head.stream_id);
-	assert(session.closed_stream_head == session.closed_stream_tail.closed_prev);
-	assert(!session.closed_stream_tail.closed_next);
-	assert(session.closed_stream_tail == session.closed_stream_head.closed_next);
-	assert(!session.closed_stream_head.closed_prev);
+	assert(5 == session.closed_stream_tail.id);
+	assert(1 == session.closed_stream_head.id);
+	assert(session.closed_stream_head == session.closed_stream_tail.closedPrev);
+	assert(!session.closed_stream_tail.closedNext);
+	assert(session.closed_stream_tail == session.closed_stream_head.closedNext);
+	assert(!session.closed_stream_head.closedPrev);
 	
 	openStream(session, 11);
 	
 	assert(1 == session.num_closed_streams);
-	assert(5 == session.closed_stream_tail.stream_id);
+	assert(5 == session.closed_stream_tail.id);
 	assert(session.closed_stream_tail == session.closed_stream_head);
-	assert(!session.closed_stream_head.closed_prev);
-	assert(!session.closed_stream_head.closed_next);
+	assert(!session.closed_stream_head.closedPrev);
+	assert(!session.closed_stream_head.closedNext);
 	
 	openStream(session, 13);
 	
@@ -5637,15 +5637,15 @@ void test_session_keep_idle_stream() {
 
 	assert(2 == session.num_idle_streams);
 	
-	assert(1 == session.idle_stream_head.stream_id);
-	assert(3 == session.idle_stream_tail.stream_id);
+	assert(1 == session.idle_stream_head.id);
+	assert(3 == session.idle_stream_tail.id);
 	
 	session.openStream(5, StreamFlags.NONE, pri_spec_default, StreamState.IDLE, null);
 	
 	assert(2 == session.num_idle_streams);
 	
-	assert(3 == session.idle_stream_head.stream_id);
-	assert(5 == session.idle_stream_tail.stream_id);
+	assert(3 == session.idle_stream_head.id);
+	assert(5 == session.idle_stream_tail.id);
 	
 	session.free();
 }
@@ -5670,22 +5670,20 @@ void test_session_detach_idle_stream() {
 	/* Detach middle stream */
 	stream = session.getStreamRaw(2);
 	
-	assert(session.idle_stream_head == stream.closed_prev);
-	assert(session.idle_stream_tail == stream.closed_next);
-	assert(stream == session.idle_stream_head.closed_next);
-	assert(stream == session.idle_stream_tail.closed_prev);
+	assert(session.idle_stream_head == stream.closedPrev);
+	assert(session.idle_stream_tail == stream.closedNext);
+	assert(stream == session.idle_stream_head.closedNext);
+	assert(stream == session.idle_stream_tail.closedPrev);
 	
 	session.detachIdleStream(stream);
 	
 	assert(2 == session.num_idle_streams);
 	
-	assert(!stream.closed_prev);
-	assert(!stream.closed_next);
+	assert(!stream.closedPrev);
+	assert(!stream.closedNext);
 	
-	assert(session.idle_stream_head ==
-		session.idle_stream_tail.closed_prev);
-	assert(session.idle_stream_tail ==
-		session.idle_stream_head.closed_next);
+	assert(session.idle_stream_head == session.idle_stream_tail.closedPrev);
+	assert(session.idle_stream_tail == session.idle_stream_head.closedNext);
 	
 	/* Detach head stream */
 	stream = session.idle_stream_head;
@@ -5695,8 +5693,8 @@ void test_session_detach_idle_stream() {
 	assert(1 == session.num_idle_streams);
 	
 	assert(session.idle_stream_head == session.idle_stream_tail);
-	assert(!session.idle_stream_head.closed_prev);
-	assert(!session.idle_stream_head.closed_next);
+	assert(!session.idle_stream_head.closedPrev);
+	assert(!session.idle_stream_head.closedNext);
 	
 	/* Detach last stream */
 	
@@ -5724,8 +5722,8 @@ void test_session_detach_idle_stream() {
 	assert(1 == session.num_idle_streams);
 	
 	assert(session.idle_stream_head == session.idle_stream_tail);
-	assert(!session.idle_stream_head.closed_prev);
-	assert(!session.idle_stream_head.closed_next);
+	assert(!session.idle_stream_head.closedPrev);
+	assert(!session.idle_stream_head.closedNext);
 	
 	session.free();
 }
@@ -5744,7 +5742,7 @@ void test_session_large_dep_tree() {
 	
 	stream_id = 1;
 	for (i = 0; i < MAX_DEP_TREE_LENGTH; ++i) {
-		dep_stream = openStreamWithDep(session, stream_id, dep_stream);
+		dep_stream = session.openStreamWithDep(stream_id, dep_stream);
 		stream_id += 2;
 	}
 	
@@ -5753,7 +5751,7 @@ void test_session_large_dep_tree() {
 	/* Check that last dep_stream must be part of tree */
 	assert(root_stream.subtreeContains(dep_stream));
 	
-	dep_stream = openStreamWithDep(session, stream_id, dep_stream);
+	dep_stream = session.openStreamWithDep(stream_id, dep_stream);
 	
 	/* We exceeded MAX_DEP_TREE_LENGTH limit.  dep_stream is now
      root node and has no descendants. */
@@ -5857,7 +5855,7 @@ void test_session_on_header_temporal_failure() {
 	
 	deflater.deflate(bufs, hfa[1 .. 2]);
 	
-	hd = FrameHeader(bufs.length - hdpos - FRAME_HDLEN, FrameType.CONTINUATION, FrameFlags.END_HEADERS, 1);
+	hd = FrameHeader(cast(int)(bufs.length - hdpos - FRAME_HDLEN), FrameType.CONTINUATION, FrameFlags.END_HEADERS, 1);
 	
 	hd.pack(buf.pos[hdpos .. buf.available]);
 	
@@ -5893,7 +5891,7 @@ void test_session_read_client_preface() {
 	
 	assert(session.opt_flags & OptionsMask.RECV_CLIENT_PREFACE);
 	
-	rv = session.memRecv(CLIENT_CONNECTION_PREFACE);
+	rv = session.memRecv(cast(ubyte[])CLIENT_CONNECTION_PREFACE);
 	
 	assert(rv == CLIENT_CONNECTION_PREFACE.length);
 	assert(InboundState.READ_FIRST_SETTINGS == session.iframe.state);
@@ -5916,7 +5914,7 @@ void test_session_read_client_preface() {
 	session = new Session(SERVER, *callbacks, options);
 	
 	/* Feed preface with one byte less */
-	rv = session.memRecv(CLIENT_CONNECTION_PREFACE);
+	rv = session.memRecv(cast(ubyte[])CLIENT_CONNECTION_PREFACE);
 	
 	assert(rv == CLIENT_CONNECTION_PREFACE.length - 1);
 	assert(InboundState.READ_CLIENT_PREFACE == session.iframe.state);
@@ -5971,8 +5969,8 @@ void test_session_open_idle_stream() {
 	stream = session.getStreamRaw(1);
 	
 	assert(StreamState.IDLE == stream.state);
-	assert(!stream.closed_prev);
-	assert(!stream.closed_next);
+	assert(!stream.closedPrev);
+	assert(!stream.closedNext);
 	assert(1 == session.num_idle_streams);
 	assert(session.idle_stream_head == stream);
 	assert(session.idle_stream_tail == stream);
@@ -6102,7 +6100,7 @@ void test_session_reset_pending_headers() {
 	session.remote_settings.max_concurrent_streams = 1;
 	
 	user_data.frame_not_send_cb_called = 0;
-	user_data.stream_close_error_code = 0;
+	user_data.stream_close_error_code = FrameError.NO_ERROR;
 	assert(0 == session.send());
 	
 	assert(1 == user_data.frame_not_send_cb_called);
@@ -6116,7 +6114,7 @@ void test_session_reset_pending_headers() {
 	session.free();
 }
 
-private void check_http_recv_headers_fail(Session session, ref Deflater deflater, int stream_id, StreamState stream_state, in HeaderField[] hfa) 
+private void check_http_recv_headers_fail(Session session, ref Deflater deflater, int stream_id, int stream_state, in HeaderField[] hfa) 
 {
 
 	size_t rv;
@@ -6124,7 +6122,7 @@ private void check_http_recv_headers_fail(Session session, ref Deflater deflater
 	Buffers bufs = framePackBuffers();
 	
 	if (stream_state != -1) 
-		session.openStream(stream_id, StreamFlags.NONE, pri_spec_default, stream_state, null);
+		session.openStream(stream_id, StreamFlags.NONE, pri_spec_default, cast(StreamState)stream_state, null);
 	
 	packHeaders(bufs, deflater, stream_id, FrameFlags.END_HEADERS, hfa);
 
@@ -6192,28 +6190,28 @@ void test_http_mandatory_headers()
 	deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
 	
 	/* response header lacks :status */
-	check_http_recv_headers_fail(session, &deflater, 1, StreamState.OPENING, nostatus_reshf);
+	check_http_recv_headers_fail(session, deflater, 1, StreamState.OPENING, nostatus_reshf);
 	
 	/* response header has 2 :status */
-	check_http_recv_headers_fail(session, &deflater, 3, StreamState.OPENING, dupstatus_reshf);
+	check_http_recv_headers_fail(session, deflater, 3, StreamState.OPENING, dupstatus_reshf);
 	
 	/* response header has bad pseudo header :scheme */
-	check_http_recv_headers_fail(session, &deflater, 5, StreamState.OPENING, badpseudo_reshf);
+	check_http_recv_headers_fail(session, deflater, 5, StreamState.OPENING, badpseudo_reshf);
 	
 	/* response header has :status after regular header field */
-	check_http_recv_headers_fail(session, &deflater, 7, StreamState.OPENING, latepseudo_reshf);
+	check_http_recv_headers_fail(session, deflater, 7, StreamState.OPENING, latepseudo_reshf);
 	
 	/* response header has bad status code */
-	check_http_recv_headers_fail(session, &deflater, 9, StreamState.OPENING, badstatus_reshf);
+	check_http_recv_headers_fail(session, deflater, 9, StreamState.OPENING, badstatus_reshf);
 	
 	/* response header has bad content-length */
-	check_http_recv_headers_fail(session, &deflater, 11, StreamState.OPENING, badcl_reshf);
+	check_http_recv_headers_fail(session, deflater, 11, StreamState.OPENING, badcl_reshf);
 	
 	/* response header has multiple content-length */
-	check_http_recv_headers_fail(session, &deflater, 13, StreamState.OPENING, dupcl_reshf);
+	check_http_recv_headers_fail(session, deflater, 13, StreamState.OPENING, dupcl_reshf);
 	
 	/* response header has disallowed header field */
-	check_http_recv_headers_fail(session, &deflater, 15, StreamState.OPENING, badhd_reshf);
+	check_http_recv_headers_fail(session, deflater, 15, StreamState.OPENING, badhd_reshf);
 	
 	deflater.free();
 	
@@ -6225,25 +6223,25 @@ void test_http_mandatory_headers()
 	deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
 	
 	/* request header has no :path */
-	check_http_recv_headers_fail(session, &deflater, 1, -1, nopath_reqhf);
+	check_http_recv_headers_fail(session, deflater, 1, -1, nopath_reqhf);
 	
 	/* request header has CONNECT method, but followed by :path */
-	check_http_recv_headers_fail(session, &deflater, 3, -1, earlyconnect_reqhf);
+	check_http_recv_headers_fail(session, deflater, 3, -1, earlyconnect_reqhf);
 	
 	/* request header has CONNECT method following :path */
-	check_http_recv_headers_fail(session, &deflater, 5, -1, lateconnect_reqhf);
+	check_http_recv_headers_fail(session, deflater, 5, -1, lateconnect_reqhf);
 	
 	/* request header has multiple :path */
-	check_http_recv_headers_fail(session, &deflater, 7, -1, duppath_reqhf);
+	check_http_recv_headers_fail(session, deflater, 7, -1, duppath_reqhf);
 	
 	/* request header has bad content-length */
-	check_http_recv_headers_fail(session, &deflater, 9, -1, badcl_reqhf);
+	check_http_recv_headers_fail(session, deflater, 9, -1, badcl_reqhf);
 	
 	/* request header has multiple content-length */
-	check_http_recv_headers_fail(session, &deflater, 11, -1, dupcl_reqhf);
+	check_http_recv_headers_fail(session, deflater, 11, -1, dupcl_reqhf);
 	
 	/* request header has disallowed header field */
-	check_http_recv_headers_fail(session, &deflater, 13, -1, badhd_reqhf);
+	check_http_recv_headers_fail(session, deflater, 13, -1, badhd_reqhf);
 	
 	deflater.free();
 	
@@ -6281,8 +6279,8 @@ void test_http_content_length() {
 	
 	assert(bufs.head.buf.length == rv);
 	assert(!session.getNextOutboundItem());
-	assert(9000000000L == stream.content_length);
-	assert(200 == stream.status_code);
+	assert(9000000000L == stream.contentLength);
+	assert(200 == stream.statusCode);
 	
 	deflater.free();
 	
@@ -6304,7 +6302,7 @@ void test_http_content_length() {
 	stream = session.getStream(1);
 	
 	assert(!session.getNextOutboundItem());
-	assert(9000000000L == stream.content_length);
+	assert(9000000000L == stream.contentLength);
 	
 	deflater.free();
 	
@@ -6651,8 +6649,8 @@ void test_http_ignore_content_length() {
 	
 	stream = session.getStream(1);
 	
-	assert(-1 == stream.content_length);
-	assert((stream.http_flags & HTTPFlags.METH_CONNECT) > 0);
+	assert(-1 == stream.contentLength);
+	assert((stream.httpFlags & HTTPFlags.METH_CONNECT) > 0);
 	
 	deflater.free();
 	session.free();
@@ -6682,7 +6680,7 @@ void test_http_record_request_method() {
 	
 	stream = session.getStream(1);
 	
-	assert(HTTPFlags.METH_CONNECT == stream.http_flags);
+	assert(HTTPFlags.METH_CONNECT == stream.httpFlags);
 	
 	packHeaders(bufs, deflater, 1, FrameFlags.END_HEADERS, conn_reshf);
 	
@@ -6690,8 +6688,8 @@ void test_http_record_request_method() {
 	
 	assert(bufs.head.buf.length == rv);
 	
-	assert((HTTPFlags.METH_CONNECT & stream.http_flags) > 0);
-	assert(-1 == stream.content_length);
+	assert((HTTPFlags.METH_CONNECT & stream.httpFlags) > 0);
+	assert(-1 == stream.contentLength);
 	
 	deflater.free();
 	session.free();
@@ -6716,10 +6714,10 @@ void test_http_push_promise() {
 	session = new Session(CLIENT, *callbacks);
 	
 	deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
-	
+
 	session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
 	
-	packPushPromise(deflater, 1, FrameFlags.END_HEADERS, 2, reqhf);
+	packPushPromise(bufs, deflater, 1, FrameFlags.END_HEADERS, 2, reqhf);
 
 	rv = session.memRecv(bufs.head.buf[]);
 	
@@ -6740,12 +6738,12 @@ void test_http_push_promise() {
 	
 	assert(!session.getNextOutboundItem());
 	
-	assert(200 == stream.status_code);
+	assert(200 == stream.statusCode);
 	
 	bufs.reset();
 	
 	/* PUSH_PROMISE lacks mandatory header */
-	pack_push_promise(bufs, deflater, 1, FrameFlags.END_HEADERS, 4, bad_reqhf);
+	packPushPromise(bufs, deflater, 1, FrameFlags.END_HEADERS, 4, bad_reqhf);
 
 	rv = session.memRecv(bufs.head.buf[]);
 	

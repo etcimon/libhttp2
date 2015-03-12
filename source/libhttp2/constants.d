@@ -139,7 +139,7 @@ const OB_SETTINGS_WEIGHT = 301;
 /// Highest weight for PING
 const OB_PING_WEIGHT = 302;
 
-__gshared immutable const(ubyte)[] VALID_HD_NAME_CHARS = [
+__gshared immutable immutable(char)[] VALID_HD_NAME_CHARS = [
 	0 /* NUL  */, 0 /* SOH  */, 0 /* STX  */, 0 /* ETX  */, 0 /* EOT  */,
 	0 /* ENQ  */, 0 /* ACK  */, 0 /* BEL  */, 0 /* BS   */, 0 /* HT   */,
 	0 /* LF   */, 0 /* VT   */, 0 /* FF   */, 0 /* CR   */, 0 /* SO   */,

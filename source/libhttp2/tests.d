@@ -13,6 +13,7 @@ module libhttp2.tests;
 
 import std.c.stdlib;
 import std.c.string;
+import libhttp2.constants;
 import libhttp2.types;
 import libhttp2.helpers;
 import libhttp2.inflater;
@@ -38,7 +39,7 @@ struct HeaderFields
 	size_t opDollar() const { return length; }
 
 	void add(HeaderField hf) {
-		HeaderField* hfp = &hfa_raw.ptr + length;
+		HeaderField* hfp = hfa_raw.ptr + length;
 		length++;
 		if (hf.name) 
 			hfp.name = Mem.copy(hf.name);
@@ -46,7 +47,7 @@ struct HeaderFields
 		if (hf.value)
 			hfp.value = Mem.copy(hf.value);
 
-		hfp.flags = hf.flags;
+		hfp.flag = hf.flag;
 	}
 
 	void reset() {
@@ -71,7 +72,7 @@ struct HeaderFields
 		Buffer* buf;
 		Buffer bp;
 		bool is_final;
-		size_t processed;
+		int processed;
 		
 		processed = 0;
 		
@@ -81,7 +82,7 @@ struct HeaderFields
 			bp = *buf;
 			
 			if (offset) {
-				ssize_t n;
+				int n;
 				
 				n = min(cast(int)offset, bp.length);
 				bp.pos += n;
@@ -89,7 +90,7 @@ struct HeaderFields
 			}
 			
 			for (;;) {
-				inflate_flag = 0;
+				inflate_flag = InflateFlag.NONE;
 				rv = inflater.inflate(hf, inflate_flag, bp[], is_final);
 				
 				if (rv < 0)
@@ -115,14 +116,14 @@ struct HeaderFields
 	size_t length;
 }
 
-int compareBytes(in ubyte[] a, in ubyte[] b) {
+int compareBytes(in string a, in string b) {
 	int rv;
 	
 	if (a.length == b.length) {
 		return memcmp(a.ptr, b.ptr, a.length);
 	}
 	
-	if (alen < blen) {
+	if (a.length < b.length) {
 		rv = memcmp(a.ptr, b.ptr, a.length);
 		
 		if (rv == 0) {
@@ -141,6 +142,7 @@ int compareBytes(in ubyte[] a, in ubyte[] b) {
 	return rv;
 }
 
+extern(C)
 int compareHeaderFields(in void *lhs, in void *rhs) {
 	const HeaderField a = *cast(HeaderField*)lhs;
 	const HeaderField b = *cast(HeaderField*)rhs;
@@ -197,7 +199,7 @@ private Stream openStreamWithAll(Session session, int stream_id, int weight, boo
 	int dep_stream_id;
 	
 	if (dep_stream) {
-		dep_stream_id = dep_stream.stream_id;
+		dep_stream_id = dep_stream.id;
 	} else {
 		dep_stream_id = 0;
 	}

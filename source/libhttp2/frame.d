@@ -1015,6 +1015,8 @@ class OutboundItem {
 	/// true if this object is queued.
 	bool queued;
 
+	this() { }
+
 	this(Session session) {
 		seq = session.next_seq++;
 	}

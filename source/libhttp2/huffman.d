@@ -15,7 +15,7 @@ import libhttp2.types;
 import libhttp2.buffers;
 import libhttp2.constants;
 import memutils.circularbuffer;
-import memutils.refcounted;
+import memutils.utils;
 import core.exception;
 
 const HD_DEFAULT_MAX_BUFFER_SIZE = DEFAULT_HEADER_TABLE_SIZE;
@@ -61,14 +61,13 @@ enum HDFlags
 	VALUE_GIFT = 1 << 3
 }
 
-
 class HDEntry
 {
 	HeaderField hf;
 	uint name_hash;
 	uint value_hash;
 	HDFlags flags;
-	
+
 	/*
 	 * Initializes the HDEntry members. If HDFlags.NAME_ALLOC bit
 	 * set in the |flags|, the content pointed by the |name| with length
@@ -187,9 +186,7 @@ class HDTable
 	HDEntry add(const ref HeaderField hf, uint name_hash, uint value_hash, HDFlags entry_flags) {
 		int rv;
 		HDEntry new_ent;
-		size_t room;
-
-		room = entryRoom(hf.name.length, hf.value.length);		
+		size_t room = entryRoom(hf.name.length, hf.value.length);		
 		shrink(room);
 
 		new_ent = new HDEntry(entry_flags, hf.name, hf.value, name_hash, value_hash);
@@ -548,7 +545,8 @@ uint hash(in string str) {
 /// Sorted by hash(name) and its table index
 __gshared StaticEntry[] static_table;
 
-shared static this() { 
+static this() { 
+	if (static_table) return;
 
 	/* Make scalar initialization form of HeaderField */
 	string MAKE_STATIC_ENT(int I, string N, string V, long NH, int VH) {

@@ -40,7 +40,7 @@ struct StreamRoots
         root_next = stream.m_root_next;
         
         if (root_prev) {
-            root_prev.m_root_next = m_root_next;
+            root_prev.m_root_next = root_next;
             
             if (root_next) {
                 root_next.m_root_prev = root_prev;
@@ -101,7 +101,7 @@ class Stream {
          int local_initial_window_size,
          void *stream_user_data) 
 	{
-        m_stream_id = stream_id;
+        m_id = stream_id;
         m_flags = flags;
         m_state = initial_state;
         m_weight = weight;
@@ -158,12 +158,11 @@ class Stream {
         assert((m_flags & StreamFlags.DEFERRED_ALL) == 0);
         assert(!m_item);
         
-        LOGF("stream: stream=%d attach item=%p\n",
-                m_stream_id, item);
+        LOGF("stream: stream=%d attach item=%p\n", m_id, item);
         
         m_item = item;
         
-		stream.updateOnAttachItem(session);
+		updateOnAttachItem(session);
     }
     
     /*
@@ -173,13 +172,12 @@ class Stream {
 	 */
     void detachItem(Session session) 
 	{
-        LOGF("stream: stream=%d detach item=%p\n",
-                m_stream_id, m_item);
+        LOGF("stream: stream=%d detach item=%p\n", m_id, m_item);
         
         m_item = null;
         m_flags &= ~StreamFlags.DEFERRED_ALL;
         
-		stream.updateDepOnDetachItem(session);
+		updateDepOnDetachItem(session);
     }
     
     /*
@@ -193,8 +191,7 @@ class Stream {
 	{
         assert(m_item);
         
-        LOGF("stream: stream=%d defer item=%p cause=%02x\n",
-                m_stream_id, m_item, flags);
+        LOGF("stream: stream=%d defer item=%p cause=%02x\n", m_id, m_item, flags);
         
         m_flags |= flags;
         
@@ -213,16 +210,15 @@ class Stream {
 	{
         assert(m_item);
         
-        LOGF("stream: stream=%d resume item=%p flags=%02x\n",
-                m_stream_id, m_item, flags);
+        LOGF("stream: stream=%d resume item=%p flags=%02x\n", m_id, m_item, flags);
         
         m_flags &= ~flags;
         
         if (m_flags & StreamFlags.DEFERRED_ALL) {
-            return 0;
+            return;
         }
         
-		stream.updateOnAttachItem(session);
+		updateOnAttachItem(session);
     }
     
     /*
@@ -307,10 +303,8 @@ class Stream {
      * Returns true if |target| is found in subtree of $(D Stream).
      */
     bool subtreeContains(Stream target) {
-        if (!stream)
-            return false;
         
-        if (stream is target)
+        if (this is target)
             return true;
         
 		if (m_sib_next.subtreeContains(target))
@@ -332,7 +326,7 @@ class Stream {
         
         assert(!m_item);
         
-		LOGF("stream: dep_insert dep_stream(%p)=%d, stream(%p)=%d\n", this, m_stream_id, stream, stream.m_stream_id);
+		LOGF("stream: dep_insert dep_stream(%p)=%d, stream(%p)=%d\n", this, m_id, stream, stream.m_id);
         
 		stream.m_sum_dep_weight = m_sum_dep_weight;
 		m_sum_dep_weight = stream.m_weight;
@@ -367,7 +361,7 @@ class Stream {
         
         assert(!stream.m_item);
         
-        LOGF("stream: dep_add dep_stream(%p=%d, stream(%p)=%d\n", this, m_stream_id, stream, stream.m_stream_id);
+        LOGF("stream: dep_add dep_stream(%p=%d, stream(%p)=%d\n", this, m_id, stream, stream.m_id);
         
         root_stream = updateLength(1);
         
@@ -393,7 +387,7 @@ class Stream {
         Stream prev, next, dep_prev, si, root_stream;
         int sum_dep_weight_delta;
         
-        LOGF("stream: dep_remove stream(%p=%d\n", this, m_stream_id);
+        LOGF("stream: dep_remove stream(%p=%d\n", this, m_id);
         
         /* Distribute weight of $(D Stream) to direct descendants */
         sum_dep_weight_delta = -m_weight;
@@ -406,12 +400,12 @@ class Stream {
         
         prev = firstSibling();
         
-        dep_prev = prev.dep_prev;
+        m_dep_prev = prev.m_dep_prev;
         
         if (dep_prev) {
-            root_stream = updateLength(dep_prev, -1);
+			root_stream = dep_prev.updateLength(-1);
             
-            dep_prev.sum_dep_weight += sum_dep_weight_delta;
+            dep_prev.m_sum_dep_weight += sum_dep_weight_delta;
         }
         
         if (m_sib_prev) {
@@ -466,9 +460,7 @@ class Stream {
         Stream root_stream;
         size_t delta_substreams;
         
-        LOGF("stream: dep_insert_subtree dep_stream(%p=%d "
-                "stream(%p)=%d\n",
-                this, m_stream_id, stream, stream.m_stream_id);
+        LOGF("stream: dep_insert_subtree dep_stream(%p=%d stream(%p)=%d\n", this, m_id, stream, stream.m_id);
         
 		delta_substreams = stream.m_num_substreams;
         
@@ -492,7 +484,7 @@ class Stream {
                 
 				last_sib.linkSibling(dep_next);
                 
-                dep_next.dep_prev = null;
+                dep_next.m_dep_prev = null;
             } else {
                 stream.linkDependency(dep_next);
             }
@@ -522,9 +514,7 @@ class Stream {
 	{
         Stream root_stream;
         
-        LOGF("stream: dep_add_subtree dep_stream(%p=%d "
-                "stream(%p)=%d\n",
-                this, m_stream_id, stream, stream.m_stream_id);
+        LOGF("stream: dep_add_subtree dep_stream(%p=%d stream(%p)=%d\n", this, m_id, stream, stream.m_id);
         
         stream.updateSetRest();
         
@@ -558,7 +548,7 @@ class Stream {
 	{
         Stream prev, next, dep_prev, root_stream;
         
-        LOGF("stream: dep_remove_subtree stream(%p=%d\n", this, m_stream_id);
+        LOGF("stream: dep_remove_subtree stream(%p=%d\n", this, m_id);
         
         if (m_sib_prev) {
             prev = m_sib_prev;
@@ -591,7 +581,7 @@ class Stream {
         }
         
         if (dep_prev) {
-            dep_prev.sum_dep_weight -= m_weight;
+            dep_prev.m_sum_dep_weight -= m_weight;
             
 			root_stream = dep_prev.updateLength(-m_num_substreams);
             
@@ -610,7 +600,7 @@ class Stream {
      */
     void makeRoot(Session session)
 	{
-        LOGF("stream: dep_make_root stream(%p=%d\n", this, m_stream_id);
+        LOGF("stream: dep_make_root stream(%p=%d\n", this, m_id);
         
 		m_roots.add(this);
         
@@ -634,7 +624,7 @@ class Stream {
     {
         Stream first, si;
         
-        LOGF("stream: ALL YOUR STREAM ARE BELONG TO US stream(%p=%d\n", stream, m_stream_id);
+        LOGF("stream: ALL YOUR STREAM ARE BELONG TO US stream(%p=%d\n", this, m_id);
         
         first = m_roots.head;
         
@@ -646,16 +636,16 @@ class Stream {
             
             prev = first;
             
-            LOGF("stream: root stream(%p=%d\n", first, first.m_stream_id);
+            LOGF("stream: root stream(%p=%d\n", first, first.m_id);
             
             m_sum_dep_weight += first.m_weight;
             m_num_substreams += first.m_num_substreams;
             
             for (si = first.m_root_next; si; si = si.m_root_next) {
                 
-                assert(si !is stream);
+                assert(si !is this);
                 
-                LOGF("stream: root stream(%p=%d\n", si, si.m_stream_id);
+                LOGF("stream: root stream(%p=%d\n", si, si.m_id);
                 
                 m_sum_dep_weight += si.m_weight;
                 m_num_substreams += si.m_num_substreams;
@@ -760,7 +750,7 @@ private:
 		LOGF("stream: update_dep_effective_weight "
 				"stream(%p=%d, weight=%d, sum_norest_weight=%d, "
 				"sum_top_weight=%d\n",
-				this, m_stream_id, m_weight,
+				this, m_id, m_weight,
 				m_sum_norest_weight, m_sum_top_weight);
 		
 		/* m_sum_norest_weight == 0 means there is no StreamDPRI.TOP under stream */
@@ -778,7 +768,7 @@ private:
 						distributedEffectiveWeight(si.m_weight);
 				}
 				
-				updateEffectiveWeight(si);
+				si.updateEffectiveWeight();
 			}
 			return;
 		}
@@ -790,18 +780,18 @@ private:
 		for (si = m_dep_next; si; si = si.m_sib_next) {
 			if (si.m_dpri == StreamDPRI.TOP) {
 				si.m_effective_weight = distributedTopEffectiveWeight(si.m_weight);				
-				LOGF("stream: stream=%d top eweight=%d\n", si.m_stream_id, si.m_effective_weight);
+				LOGF("stream: stream=%d top eweight=%d\n", si.m_id, si.m_effective_weight);
 				
 				continue;
 			}
 			
 			if (si.m_dpri == StreamDPRI.NO_ITEM) {
-				LOGF("stream: stream=%d no_item, ignored\n", si.m_stream_id);
+				LOGF("stream: stream=%d no_item, ignored\n", si.m_id);
 				
 				/* Since we marked StreamDPRI.TOP under si, we make them StreamDPRI.REST again. */
 				si.m_dep_next.updateSetRest();
 			} else {
-				LOGF("stream: stream=%d rest, ignored\n", si.m_stream_id);
+				LOGF("stream: stream=%d rest, ignored\n", si.m_id);
 			}
 		}
 	}
@@ -809,7 +799,7 @@ private:
 	void updateSetRest() 
 	{
 		
-		LOGF("stream: stream=%d is rest\n", m_stream_id);
+		LOGF("stream: stream=%d is rest\n", m_id);
 		
 		if (m_dpri == StreamDPRI.REST)
 			return;
@@ -840,7 +830,7 @@ private:
 		
 		if (m_dpri == StreamDPRI.REST) 
 		{
-			LOGF("stream: stream=%d item is top\n", m_stream_id);
+			LOGF("stream: stream=%d item is top\n", m_id);
 			
 			m_dpri = StreamDPRI.TOP;
 			
@@ -865,7 +855,7 @@ private:
 		
 		if (m_dpri == StreamDPRI.TOP) {
 			if (!m_item.queued) {
-				LOGF("stream: stream=%d enqueue\n", m_stream_id);
+				LOGF("stream: stream=%d enqueue\n", m_id);
 				pushItem(session);
 			}
 			
@@ -978,7 +968,7 @@ private:
 		
 		stream.linkSibling(sib_next);
 		
-		sib_next.dep_prev = null;
+		sib_next.m_dep_prev = null;
 		
 		linkDependency(stream);
 	}
@@ -986,7 +976,7 @@ private:
 	Stream firstSibling() 
 	{
 		Stream stream = this;
-		for (; stream.sib_prev; stream = stream.sib_prev)
+		for (; stream.m_sib_prev; stream = stream.m_sib_prev)
 			continue;
 		
 		return stream;
@@ -995,7 +985,7 @@ private:
 	Stream lastSibling()
 	{
 		Stream stream = this;
-		for (; stream.sib_next; stream = stream.sib_next)
+		for (; stream.m_sib_next; stream = stream.m_sib_next)
 			continue;
 
 		return stream;
@@ -1027,7 +1017,7 @@ private:
              *         |
              *        dep_next
              */
-			dep_next.dep_prev = null;
+			dep_next.m_dep_prev = null;
 			
 			prev.linkSibling(dep_next);
 			
@@ -1040,10 +1030,10 @@ private:
              */
 			next = m_sib_next;
 			
-			prev.sib_next = next;
+			prev.m_sib_next = next;
 			
 			if (next) {
-				next.sib_prev = prev;
+				next.m_sib_prev = prev;
 			}
 		}
 	}
@@ -1077,11 +1067,11 @@ private:
              */
 			next = m_sib_next;
 			
-			next.sib_prev = null;
+			next.m_sib_prev = null;
 			
 			prev.linkDependency(next);
 		} else {
-			prev.dep_next = null;
+			prev.m_dep_next = null;
 		}
 	}
 
@@ -1106,13 +1096,13 @@ package:
 	 */
 	bool validateRemoteEndStream() const
 	{
-		if (http_flags & HTTPFlags.EXPECT_FINAL_RESPONSE) 
+		if (m_http_flags & HTTPFlags.EXPECT_FINAL_RESPONSE) 
 			return false;
 		
-		if (content_length != -1 && content_length != recv_content_length)
+		if (m_content_length != -1 && m_content_length != m_recv_content_length)
 			return false;
 
-		return 0;
+		return true;
 	}
 	
 	/*
@@ -1121,10 +1111,10 @@ package:
 	 */
 	bool onDataChunk(size_t n)
 	{
-		recv_content_length += n;
+		m_recv_content_length += n;
 
-		if ((http_flags & HTTPFlags.EXPECT_FINAL_RESPONSE) ||
-			(content_length != -1 && recv_content_length > content_length))
+		if ((m_http_flags & HTTPFlags.EXPECT_FINAL_RESPONSE) ||
+			(m_content_length != -1 && m_recv_content_length > m_content_length))
 		{
 			return false;
 		}
@@ -1138,7 +1128,7 @@ package:
 	 * FrameType.HEADERS nor FrameType.PUSH_PROMISE, this function does
 	 * nothing.
 	 */
-	void setRequestMethod(in Frame frame)
+	void setRequestMethod(Frame frame)
 	{
 		HeaderField[] hfa;
 		size_t i;
@@ -1156,15 +1146,16 @@ package:
 		
 		/* TODO we should do this strictly. */
 		foreach(ref hf; hfa) {
+			import libhttp2.helpers : parseToken;
 			if (parseToken(hf.name) != Token._METHOD) {
 				continue;
 			}
 			if (hf.value == "CONNECT") {
-				http_flags |= HTTPFlags.METH_CONNECT;
+				m_http_flags |= HTTPFlags.METH_CONNECT;
 				return;
 			}
 			if (hf.value == "HEAD") {
-				http_flags |= HTTPFlags.METH_HEAD;
+				m_http_flags |= HTTPFlags.METH_HEAD;
 				return;
 			}
 			return;
@@ -1177,23 +1168,23 @@ package:
  	 */
 	bool onRequestHeaders(Frame frame) 
 	{
-		if (http_flags & HTTPFlags.METH_CONNECT) 
+		if (m_http_flags & HTTPFlags.METH_CONNECT) 
 		{
-			if ((http_flags & HTTPFlags._AUTHORITY) == 0) 
+			if ((m_http_flags & HTTPFlags._AUTHORITY) == 0) 
 				return false;
 			
-			content_length = -1;
+			m_content_length = -1;
 
-		} else if ((http_flags & HTTPFlags.REQ_HEADERS) != HTTPFlags.REQ_HEADERS ||
-				   (http_flags & (HTTPFlags._AUTHORITY | HTTPFlags.HOST)) == 0) 
+		} else if ((m_http_flags & HTTPFlags.REQ_HEADERS) != HTTPFlags.REQ_HEADERS ||
+			(m_http_flags & (HTTPFlags._AUTHORITY | HTTPFlags.HOST)) == 0) 
 		{
 			return false;
 		}
 		
 		if (frame.hd.type == FrameType.PUSH_PROMISE) {
 			/* we are going to reuse data fields for upcoming response. Clear them now, except for method flags. */
-			http_flags &= HTTPFlags.METH_ALL;
-			content_length = -1;
+			m_http_flags &= HTTPFlags.METH_ALL;
+			m_content_length = -1;
 		}
 		
 		return true;
@@ -1204,24 +1195,24 @@ package:
  	 * function performs validation and returns true if it succeeds, or false.
  	 */
 	bool onResponseHeaders() {
-		if ((http_flags & HTTPFlags._STATUS) == 0)
+		if ((m_http_flags & HTTPFlags._STATUS) == 0)
 			return false;
 		
-		if (status_code / 100 == 1)
+		if (m_status_code / 100 == 1)
 		{
 			/* non-final response */
-			http_flags = (http_flags & HTTPFlags.METH_ALL) | HTTPFlags.EXPECT_FINAL_RESPONSE;
-			content_length = -1;
-			status_code = -1;
+			m_http_flags = (m_http_flags & HTTPFlags.METH_ALL) | HTTPFlags.EXPECT_FINAL_RESPONSE;
+			m_content_length = -1;
+			m_status_code = -1;
 			return true;
 		}
 		
-		http_flags &= ~HTTPFlags.EXPECT_FINAL_RESPONSE;
-		bool has_response_body = (http_flags & HTTPFlags.METH_HEAD) == 0 && status_code / 100 != 1 && status_code != 304 && status_code != 204;
+		m_http_flags &= ~HTTPFlags.EXPECT_FINAL_RESPONSE;
+		bool has_response_body = (m_http_flags & HTTPFlags.METH_HEAD) == 0 && m_status_code / 100 != 1 && m_status_code != 304 && m_status_code != 204;
 		if (!has_response_body)
-			content_length = 0;
-		else if (http_flags & HTTPFlags.METH_CONNECT)
-			content_length = -1;
+			m_content_length = 0;
+		else if (m_http_flags & HTTPFlags.METH_CONNECT)
+			m_content_length = -1;
 		return true;
 	}
 private:
@@ -1258,7 +1249,7 @@ private:
 	StreamDPRI m_dpri = StreamDPRI.NO_ITEM;
 
     /// the number of streams in subtree 
-	size_t m_num_substreams = 1;
+	int m_num_substreams = 1;
 
     /// Current remote window size. This value is computed against the current initial window size of remote endpoint. 
     int m_remote_window_size;
@@ -1314,7 +1305,7 @@ private:
 	HTTPFlags m_http_flags = HTTPFlags.NONE;
 
 package: // used by Session
-	@property int id() { return m_stream_id; }
+	@property int id() { return m_id; }
 	@property StreamDPRI dpri() { return m_dpri; }
 	@property StreamState state() { return m_state; }
 	@property void state(StreamState state) { m_state = state; }
@@ -1333,16 +1324,27 @@ package: // used by Session
 	@property ShutdownFlag shutFlags() { return m_shut_flags; }
 	@property void shutFlags(ShutdownFlag sf) { m_shut_flags = sf; }
 	@property HTTPFlags httpFlags() { return m_http_flags; }
+	@property void httpFlags(HTTPFlags flags) { m_http_flags = flags; }
 	@property StreamFlags flags() { return m_flags; }
 	@property void flags(StreamFlags f) { m_flags = f; }
-	@property int subStreams() { return m_num_substreams; }
 	@property void weight(int w) { m_weight = w; }
 	@property int weight() { return m_weight; }
 	@property Stream closedPrev() { return m_closed_prev; }
 	@property Stream closedNext() { return m_closed_next; } 
-	@property Stream depPrev() { return m_dep_prev; } 
-	@property Stream sibPrev() { return m_sib_prev; }
-	@property Stream sibNext() { return m_sib_next; } 
 	@property void closedPrev(Stream s) { m_closed_prev = s; }
 	@property void closedNext(Stream s) { m_closed_next = s; } 
+	@property int contentLength() { return m_content_length; }
+	@property short statusCode() { return m_status_code; }
+	@property void statusCode(short status) { m_status_code = status; }
+	@property void contentLength(int len) { m_content_length = len; }
+	// tests
+	@property int subStreams() { return m_num_substreams; }
+	@property int sumDepWeight() { return m_sum_dep_weight; }
+	@property int sumNorestWeight() { return m_sum_norest_weight; }
+	@property Stream rootNext() { return m_root_next; } 
+	@property Stream depPrev() { return m_dep_prev; } 
+	@property Stream depNext() { return m_dep_next; } 
+	@property Stream sibPrev() { return m_sib_prev; }
+	@property Stream sibNext() { return m_sib_next; } 
+
 }

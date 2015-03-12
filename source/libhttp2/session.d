@@ -6659,8 +6659,8 @@ int submitHeadersShared(Session session, FrameFlags flags, int stream_id,
 	scope(failure) if (owns_hfa) Mem.free(hfa_copy);
 		
 	if (stream_id == 0) {
-		rv = ErrorCode.INVALID_ARGUMENT;
-		goto fail;
+		Mem.free(hfa_copy);
+		return ErrorCode.INVALID_ARGUMENT;
 	}
 
 	item = Mem.alloc!OutboundItem(session);
@@ -6677,8 +6677,9 @@ int submitHeadersShared(Session session, FrameFlags flags, int stream_id,
 	
 	if (stream_id == -1) {
 		if (session.next_stream_id > int.max) {
-			rv = ErrorCode.STREAM_ID_NOT_AVAILABLE;
-			goto fail;
+			Mem.free(item);
+			Mem.free(hfa_copy);
+			return ErrorCode.STREAM_ID_NOT_AVAILABLE;
 		}
 		
 		stream_id = session.next_stream_id;
@@ -6698,21 +6699,14 @@ int submitHeadersShared(Session session, FrameFlags flags, int stream_id,
 	
 	if (rv != ErrorCode.OK) {
 		frame.headers.free();
-		goto fail2;
+		Mem.free(item);
+		return rv;
 	}
 	
 	if (hcat == HeadersCategory.REQUEST)
 		return stream_id;
 	
 	return ErrorCode.OK;
-	
-fail:
-	/* FrameHeader takes ownership of hfa_copy. */
-	Mem.free(hfa_copy);
-fail2:
-	Mem.free(item);
-	
-	return rv;
 }
 
 

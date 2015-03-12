@@ -199,7 +199,7 @@ class Buffers {
 	 * will point to the first buffer after this call.
 	 */
 	this(size_t _chunk_length, size_t _max_chunk, size_t _chunk_keep, size_t _offset) 
-	in { assert(_chunk_keep == 0 || _max_chunk < _chunk_keep || _chunk_length < _offset, "Invalid Arguments"); }
+	in { assert(!(_chunk_keep == 0 || _max_chunk < _chunk_keep || _chunk_length < _offset), "Invalid Arguments"); }
 	body
 	{
 		Chain chain = Chain(chunk_length);
