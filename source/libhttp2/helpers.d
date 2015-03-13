@@ -47,10 +47,13 @@ HeaderField[] copy()(auto const ref HeaderField[] hfa) {
 
 	foreach (size_t i, const ref HeaderField hf; hfa) {
 		ret[i].flag = hf.flag;
-		char[] copy = cast(char[])Mem.copy(hf.name);
+		char[] copy;
+		if (hf.name.length > 0)
+			copy = cast(char[])Mem.copy(hf.name);
 		toLowerInPlace(copy);
 		ret[i].name = cast(string) copy;
-		ret[i].value = Mem.copy(hf.value);
+		if (hf.value.length > 0)
+			ret[i].value = Mem.copy(hf.value);
 	}
 	return ret;
 }

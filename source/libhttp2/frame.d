@@ -85,7 +85,7 @@ struct FrameHeader
 		buf = &bufs.head.buf;
 		length = buf.length;
 		
-		LOGF("send: HEADERS/PUSH_PROMISE, payloadlen=%zu\n", length);
+		LOGF("send: HEADERS/PUSH_PROMISE, payloadlen=%d", length);
 		
 		/* We have multiple frame buffers, which means one or more
 	       CONTINUATION frame is involved. Remove END_HEADERS flag from the
@@ -110,7 +110,7 @@ struct FrameHeader
 				
 				length = buf.length;
 				
-				LOGF("send: int CONTINUATION, payloadlen=%zu\n", length);
+				LOGF("send: int CONTINUATION, payloadlen=%d", length);
 				
 				buf.pos -= FRAME_HDLEN;
 				pack((*buf)[]);
@@ -121,7 +121,7 @@ struct FrameHeader
 			/* Set END_HEADERS flag for last CONTINUATION */
 			flags = FrameFlags.END_HEADERS;
 			
-			LOGF("send: last CONTINUATION, payloadlen=%zu\n", length);
+			LOGF("send: last CONTINUATION, payloadlen=%d", length);
 			
 			buf.pos -= FRAME_HDLEN;
 			pack((*buf)[]);
@@ -134,7 +134,7 @@ struct FrameHeader
 		Buffer* buf;
 		
 		if (padlen == 0) {
-			LOGF("send: padlen = 0, nothing to do\n");
+			LOGF("send: padlen = 0, nothing to do");
 			
 			return ;
 		}
@@ -168,7 +168,7 @@ struct FrameHeader
 		length += padlen;
 		flags |= FrameFlags.PADDED;
 		
-		LOGF("send: final payloadlen=%zu, padlen=%zu\n", length, padlen);
+		LOGF("send: final payloadlen=%d, padlen=%d", length, padlen);
 	}
 
 	void free(){}
@@ -701,6 +701,7 @@ struct Ping {
 		hd.pack((*buf)[]);
 		
 		memcpy(buf.last, opaque_data.ptr, opaque_data.sizeof);
+		buf.last += opaque_data.sizeof;
 
 	}
 	
@@ -1124,7 +1125,7 @@ void frameSetPad(Buffer* buf, int padlen)
 	int trail_padlen;
 	int newlen;
 	
-	LOGF("send: padlen=%zu, shift left 1 bytes\n", padlen);
+	LOGF("send: padlen=%d, shift left 1 bytes", padlen);
 	
 	memmove(buf.pos - 1, buf.pos, FRAME_HDLEN);
 	

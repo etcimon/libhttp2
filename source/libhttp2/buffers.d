@@ -32,6 +32,7 @@ struct Buffer
 	ubyte[] opSlice() { return pos[0 .. length]; }
 
 	@property int length() {
+		assert(last-pos >= 0);
 		return cast(int)(last - pos);
 	}
 
@@ -118,7 +119,7 @@ struct Buffer
 	 * the application should not call *_reserve() or free() functions.
 	 */
 	this(ubyte[] buf) {
-		begin = pos = last = mark = begin;
+		begin = pos = last = mark = buf.ptr;
 		end = begin + buf.length;
 	}		
 	
@@ -147,8 +148,7 @@ class Buffers {
 			Chain chain;
 			chain = Mem.alloc!(Buffers.Chain)();
 			scope(failure) Mem.free(chain);
-			
-			chain.next = null;			
+			chain.next = null;
 			chain.buf = Buffer(chunk_length);
 
 			return chain;
@@ -156,7 +156,8 @@ class Buffers {
 
 		void free() {
 			buf.free();
-			Mem.free(next);
+			if (next)
+				Mem.free(next);
 		}
 	}
 
@@ -202,7 +203,7 @@ class Buffers {
 	in { assert(!(_chunk_keep == 0 || _max_chunk < _chunk_keep || _chunk_length < _offset), "Invalid Arguments"); }
 	body
 	{
-		Chain chain = Chain(chunk_length);
+		Chain chain = Chain(_chunk_length);
 
 		offset = _offset;
 		
@@ -248,7 +249,7 @@ class Buffers {
 		
 		if (!head) return;
 
-		if (!dontFree) {
+		if (dontFree) {
 			Mem.free(head);
 			head = null;
 			return;
@@ -256,7 +257,8 @@ class Buffers {
 		
 		for (chain = head; chain;) {
 			next_chain = chain.next;			
-			chain.free();			
+			chain.free();
+			Mem.free(chain);
 			chain = next_chain;
 		}
 		
@@ -319,10 +321,10 @@ class Buffers {
 		
 		p = cast(const(ubyte)*)data.ptr;
 		
-		while (len) {
+		while (len > 0) {
 			buf = &cur.buf;
 			
-			nwrite = cast(size_t) min(available, len);
+			nwrite = cast(size_t) min(buf.available, len);
 			if (nwrite == 0) {
 				rv = allocChain();
 				if (rv != 0) {
@@ -330,8 +332,8 @@ class Buffers {
 				}
 				continue;
 			}
-			
 			memcpy(buf.last, p, nwrite);
+			buf.last += nwrite;
 			p += len;
 			len -= nwrite;
 		}
@@ -383,6 +385,7 @@ class Buffers {
 	}
 
 	void fastAdd(ubyte b) {
+		assert(cur.buf.last+1 < cur.buf.end);
 		*cur.buf.last++ = b;
 	}
 
@@ -435,6 +438,7 @@ class Buffers {
 	}
 
 	void fastOr(ubyte b) {
+		assert(cur.buf.last+1 < cur.buf.end);
 		*cur.buf.last++ |= b;
 	}
 
@@ -454,25 +458,28 @@ class Buffers {
 		Buffer* buf;
 		ubyte[] res;
 		Buffer resbuf;
-		
 		len = 0;
 		
 		for (chain = head; chain; chain = chain.next) {
 			len += chain.buf.length;
 		}
-		
+		logDebug("Len: ", len);
 		if (!len) 
 			res = null;
-		else 
+		else {
+			logDebug("Alloc len: ", len);
 			res = Mem.alloc!(ubyte[])(len);
-		
+			logDebug("Allocated");
+		}
 		resbuf = Buffer(res);
 		
 		for (chain = head; chain; chain = chain.next) {
 			buf = &chain.buf;
 			
 			if (resbuf.last) {
+				assert(resbuf.available >= buf.length);
 				memcpy(resbuf.last, buf.pos, buf.length);
+				resbuf.last += buf.length;
 			}
 			
 			buf.reset();
@@ -480,7 +487,6 @@ class Buffers {
 		}
 		
 		cur = head;
-		
 		return res;
 	}
 
@@ -495,7 +501,6 @@ class Buffers {
 		size_t k;
 		
 		k = chunk_keep;
-		
 		for (ci = head; ci; ci = ci.next) {
 			ci.buf.reset();
 			ci.buf.shiftRight(offset);
@@ -628,7 +633,7 @@ private:
 
 		chain = Chain(chunk_length);
 		
-		LOGF("new buffer %zu bytes allocated for bufs %p, used %zu\n", chunk_length, this, chunk_used);
+		LOGF("new buffer %d bytes allocated for bufs %s, used %d", chunk_length, &this, chunk_used);
 		
 		++chunk_used;
 		

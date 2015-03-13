@@ -12,7 +12,7 @@
 module libhttp2.huffman_tests;
 
 import libhttp2.constants;
-static if (TEST_ALL):
+//static if (TEST_ALL):
 
 import libhttp2.buffers;
 import libhttp2.huffman;
@@ -39,7 +39,6 @@ void test_hd_deflate() {
 
 	rv = deflater.deflate(bufs, hfa1);
 	blocklen = bufs.length;
-	
 	assert(0 == rv);
 	assert(blocklen > 0);
 	assert(blocklen == output.inflate(inflater, bufs, 0));
@@ -204,13 +203,15 @@ void test_hd_inflate_indname_noinc() {
 	HeaderFields output;
 
 	foreach (ref hf; hfa) {
+		logDebug("Emit");
 		assert(0 == bufs.emitIndexedNameBlock(57, hf, false));
-		
+		logDebug("Done emit");
 		blocklen = bufs.length;
 		
 		assert(blocklen > 0);
+		logDebug("inflate");
 		assert(blocklen == output.inflate(inflater, bufs, 0));
-		
+		logDebug("Done inflate");
 		assert(1 == output.length);
 		assert(hf == output.hfa_raw[0]);
 		assert(0 == inflater.ctx.hd_table.length);
@@ -230,14 +231,14 @@ void test_hd_inflate_indname_inc() {
 	HeaderField hf = HeaderField("user-agent", "nghttp2");
 	HeaderFields output;
 	bufs = framePackBuffers();
-	
+
 	assert(0 == bufs.emitIndexedNameBlock(57, hf, 1));
-	
+
 	blocklen = bufs.length;
 	
 	assert(blocklen > 0);
 	assert(blocklen == output.inflate(inflater, bufs, 0));
-	
+
 	assert(1 == output.length);
 	assert(hf == output.hfa_raw[0]);
 	assert(1 == inflater.ctx.hd_table.length);
@@ -253,6 +254,7 @@ void test_hd_inflate_indname_inc_eviction() {
 	Buffers bufs = framePackBuffers();
 	size_t blocklen;
 	ubyte[1024] value;
+	memset(value.ptr, '0', value.length);
 	HeaderFields output;
 	HeaderField hf;
 
@@ -349,6 +351,7 @@ void test_hd_inflate_clearall_inc() {
 	size_t blocklen;
 	HeaderField hf;
 	ubyte[4060] value;
+	memset(value.ptr, '0', value.length);
 	HeaderFields output;
 
 	/* Total 4097 bytes space required to hold this entry */
@@ -1095,7 +1098,9 @@ unittest {
 	test_hd_inflate_indname_inc_eviction();
 	test_hd_inflate_newname_noinc();
 	test_hd_inflate_newname_inc();
+
 	test_hd_inflate_clearall_inc();
+	logDebug("test_hd_inflate_zero_length_huffman");
 	test_hd_inflate_zero_length_huffman();
 	test_hd_ringbuf_reserve();
 	test_hd_change_table_size();

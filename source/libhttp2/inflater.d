@@ -126,17 +126,14 @@ struct Inflater
 	 *             rv = hd_inflater.inflate(hf, inflate_flags, input, final);
 	 *
 	 *             if(rv < 0) {
-	 *                 fprintf(stderr, "inflate failed with error code %zd", rv);
+	 *                 fprintf(stderr, "inflate failed with error code %d", rv);
 	 *                 return;
 	 *             }
 	 *
 	 *             input = input[rv .. $];
 	 *
 	 *             if(inflate_flags & InflateFlag.EMIT) {
-	 *                 fwrite(hf.name, 1, stderr);
-	 *                 fprintf(stderr, ": ");
-	 *                 fwrite(hf.value, 1, stderr);
-	 *                 fprintf(stderr, "\n");
+	 *                 writeln(hf.name, " => ", hf.value);
 	 *             }
 	 * 
 	 *             if(inflate_flags & InflateFlag.FINAL) {
@@ -161,35 +158,37 @@ struct Inflater
 		if (ctx.bad) return ErrorCode.HEADER_COMP;
 		scope(failure) ctx.bad = 1;
 		
-		LOGF("inflatehd: start state=%d\n", state);
-
+		LOGF("inflatehd: start state=%s pos=%s last=%s", state, pos, last);
+		if (state == InflateState.READ_VALUE && pos is last)
+			assert(false);
 		ent_keep = HDEntry.init;
+		logDebug("ent_keep");
 		inflate_flags = InflateFlag.NONE;
 
-		for (; pos != last;) {
+		for (; pos !is last;) {
 			final switch (state) {
 				case InflateState.OPCODE:
 					if ((*pos & 0xe0) == 0x20) {
-						LOGF("inflatehd: header table size change\n");
+						LOGF("inflatehd: header table size change");
 						opcode = OpCode.INDEXED;
 						state = InflateState.READ_TABLE_SIZE;
 					} else if (*pos & 0x80) {
-						LOGF("inflatehd: indexed repr\n");
+						LOGF("inflatehd: indexed repr");
 						opcode = OpCode.INDEXED;
 						state = InflateState.READ_INDEX;
 					} else {
 						if (*pos == 0x40 || *pos == 0 || *pos == 0x10) {
-							LOGF("inflatehd: literal header repr - new name\n");
+							LOGF("inflatehd: literal header repr - new name");
 							opcode = OpCode.NEWNAME;
 							state = InflateState.NEWNAME_CHECK_NAMELEN;
 						} else {
-							LOGF("inflatehd: literal header repr - indexed name\n");
+							LOGF("inflatehd: literal header repr - indexed name");
 							opcode = OpCode.INDNAME;
 							state = InflateState.READ_INDEX;
 						}
 						index_required = (*pos & 0x40) != 0;
 						no_index = (*pos & 0xf0) == 0x10;
-						LOGF("inflatehd: indexing required=%d, no_index=%d\n", index_required, no_index);
+						LOGF("inflatehd: indexing required=%d, no_index=%d", index_required, no_index);
 
 						if (opcode == OpCode.NEWNAME)
 							++pos;
@@ -209,7 +208,7 @@ struct Inflater
 					if (!rfin)
 						goto almost_ok;
 
-					LOGF("inflatehd: table_size=%zu\n", left);
+					LOGF("inflatehd: table_size=%d", left);
 					ctx.hd_table_bufsize_max = left;
 					ctx.shrink();
 					state = InflateState.OPCODE;
@@ -242,7 +241,7 @@ struct Inflater
 						goto fail;
 					}
 					
-					LOGF("inflatehd: index=%zu\n", left);
+					LOGF("inflatehd: index=%d", left);
 					if (opcode == OpCode.INDEXED) {
 						index = left;
 						--index;
@@ -271,7 +270,7 @@ struct Inflater
 					state = InflateState.NEWNAME_READ_NAMELEN;
 					left = 0;
 					shift = 0;
-					LOGF("inflatehd: huffman encoded=%d\n", huffman_encoded != 0);
+					LOGF("inflatehd: huffman encoded=%d", huffman_encoded != 0);
 					goto case InflateState.NEWNAME_READ_NAMELEN;
 				case InflateState.NEWNAME_READ_NAMELEN:
 					rfin = false;
@@ -283,7 +282,7 @@ struct Inflater
 					}
 					pos += len;
 					if (!rfin) {
-						LOGF("inflatehd: integer not fully decoded. current=%zu\n", left);						
+						LOGF("inflatehd: integer not fully decoded. current=%d", left);						
 						goto almost_ok;
 					}
 					
@@ -302,10 +301,10 @@ struct Inflater
 					}
 					pos += len;
 					
-					LOGF("inflatehd: %zd bytes read\n", len);
+					LOGF("inflatehd: %d bytes read in NEWNAME_READ_NAMEHUFF", len);
 					
 					if (left) {
-						LOGF("inflatehd: still %zu bytes to go\n", left);
+						LOGF("inflatehd: still %d bytes to go", left);
 						goto almost_ok;
 					}
 					
@@ -323,9 +322,9 @@ struct Inflater
 					}
 					pos += len;
 					
-					LOGF("inflatehd: %zd bytes read\n", len);
+					LOGF("inflatehd: %d bytes read in NEWNAME_READ_NAME", len);
 					if (left) {
-						LOGF("inflatehd: still %zu bytes to go\n", left);
+						LOGF("inflatehd: still %d bytes to go", left);
 						
 						goto almost_ok;
 					}
@@ -340,7 +339,7 @@ struct Inflater
 					state = InflateState.READ_VALUELEN;
 					left = 0;
 					shift = 0;
-					LOGF("inflatehd: huffman encoded=%d\n", huffman_encoded != 0);
+					LOGF("inflatehd: huffman encoded=%d", huffman_encoded != 0);
 
 					goto case InflateState.READ_VALUELEN;
 				case InflateState.READ_VALUELEN:
@@ -355,7 +354,7 @@ struct Inflater
 					if (!rfin)
 						goto almost_ok;
 										
-					LOGF("inflatehd: valuelen=%zu\n", left);
+					LOGF("inflatehd: valuelen=%d", left);
 					if (left == 0) {
 						if (opcode == OpCode.NEWNAME)
 							hf_out = commitNewName();
@@ -386,11 +385,11 @@ struct Inflater
 						goto fail;
 					}		
 					pos += len;
-					
-					LOGF("inflatehd: %zd bytes read\n", len);
+
+					LOGF("inflatehd: %d bytes read in READ_VALUEHUFF", len);
 					
 					if (left) {
-						LOGF("inflatehd: still %zu bytes to go\n", left);
+						LOGF("inflatehd: still %d bytes to go", left);
 						
 						goto almost_ok;
 					}
@@ -402,7 +401,8 @@ struct Inflater
 															
 					state = InflateState.OPCODE;
 					inflate_flags |= InflateFlag.EMIT;
-					
+
+					logDebug("return");
 					return cast(int)(pos - first);
 
 				case InflateState.READ_VALUE:
@@ -410,16 +410,16 @@ struct Inflater
 
 					if (len < 0) {
 						rv = cast(ErrorCode) len;
-						LOGF("inflatehd: value read failure %zd: %s\n", rv, toString(cast(ErrorCode)rv));
+						LOGF("inflatehd: value read failure %d: %s", rv, toString(cast(ErrorCode)rv));
 						goto fail;
 					}
 					
 					pos += len;
 					
-					LOGF("inflatehd: %zd bytes read\n", len);
+					LOGF("inflatehd: %d bytes read in READ_VALUE", len);
 					
 					if (left) {
-						LOGF("inflatehd: still %zu bytes to go\n", left);
+						LOGF("inflatehd: still %d bytes to go", left);
 						goto almost_ok;
 					}
 					
@@ -437,13 +437,13 @@ struct Inflater
 		
 		assert(pos is last);
 		
-		LOGF("inflatehd: all input bytes were processed\n");
+		LOGF("inflatehd: all input bytes were processed");
 		
 		if (is_final) {
-			LOGF("inflatehd: is_final set\n");
+			LOGF("inflatehd: is_final set");
 			
 			if (state != InflateState.OPCODE) {
-				LOGF("inflatehd: unacceptable state=%d\n", state);
+				LOGF("inflatehd: unacceptable state=%d", state);
 				rv = ErrorCode.HEADER_COMP;
 				
 				goto fail;
@@ -454,7 +454,7 @@ struct Inflater
 		
 	almost_ok:
 		if (is_final && state != InflateState.OPCODE) {
-			LOGF("inflatehd: input ended prematurely\n");			
+			LOGF("inflatehd: input ended prematurely");			
 			rv = ErrorCode.HEADER_COMP;			
 			goto fail;
 		}
@@ -462,7 +462,7 @@ struct Inflater
 		return cast(int)(pos - first);
 		
 	fail:
-		LOGF("inflatehd: error return %zd\n", rv);		
+		LOGF("inflatehd: error return %d", rv);		
 		ctx.bad = 1;
 		return cast(int)rv;
 		
@@ -502,18 +502,18 @@ struct Inflater
 		rv = decodeLength(output, shift, is_final, cast(uint)left, shift, input, last, prefix);
 		
 		if (rv == -1) {
-			LOGF("inflatehd: integer decoding failed\n");
+			LOGF("inflatehd: integer decoding failed");
 			return cast(int)ErrorCode.HEADER_COMP;
 		}
 		
 		if (output > maxlen) {
-			LOGF("inflatehd: integer exceeded the maximum value %zu\n", maxlen);
+			LOGF("inflatehd: integer exceeded the maximum value %d", maxlen);
 			return cast(int)ErrorCode.HEADER_COMP;
 		}
 		
 		left = output;
 		
-		LOGF("inflatehd: decoded integer is %u\n", output);
+		LOGF("inflatehd: decoded integer is %u", output);
 		
 		return rv;
 	}
@@ -539,11 +539,10 @@ struct Inflater
 			last = input + left;
 			rfin = true;
 		}
-
 		readlen = huff_decoder.decode(bufs, input[0 .. last - input], rfin);
 
 		if (readlen < 0) {
-			LOGF("inflatehd: huffman decoding failed\n");
+			LOGF("inflatehd: huffman decoding failed");
 			return readlen;
 		}
 		left -= cast(size_t)readlen;
@@ -581,9 +580,11 @@ struct Inflater
 		size_t buflen;
 		ubyte[] buf;
 		Buffer* pbuf;
-		
-		if (index_required || hfbufs.head != hfbufs.cur) {			
-			buf = hfbufs.remove();			
+		logDebug("RemoveBufs");
+		if (index_required || hfbufs.head != hfbufs.cur) {
+			logDebug("Removing");
+			buf = hfbufs.remove();
+			logDebug("Removed");
 			buflen = buf.length;
 			
 			if (value_only)
@@ -621,7 +622,6 @@ package:
 	HeaderField commitNewName() {
 		HeaderField hf = removeBufs(false);
 		HeaderField ret;
-		
 		if (no_index)
 			hf.flag = HeaderFlag.NO_INDEX;
 		else
@@ -654,7 +654,8 @@ package:
 	HeaderField commitIndexedName() {
 		HeaderField ret;
 		HDEntry ent_name;
-		
+
+		logDebug("IndName");
 		HeaderField hf = removeBufs(true /* value only */);
 		
 		if (no_index)
@@ -666,6 +667,7 @@ package:
 		hf.name = ent_name.hf.name;
 		
 		if (index_required) {
+			logDebug("index required");
 			HDEntry new_ent;
 			HDFlags ent_flags;
 			bool static_name;
@@ -684,7 +686,8 @@ package:
 		}
 		
 		ret = emitLiteralHeader(hf);
-		
+
+		logDebug("done emit");
 		return ret;
 	}
 
@@ -699,13 +702,13 @@ package:
 
 	// for debugging
 	HeaderField emitIndexedHeader(ref HDEntry ent) {
-		LOGF("inflatehd: header emission: %s: %s\n", ent.hf.name, ent.hf.value);
+		LOGF("inflatehd: indexed header emission: %s: %s", ent.hf.name, ent.hf.value);
 		
 		return ent.hf;
 	}
 	
 	HeaderField emitLiteralHeader(ref HeaderField hf) {
-		LOGF("inflatehd: header emission: %s: %s\n", hf.name, hf.value);
+		LOGF("inflatehd: literal header emission: %s: %s", hf.name, hf.value);
 		
 		return hf;
 	}

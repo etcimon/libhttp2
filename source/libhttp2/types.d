@@ -21,7 +21,13 @@ alias Mem = ThreadMem;
 void LOGF(ARGS...)(ARGS args) {
 	import std.stdio: writefln;
 	static if (DEBUG)
-		writefln("D: ", args);
+		writefln(args);
+}
+
+void logDebug(ARGS...)(ARGS args) {
+	import std.stdio: writeln;
+	static if (DEBUG)
+		writeln("D: ", args);
 }
 
 /// Return values used in this library.  The code range is [-999, -500], inclusive.

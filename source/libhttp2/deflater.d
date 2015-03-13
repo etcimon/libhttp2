@@ -108,11 +108,11 @@ struct Deflater
 				goto fail;
 		}
 		
-		LOGF("deflatehd: all input header fields were deflated\n");
+		LOGF("deflatehd: success");
 		
 		return ErrorCode.OK;
 	fail:
-		LOGF("deflatehd: error return %d\n", rv);
+		LOGF("deflatehd: error return %d", rv);
 		
 		ctx.bad = 1;
 		return rv;
@@ -144,7 +144,7 @@ struct Deflater
 	{
 		Buffers bufs = Mem.alloc!Buffers(buf);
 		ErrorCode rv;
-				
+
 		rv = deflate(bufs, hfa);
 		
 		size_t buflen = bufs.length;
@@ -226,7 +226,7 @@ package:
 		uint name_hash = hf.name.hash();
 		uint value_hash = hf.value.hash();
 		
-		LOGF("deflatehd: deflating %s: %s\n", hf.name, hf.value);		
+		LOGF("deflatehd: deflating %s: %s", hf.name, hf.value);		
 
 		res = ctx.search(hf, name_hash, value_hash, found);
 
@@ -234,7 +234,7 @@ package:
 		
 		if (found) {
 			
-			LOGF("deflatehd: name/value match index=%zd\n", idx);
+			LOGF("deflatehd: name/value match index=%d", idx);
 			
 			rv = emitIndexedBlock(bufs, idx);
 
@@ -245,7 +245,7 @@ package:
 		}
 		
 		if (idx != -1)
-			LOGF("deflatehd: name match index=%zd\n", res);
+			LOGF("deflatehd: name match index=%d", res);
 
 		
 		if (shouldIndex(hf)) 
@@ -313,7 +313,7 @@ ErrorCode emitIndexedNameBlock(Buffers bufs, size_t idx, const ref HeaderField h
 	else
 		prefixlen = 4;
 
-	LOGF("deflatehd: emit indname index=%zu, valuelen=%zu, indexing=%d, no_index=%d\n", idx, hf.value.length, inc_indexing, no_index);
+	LOGF("deflatehd: emit indname index=%d, valuelen=%d, indexing=%d, no_index=%d", idx, hf.value.length, inc_indexing, no_index);
 	
 	blocklen = countEncodedLength(idx + 1, prefixlen);
 	
@@ -344,7 +344,7 @@ ErrorCode emitNewNameBlock(Buffers bufs, in HeaderField hf, bool inc_indexing) {
 	
 	no_index = (hf.flag & HeaderFlag.NO_INDEX) != 0;
 	
-	LOGF("deflatehd: emit newname namelen=%zu, valuelen=%zu, indexing=%d, no_index=%d\n",	hf.name.length, hf.value.length, inc_indexing, no_index);
+	LOGF("deflatehd: emit newname namelen=%d, valuelen=%d, indexing=%d, no_index=%d",	hf.name.length, hf.value.length, inc_indexing, no_index);
 	
 	rv = bufs.add(packFirstByte(inc_indexing, no_index));
 	if (rv != 0) {
@@ -372,7 +372,7 @@ ErrorCode emitIndexedBlock(Buffers bufs, size_t idx) {
 	
 	blocklen = countEncodedLength(idx + 1, 7);
 	
-	LOGF("deflatehd: emit indexed index=%zu, %zu bytes\n", idx,
+	LOGF("deflatehd: emit indexed index=%d, %d bytes", idx,
 			blocklen);
 	
 	if (sb.length < blocklen) {
@@ -405,7 +405,7 @@ ErrorCode emitString(Buffers bufs, in string str) {
 		size_t nbits = 0;
 		
 		for (i = 0; i < len; ++i) {
-			nbits += symbol_table[str[i]].nbits;
+			nbits += symbol_table[cast(ubyte)str[i]].nbits;
 		}
 		/* pad the prefix of EOS (256) */
 		enclen = (nbits + 7) / 8;
@@ -418,7 +418,7 @@ ErrorCode emitString(Buffers bufs, in string str) {
 	
 	blocklen = countEncodedLength(enclen, 7);
 	
-	LOGF("deflatehd: emit string str=%s, length=%zu, huffman=%d, encoded_length=%zu\n", str, len, huffman, enclen);
+	LOGF("deflatehd: emit string str=%s, length=%d, huffman=%d, encoded_length=%d", str, len, huffman, enclen);
 	
 	if (sb.length < blocklen) {
 		return ErrorCode.HEADER_COMP;
@@ -450,7 +450,7 @@ ErrorCode emitTableSize(Buffers bufs, size_t table_size) {
 	size_t blocklen;
 	ubyte[16] sb;
 	
-	LOGF("deflatehd: emit table_size=%zu\n", table_size);
+	LOGF("deflatehd: emit table_size=%d", table_size);
 	
 	blocklen = countEncodedLength(table_size, 5);
 	

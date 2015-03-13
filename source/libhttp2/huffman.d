@@ -115,10 +115,12 @@ class HDEntry
 	~this() 
 	{
 		if (flags & HDFlags.NAME_ALLOC) {
+			logDebug("free***************");
 			Mem.free(hf.name);
 		}
 		
 		if (flags & HDFlags.VALUE_ALLOC) {
+			logDebug("free***************");
 			Mem.free(hf.value);
 		}
 	}
@@ -220,7 +222,7 @@ class HDTable
 		// Search dynamic table first, so that we can find recently used entry first
 		if (use_index) {
 			for (i = 0; i < hd_table.length; ++i) {
-				HDEntry* ent = &hd_table[i];
+				HDEntry ent = hd_table[i];
 
 				if (ent.name_hash != name_hash || ent.hf.name != hf.name)
 					continue;
@@ -237,7 +239,7 @@ class HDTable
 		
 		while (right - left > 1) {
 			size_t mid = (left + right) / 2;
-			HDEntry* ent = &static_table[mid].ent;
+			HDEntry ent = static_table[mid].ent;
 			if (ent.name_hash < name_hash)
 				left = cast(int) mid;
 			else
@@ -245,14 +247,14 @@ class HDTable
 		}
 		
 		for (i = right; i < static_table.length; ++i) {
-			HDEntry* ent = &static_table[i].ent;
+			HDEntry ent = static_table[i].ent;
 			if (ent.name_hash != name_hash)
 				break;
 			
 			if (ent.hf.name == hf.name)
 			{
 				if (res == -1)
-					res =  cast(int) (i + static_table.length);
+					res =  cast(int) (static_table[i].index);
 
 				if (use_index && ent.value_hash == value_hash && ent.hf.value == hf.value) 
 				{
@@ -392,44 +394,44 @@ int decodeLength(ref uint res, ref size_t shift_ptr, ref bool is_final, // <-- o
 	is_final = false;
 	
 	if (n == 0) {
-		if ((*input & k) != k) {
+		if (((*input) & k) != k) {
 			res = (*input) & k;
 			is_final = true;
-			return true;
+			return 1;
 		}
 		
 		n = k;
 		
-		if (++input == last) {
+		if (++input is last) {
 			res = n;
 			return cast(int)(input - start);
 		}
 	}
 	
-	for (; input != last; ++input, shift += 7) {
-		uint add = *input & 0x7f;
+	for (; input !is last; ++input, shift += 7) {
+		uint add = (*input) & 0x7f;
 		
 		if ((uint.max >> shift) < add) {
-			LOGF("inflate: integer overflow on shift\n");
+			LOGF("inflate: integer overflow on shift");
 			return -1;
 		}
 		
 		add <<= shift;
 		
 		if (uint.max - add < n) {
-			LOGF("inflate: integer overflow on addition\n");
+			LOGF("inflate: integer overflow on addition");
 			return -1;
 		}
 		
 		n += add;
 		
-		if ((*input & (1 << 7)) == 0) 
+		if (((*input) & (1 << 7)) == 0) 
 			break;
 	}
 	
 	shift_ptr = shift;
 	
-	if (input == last) {
+	if (input is last) {
 		res = n;
 		return cast(int)(input - start);
 	}

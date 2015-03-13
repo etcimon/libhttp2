@@ -47,8 +47,8 @@ struct ActiveOutboundItem {
 	OutboundState state = OutboundState.POP_ITEM;
 
 	void reset() {
-		LOGF("send: reset http2_active_outbound_item\n");
-		LOGF("send: aob.item = %p\n", item);
+		LOGF("send: reset http2_active_outbound_item");
+		LOGF("send: aob.item = %s", item);
 		item.free();
 		Mem.free(item);
 		item = null;
@@ -136,7 +136,7 @@ struct InboundFrame {
 		readlen = min(last - input, sbuf.markAvailable);
 
 		memcpy(sbuf.last, input, readlen);
-		
+		sbuf.last += readlen;
 		return readlen;
 	}
 	
@@ -159,7 +159,7 @@ struct InboundFrame {
 			case MAX_HEADER_LIST_SIZE:
 				break;
 			default:
-				LOGF("recv: ignore unknown settings id=0x%02x\n", _iv.id);
+				LOGF("recv: ignore unknown settings id=0x%02x", _iv.id);
 				return;
 		}
 		
@@ -194,7 +194,7 @@ struct InboundFrame {
 			setMark(1);
 			return 1;
 		}
-		LOGF("recv: no padding in payload\n");
+		LOGF("recv: no padding in payload");
 		return ErrorCode.OK;
 	}
 	
@@ -207,7 +207,7 @@ struct InboundFrame {
 		/* 1 for Pad Length field */
 		int _padlen = sbuf.pos[0] + 1;
 		
-		LOGF("recv: padlen=%zu\n", padlen);
+		LOGF("recv: padlen=%d", padlen);
 
 		/* We cannot use iframe.frame.hd.length because of CONTINUATION */
 		if (_padlen - 1 > payloadleft) {
@@ -610,7 +610,7 @@ class Session {
 		Stream stream;
 		size_t pri_fieldlen;
 		
-		LOGF("recv: connection recv_window_size=%d, local_window=%d\n", recv_window_size, local_window_size);
+		LOGF("recv: connection recv_window_size=%d, local_window=%d", recv_window_size, local_window_size);
 		
 		for (;;) {
 			with(InboundState) final switch (iframe.state) {
@@ -632,7 +632,7 @@ class Session {
 					
 					break;
 				case READ_FIRST_SETTINGS:
-					LOGF("recv: [READ_FIRST_SETTINGS]\n");
+					LOGF("recv: [READ_FIRST_SETTINGS]");
 					
 					readlen = iframe.read(pos, last);
 					pos += readlen;
@@ -661,7 +661,7 @@ class Session {
 				case READ_HEAD: {
 					bool on_frame_header_called;
 					
-					LOGF("recv: [READ_HEAD]\n");
+					LOGF("recv: [READ_HEAD]");
 					
 					readlen = iframe.read(pos, last);
 					pos += readlen;
@@ -673,11 +673,11 @@ class Session {
 					iframe.frame.hd.unpack(iframe.sbuf[]);
 					iframe.payloadleft = iframe.frame.hd.length;
 					
-					LOGF("recv: payloadlen=%zu, type=%u, flags=0x%02x, stream_id=%d\n",
+					LOGF("recv: payloadlen=%d, type=%u, flags=0x%02x, stream_id=%d",
 						iframe.frame.hd.length, iframe.frame.hd.type, iframe.frame.hd.flags, iframe.frame.hd.stream_id);
 					
 					if (iframe.frame.hd.length > local_settings.max_frame_size) {
-						LOGF("recv: length is too large %zu > %u\n", iframe.frame.hd.length, local_settings.max_frame_size);
+						LOGF("recv: length is too large %d > %u", iframe.frame.hd.length, local_settings.max_frame_size);
 						
 						busy = true;
 						
@@ -694,7 +694,7 @@ class Session {
 					
 					switch (iframe.frame.hd.type) {
 						case FrameType.DATA: {
-							LOGF("recv: DATA\n");
+							LOGF("recv: DATA");
 							
 							iframe.frame.hd.flags &= (FrameFlags.END_STREAM | FrameFlags.PADDED);
 							/* Check stream is open. If it is not open or closing, ignore payload. */
@@ -702,7 +702,7 @@ class Session {
 							
 							rv = onDataFailFast();
 							if (rv == ErrorCode.IGN_PAYLOAD) {
-								LOGF("recv: DATA not allowed stream_id=%d\n", iframe.frame.hd.stream_id);
+								LOGF("recv: DATA not allowed stream_id=%d", iframe.frame.hd.stream_id);
 								iframe.state = IGN_DATA;
 								break;
 							}
@@ -732,7 +732,7 @@ class Session {
 						}
 						case FrameType.HEADERS:
 							
-							LOGF("recv: HEADERS\n");
+							LOGF("recv: HEADERS");
 							
 							iframe.frame.hd.flags &= (FrameFlags.END_STREAM | FrameFlags.END_HEADERS | FrameFlags.PADDED | FrameFlags.PRIORITY);
 							
@@ -795,7 +795,7 @@ class Session {
 							
 							break;
 						case FrameType.PRIORITY:
-							LOGF("recv: PRIORITY\n");
+							LOGF("recv: PRIORITY");
 							
 							iframe.frame.hd.flags = FrameFlags.NONE;
 							
@@ -817,10 +817,10 @@ class Session {
 							static if (DEBUG) {
 								switch (iframe.frame.hd.type) {
 									case FrameType.RST_STREAM:
-										LOGF("recv: RST_STREAM\n");
+										LOGF("recv: RST_STREAM");
 										break;
 									case FrameType.WINDOW_UPDATE:
-										LOGF("recv: WINDOW_UPDATE\n");
+										LOGF("recv: WINDOW_UPDATE");
 										break;
 									default: break;
 								}
@@ -840,7 +840,7 @@ class Session {
 							
 							break;
 						case FrameType.SETTINGS:
-							LOGF("recv: SETTINGS\n");
+							LOGF("recv: SETTINGS");
 							
 							iframe.frame.hd.flags &= FrameFlags.ACK;
 							
@@ -864,7 +864,7 @@ class Session {
 							
 							break;
 						case FrameType.PUSH_PROMISE:
-							LOGF("recv: PUSH_PROMISE\n");
+							LOGF("recv: PUSH_PROMISE");
 							
 							iframe.frame.hd.flags &= (FrameFlags.END_HEADERS | FrameFlags.PADDED);
 							
@@ -896,7 +896,7 @@ class Session {
 							
 							break;
 						case FrameType.PING:
-							LOGF("recv: PING\n");
+							LOGF("recv: PING");
 							
 							iframe.frame.hd.flags &= FrameFlags.ACK;
 							
@@ -911,7 +911,7 @@ class Session {
 							
 							break;
 						case FrameType.GOAWAY:
-							LOGF("recv: GOAWAY\n");
+							LOGF("recv: GOAWAY");
 							
 							iframe.frame.hd.flags = FrameFlags.NONE;
 							
@@ -926,7 +926,7 @@ class Session {
 							
 							break;
 						case FrameType.CONTINUATION:
-							LOGF("recv: unexpected CONTINUATION\n");
+							LOGF("recv: unexpected CONTINUATION");
 							
 							/* Receiving CONTINUATION in this state are subject to connection error of type PROTOCOL_ERROR */
 							rv = terminateSessionWithReason(FrameError.PROTOCOL_ERROR, "CONTINUATION: unexpected");
@@ -941,7 +941,7 @@ class Session {
 							
 							break;
 						default:
-							LOGF("recv: unknown frame\n");
+							LOGF("recv: unknown frame");
 							
 							/* Silently ignore unknown frame type. */
 							
@@ -971,13 +971,13 @@ class Session {
 					break;
 				}
 				case READ_NBYTE:
-					LOGF("recv: [READ_NBYTE]\n");
+					LOGF("recv: [READ_NBYTE]");
 					
 					readlen = iframe.read(pos, last);
 					pos += readlen;
 					iframe.payloadleft -= readlen;
 					
-					LOGF("recv: readlen=%zu, payloadleft=%zu, left=%zd\n", readlen, iframe.payloadleft, iframe.sbuf.markAvailable);
+					LOGF("recv: readlen=%d, payloadleft=%d, left=%d", readlen, iframe.payloadleft, iframe.sbuf.markAvailable);
 					
 					if (iframe.sbuf.markAvailable) {
 						return cast(int)(pos - first);
@@ -1139,15 +1139,15 @@ class Session {
 					int data_readlen;
 					static if (DEBUG) {
 						if (iframe.state == READ_HEADER_BLOCK) {
-							LOGF("recv: [READ_HEADER_BLOCK]\n");
+							LOGF("recv: [READ_HEADER_BLOCK]");
 						} else {
-							LOGF("recv: [IGN_HEADER_BLOCK]\n");
+							LOGF("recv: [IGN_HEADER_BLOCK]");
 						}
 					}
 					
 					readlen = iframe.readLength(pos, last);
 					
-					LOGF("recv: readlen=%zu, payloadleft=%zu\n", readlen, iframe.payloadleft - readlen);
+					LOGF("recv: readlen=%d, payloadleft=%d", readlen, iframe.payloadleft - readlen);
 					
 					data_readlen = iframe.effectiveReadLength(iframe.payloadleft - readlen, readlen);
 					
@@ -1155,7 +1155,7 @@ class Session {
 						size_t trail_padlen;
 						size_t hd_proclen = 0;
 						trail_padlen = iframe.frame.trailPadlen(iframe.padlen);
-						LOGF("recv: block final=%d\n", (iframe.frame.hd.flags & FrameFlags.END_HEADERS) && iframe.payloadleft - data_readlen == trail_padlen);
+						LOGF("recv: block final=%d", (iframe.frame.hd.flags & FrameFlags.END_HEADERS) && iframe.payloadleft - data_readlen == trail_padlen);
 						
 						rv = inflateHeaderBlock(iframe.frame, hd_proclen, cast(ubyte[])pos[0 .. data_readlen], 
 												(iframe.frame.hd.flags & FrameFlags.END_HEADERS) && iframe.payloadleft - data_readlen == trail_padlen,
@@ -1230,13 +1230,13 @@ class Session {
 					break;
 				}
 				case IGN_PAYLOAD:
-					LOGF("recv: [IGN_PAYLOAD]\n");
+					LOGF("recv: [IGN_PAYLOAD]");
 					
 					readlen = iframe.readLength(pos, last);
 					iframe.payloadleft -= readlen;
 					pos += readlen;
 					
-					LOGF("recv: readlen=%zu, payloadleft=%zu\n", readlen, iframe.payloadleft);
+					LOGF("recv: readlen=%d, payloadleft=%d", readlen, iframe.payloadleft);
 					
 					if (iframe.payloadleft) {
 						break;
@@ -1257,7 +1257,7 @@ class Session {
 					
 					break;
 				case FRAME_SIZE_ERROR:
-					LOGF("recv: [FRAME_SIZE_ERROR]\n");
+					LOGF("recv: [FRAME_SIZE_ERROR]");
 					 
 					rv = terminateSession(FrameError.FRAME_SIZE_ERROR);
 					if (isFatal(rv)) {
@@ -1270,13 +1270,13 @@ class Session {
 					
 					break;
 				case READ_SETTINGS:
-					LOGF("recv: [READ_SETTINGS]\n");
+					LOGF("recv: [READ_SETTINGS]");
 					
 					readlen = iframe.read(pos, last);
 					iframe.payloadleft -= readlen;
 					pos += readlen;
 					
-					LOGF("recv: readlen=%zu, payloadleft=%zu\n", readlen, iframe.payloadleft);
+					LOGF("recv: readlen=%d, payloadleft=%d", readlen, iframe.payloadleft);
 					
 					if (iframe.sbuf.markAvailable) {
 						break;
@@ -1300,16 +1300,17 @@ class Session {
 					
 					break;
 				case READ_GOAWAY_DEBUG:
-					LOGF("recv: [READ_GOAWAY_DEBUG]\n");
+					LOGF("recv: [READ_GOAWAY_DEBUG]");
 					
 					readlen = iframe.readLength(pos, last);
 
 					iframe.lbuf.last[0 .. readlen] = pos[0 .. readlen];
+					iframe.lbuf.last += readlen;
 					
 					iframe.payloadleft -= readlen;
 					pos += readlen;
 					
-					LOGF("recv: readlen=%zu, payloadleft=%zu\n", readlen, iframe.payloadleft);
+					LOGF("recv: readlen=%d, payloadleft=%d", readlen, iframe.payloadleft);
 					
 					if (iframe.payloadleft) {
 						assert(iframe.lbuf.available > 0);
@@ -1330,9 +1331,9 @@ class Session {
 				case IGN_CONTINUATION:
 					static if (DEBUG) {
 						if (iframe.state == EXPECT_CONTINUATION) {
-							LOGF("recv: [EXPECT_CONTINUATION]\n");
+							LOGF("recv: [EXPECT_CONTINUATION]");
 						} else {
-							LOGF("recv: [IGN_CONTINUATION]\n");
+							LOGF("recv: [IGN_CONTINUATION]");
 						}
 					}
 					
@@ -1346,11 +1347,11 @@ class Session {
 					cont_hd.unpack(iframe.sbuf.pos);
 					iframe.payloadleft = cont_hd.length;
 
-					LOGF("recv: payloadlen=%zu, type=%u, flags=0x%02x, stream_id=%d\n", cont_hd.length, cont_hd.type, cont_hd.flags, cont_hd.stream_id);
+					LOGF("recv: payloadlen=%d, type=%u, flags=0x%02x, stream_id=%d", cont_hd.length, cont_hd.type, cont_hd.flags, cont_hd.stream_id);
 					
 					if (cont_hd.type != FrameType.CONTINUATION ||
 						cont_hd.stream_id != iframe.frame.hd.stream_id) {
-						LOGF("recv: expected stream_id=%d, type=%d, but got stream_id=%d, type=%d\n", 
+						LOGF("recv: expected stream_id=%d, type=%d, but got stream_id=%d, type=%d", 
 							iframe.frame.hd.stream_id, FrameType.CONTINUATION, cont_hd.stream_id, cont_hd.type);
 						rv = terminateSessionWithReason(FrameError.PROTOCOL_ERROR, "unexpected non-CONTINUATION frame or stream_id is invalid");
 						if (isFatal(rv)) {
@@ -1384,13 +1385,13 @@ class Session {
 					
 					break;
 				case READ_PAD_DATA:
-					LOGF("recv: [READ_PAD_DATA]\n");
+					LOGF("recv: [READ_PAD_DATA]");
 					
 					readlen = iframe.read(pos, last);
 					pos += readlen;
 					iframe.payloadleft -= readlen;
 
-					LOGF("recv: readlen=%zu, payloadleft=%zu, left=%zu\n", readlen, iframe.payloadleft, iframe.sbuf.markAvailable);
+					LOGF("recv: readlen=%d, payloadleft=%d, left=%d", readlen, iframe.payloadleft, iframe.sbuf.markAvailable);
 					
 					if (iframe.sbuf.markAvailable) {
 						return cast(int)(pos - first);
@@ -1431,13 +1432,13 @@ class Session {
 					
 					break;
 				case READ_DATA:
-					LOGF("recv: [READ_DATA]\n");
+					LOGF("recv: [READ_DATA]");
 					
 					readlen = iframe.readLength(pos, last);
 					iframe.payloadleft -= readlen;
 					pos += readlen;
 					
-					LOGF("recv: readlen=%zu, payloadleft=%zu\n", readlen, iframe.payloadleft);
+					LOGF("recv: readlen=%d, payloadleft=%d", readlen, iframe.payloadleft);
 					
 					if (readlen > 0) {
 						int data_readlen;
@@ -1464,7 +1465,7 @@ class Session {
 							}
 						}
 						
-						LOGF("recv: data_readlen=%zd\n", data_readlen);
+						LOGF("recv: data_readlen=%d", data_readlen);
 						
 						if (stream && data_readlen > 0) {
 							if (isHTTPMessagingEnabled()) {
@@ -1506,13 +1507,13 @@ class Session {
 					
 					break;
 				case IGN_DATA:
-					LOGF("recv: [IGN_DATA]\n");
+					LOGF("recv: [IGN_DATA]");
 					
 					readlen = iframe.readLength(pos, last);
 					iframe.payloadleft -= readlen;
 					pos += readlen;
 					
-					LOGF("recv: readlen=%zu, payloadleft=%zu\n", readlen, iframe.payloadleft);
+					LOGF("recv: readlen=%d, payloadleft=%d", readlen, iframe.payloadleft);
 					
 					if (readlen > 0) {
 						/* Update connection-level flow control window for ignored DATA frame too */
@@ -2495,7 +2496,7 @@ package:
 			return ErrorCode.INVALID_ARGUMENT;
 		}
 	
-		LOGF("stream: stream(%p=%d close\n", stream, stream.id);
+		LOGF("stream: stream(%s=%d close", stream, stream.id);
 			
 		if (stream.item) {
 			OutboundItem item = stream.item;
@@ -2552,7 +2553,7 @@ package:
 	 */
 	void destroyStream(Stream stream)
 	{
-		LOGF("stream: destroy closed stream(%p=%d\n", stream, stream.id);
+		LOGF("stream: destroy closed stream(%s=%d", stream, stream.id);
 		
 		stream.remove();
 		
@@ -2568,7 +2569,7 @@ package:
 	 */
 	void keepClosedStream(Stream stream)
 	{
-		LOGF("stream: keep closed stream(%p=%d, state=%d\n", stream, stream.id, stream.state);
+		LOGF("stream: keep closed stream(%s=%d, state=%d", stream, stream.id, stream.state);
 		
 		if (closed_stream_tail) {
 			closed_stream_tail.closedNext = stream;
@@ -2590,7 +2591,7 @@ package:
 	 */
 	void keepIdleStream(Stream stream)
 	{
-		LOGF("stream: keep idle stream(%p=%d, state=%d\n", stream, stream.id, stream.state);
+		LOGF("stream: keep idle stream(%s=%d, state=%d", stream, stream.id, stream.state);
 		
 		if (idle_stream_tail) {
 			idle_stream_tail.closedNext = stream;
@@ -2614,7 +2615,7 @@ package:
 		Stream prev_stream;
 		Stream next_stream;
 		
-		LOGF("stream: detach idle stream(%p=%d, state=%d\n", stream, stream.id, stream.state);
+		LOGF("stream: detach idle stream(%s=%d, state=%d", stream, stream.id, stream.state);
 		
 		prev_stream = stream.closedPrev;
 		next_stream = stream.closedNext;
@@ -2650,7 +2651,7 @@ package:
 		
 		num_stream_max = min(local_settings.max_concurrent_streams, pending_local_max_concurrent_stream);
 		
-		LOGF("stream: adjusting kept closed streams  num_closed_streams=%zu, num_incoming_streams=%zu, max_concurrent_streams=%zu\n",
+		LOGF("stream: adjusting kept closed streams  num_closed_streams=%d, num_incoming_streams=%d, max_concurrent_streams=%d",
 				num_closed_streams, num_incoming_streams, num_stream_max);
 
 		while (num_closed_streams > 0 && num_closed_streams + num_incoming_streams + offset > num_stream_max)
@@ -2688,7 +2689,7 @@ package:
 	     exist. */
 		_max = max(2, min(local_settings.max_concurrent_streams, pending_local_max_concurrent_stream));
 		
-		LOGF("stream: adjusting kept idle streams num_idle_streams=%zu, max=%zu\n", num_idle_streams, _max);
+		LOGF("stream: adjusting kept idle streams num_idle_streams=%d, max=%d", num_idle_streams, _max);
 		
 		while (num_idle_streams > _max) {
 			Stream head;
@@ -3424,11 +3425,11 @@ package:
 		
 		payloadlen = policy.maxFrameSize(frame.hd.type, stream.id, remote_window_size, stream.remoteWindowSize, remote_settings.max_frame_size);
 		
-		LOGF("send: read_length_callback=%zd\n", payloadlen);
+		LOGF("send: read_length_callback=%d", payloadlen);
 		
 		payloadlen = enforceFlowControlLimits(stream, payloadlen);
 		
-		LOGF("send: read_length_callback after flow control=%zd\n", payloadlen);
+		LOGF("send: read_length_callback after flow control=%d", payloadlen);
 		
 		if (payloadlen <= 0) {
 			return ErrorCode.CALLBACK_FAILURE;
@@ -3446,7 +3447,7 @@ package:
 				/* If reallocation failed, old buffers are still in tact.  So use safe limit. */
 				payloadlen = datamax;
 				
-				LOGF("send: use safe limit payloadlen=%zd", payloadlen);
+				LOGF("send: use safe limit payloadlen=%d", payloadlen);
 			}
 
 		}
@@ -3465,7 +3466,7 @@ package:
 			payloadlen == ErrorCode.TEMPORAL_CALLBACK_FAILURE)
 		{
 			import libhttp2.helpers : toString;
-			LOGF("send: DATA postponed due to %s\n", toString(cast(ErrorCode)payloadlen));
+			LOGF("send: DATA postponed due to %s", toString(cast(ErrorCode)payloadlen));
 			
 			return cast(ErrorCode)payloadlen;
 		}
@@ -3756,7 +3757,7 @@ package:
 		assert(dep_stream);
 		
 		if (stream.subtreeContains(dep_stream)) {
-			LOGF("stream: cycle detected, dep_stream(%p=%d stream(%p)=%d\n", dep_stream, dep_stream.id, stream, stream.id);
+			LOGF("stream: cycle detected, dep_stream(%s=%d stream(%s)=%d", dep_stream, dep_stream.id, stream, stream.id);
 			
 			dep_stream.removeSubtree();
 			dep_stream.makeRoot(this);
@@ -4343,7 +4344,7 @@ package:
 	/* Take into account settings max frame size and both connection-level flow control here */
 	int enforceFlowControlLimits(Stream stream, int requested_window_size)
 	{
-		LOGF("send: remote windowsize connection=%d, remote maxframsize=%u, stream(id %d=%d\n",
+		LOGF("send: remote windowsize connection=%d, remote maxframsize=%u, stream(id %d=%d",
 				remote_window_size,
 				remote_settings.max_frame_size, stream.id,
 				stream.remoteWindowSize);
@@ -4468,7 +4469,7 @@ package:
 		
 		window_size = enforceFlowControlLimits(stream, DATA_PAYLOADLEN);
 		
-		LOGF("send: available window=%zd\n", window_size);
+		LOGF("send: available window=%d", window_size);
 		
 		return window_size > 0 ? window_size : 0;
 	}
@@ -4507,7 +4508,7 @@ package:
 
 	bool callOnHeaders(in Frame frame) 
 	{
-		LOGF("recv: call onHeaders callback stream_id=%d\n", frame.hd.stream_id);
+		LOGF("recv: call onHeaders callback stream_id=%d", frame.hd.stream_id);
 		return policy.onHeaders(frame);
 
 	}
@@ -4888,7 +4889,7 @@ package:
 		
 		padlen = padded_payloadlen - frame.hd.length;
 		
-		LOGF("send: padding selected: payloadlen=%zd, padlen=%zu\n", padded_payloadlen, padlen);
+		LOGF("send: padding selected: payloadlen=%d, padlen=%d", padded_payloadlen, padlen);
 		
 		frame.hd.addPad(framebufs, padlen);
 			
@@ -5068,7 +5069,7 @@ package:
 						return rv;
 					}
 					
-					LOGF("send: before padding, HEADERS serialized in %zd bytes\n", aob.framebufs.length);
+					LOGF("send: before padding, HEADERS serialized in %d bytes", aob.framebufs.length);
 					
 					rv = headersAddPad(*frame);
 					
@@ -5076,7 +5077,7 @@ package:
 						return rv;
 					}
 					
-					LOGF("send: HEADERS finally serialized in %zd bytes\n", aob.framebufs.length);
+					LOGF("send: HEADERS finally serialized in %d bytes", aob.framebufs.length);
 					
 					break;
 				}
@@ -5243,7 +5244,7 @@ package:
 			if (frame.hd.type == FrameType.HEADERS || frame.hd.type == FrameType.PUSH_PROMISE) {
 				
 				if (framebufs.nextPresent()) {
-					LOGF("send: CONTINUATION exists, just return\n");
+					LOGF("send: CONTINUATION exists, just return");
 					return ErrorCode.OK;
 				}
 			}
@@ -5434,7 +5435,7 @@ package:
 				if (framebufs.nextPresent()) {
 					framebufs.cur = framebufs.cur.next;
 					
-					LOGF("send: next CONTINUATION frame, %zu bytes\n", framebufs.cur.buf.length);
+					LOGF("send: next CONTINUATION frame, %d bytes", framebufs.cur.buf.length);
 					
 					return ErrorCode.OK;
 				}
@@ -5581,14 +5582,14 @@ package:
 					
 					rv = prepareFrame(item);
 					if (rv == ErrorCode.DEFERRED) {
-						LOGF("send: frame transmission deferred\n");
+						LOGF("send: frame transmission deferred");
 						break;
 					}
 					if (rv < 0) {
 						int opened_stream_id;
 						FrameError error_code = FrameError.INTERNAL_ERROR;
 						import libhttp2.helpers : toString;
-						LOGF("send: frame preparation failed with %s\n", toString(cast(ErrorCode)rv));
+						LOGF("send: frame preparation failed with %s", toString(cast(ErrorCode)rv));
 						/* TODO: If the error comes from compressor, the connection must be closed. */
 						if (item.frame.hd.type != FrameType.DATA && !isFatal(rv)) {
 							Frame* frame = &item.frame;
@@ -5648,7 +5649,7 @@ package:
 					if (item.frame.hd.type != FrameType.DATA) {
 						Frame* frame = &item.frame;
 						
-						LOGF("send: next frame: payloadlen=%zu, type=%u, flags=0x%02x, stream_id=%d\n",
+						LOGF("send: next frame: payloadlen=%d, type=%u, flags=0x%02x, stream_id=%d",
 								frame.hd.length, frame.hd.type, frame.hd.flags,
 								frame.hd.stream_id);
 						
@@ -5657,10 +5658,10 @@ package:
 							return ErrorCode.CALLBACK_FAILURE;
 						}
 					} else {
-						LOGF("send: next frame: DATA\n");
+						LOGF("send: next frame: DATA");
 					}
 					
-					LOGF("send: start transmitting frame type=%u, length=%zd\n",
+					LOGF("send: start transmitting frame type=%u, length=%d",
 							framebufs.cur.buf.pos[3],
 							framebufs.cur.buf.last - framebufs.cur.buf.pos);
 					
@@ -5673,7 +5674,7 @@ package:
 					Buffer buf = framebufs.cur.buf;
 					
 					if (buf.pos == buf.last) {
-						LOGF("send: end transmission of a frame\n");
+						LOGF("send: end transmission of a frame");
 
 						/* Frame has completely sent */
 						if (fast_cb) {
@@ -5753,7 +5754,7 @@ package:
 			trailer = isTrailerHeaders(stream, frame);
 		}
 		
-		LOGF("recv: decoding header block %zu bytes\n", input.length);
+		LOGF("recv: decoding header block %d bytes", input.length);
 		size_t inlen = input.length;
 		ubyte* inptr = input.ptr;
 		for (;;) {
@@ -5787,13 +5788,13 @@ package:
 			inlen -= proclen;
 			readlen_ref += proclen;
 			
-			LOGF("recv: proclen=%zd\n", proclen);
+			LOGF("recv: proclen=%d", proclen);
 			
 			if (call_header_cb && (inflate_flag & InflateFlag.EMIT)) {
 				if (subject_stream && isHTTPMessagingEnabled()) {
 					bool ok = validateHeaderField(subject_stream, frame, hf, trailer);
 					if (!ok) {
-						LOGF("recv: HTTP error: type=%d, id=%d, header %.*s: %.*s\n",
+						LOGF("recv: HTTP error: type=%d, id=%d, header %.*s: %.*s",
 								frame.hd.type, subject_stream.id, cast(int)hf.name.length,
 								hf.name, cast(int)hf.value.length, hf.value);
 						

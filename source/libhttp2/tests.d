@@ -41,10 +41,10 @@ struct HeaderFields
 	void add(HeaderField hf) {
 		HeaderField* hfp = hfa_raw.ptr + length;
 		length++;
-		if (hf.name) 
+		if (hf.name.length > 0) 
 			hfp.name = Mem.copy(hf.name);
 		
-		if (hf.value)
+		if (hf.value.length > 0)
 			hfp.value = Mem.copy(hf.value);
 
 		hfp.flag = hf.flag;
@@ -74,13 +74,11 @@ struct HeaderFields
 		bool is_final;
 		int processed;
 		
-		processed = 0;
-		
 		for (ci = bufs.head; ci; ci = ci.next) {
 			buf = &ci.buf;
 			is_final = buf.length == 0 || !ci.next;
 			bp = *buf;
-			
+
 			if (offset) {
 				int n;
 				
@@ -88,25 +86,25 @@ struct HeaderFields
 				bp.pos += n;
 				offset -= n;
 			}
-			
+
 			for (;;) {
 				inflate_flag = InflateFlag.NONE;
 				rv = inflater.inflate(hf, inflate_flag, bp[], is_final);
-				
+				logDebug("Done inflater");
 				if (rv < 0)
 					return rv;
 				
 				bp.pos += rv;
 				processed += rv;
-				
+				logDebug("Adding");
 				if (inflate_flag & InflateFlag.EMIT) 
 					add(hf);
-
+				logDebug("Done add");
 				if (inflate_flag & InflateFlag.FINAL)
 					break;
 			}
 		}
-		
+
 		inflater.endHeaders();
 		
 		return processed;

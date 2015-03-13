@@ -158,7 +158,7 @@ class Stream {
         assert((m_flags & StreamFlags.DEFERRED_ALL) == 0);
         assert(!m_item);
         
-        LOGF("stream: stream=%d attach item=%p\n", m_id, item);
+        LOGF("stream: stream=%d attach item=%s", m_id, item);
         
         m_item = item;
         
@@ -172,7 +172,7 @@ class Stream {
 	 */
     void detachItem(Session session) 
 	{
-        LOGF("stream: stream=%d detach item=%p\n", m_id, m_item);
+        LOGF("stream: stream=%d detach item=%s", m_id, m_item);
         
         m_item = null;
         m_flags &= ~StreamFlags.DEFERRED_ALL;
@@ -191,7 +191,7 @@ class Stream {
 	{
         assert(m_item);
         
-        LOGF("stream: stream=%d defer item=%p cause=%02x\n", m_id, m_item, flags);
+        LOGF("stream: stream=%d defer item=%s cause=%02x", m_id, m_item, flags);
         
         m_flags |= flags;
         
@@ -210,7 +210,7 @@ class Stream {
 	{
         assert(m_item);
         
-        LOGF("stream: stream=%d resume item=%p flags=%02x\n", m_id, m_item, flags);
+        LOGF("stream: stream=%d resume item=%s flags=%02x", m_id, m_item, flags);
         
         m_flags &= ~flags;
         
@@ -326,7 +326,7 @@ class Stream {
         
         assert(!m_item);
         
-		LOGF("stream: dep_insert dep_stream(%p)=%d, stream(%p)=%d\n", this, m_id, stream, stream.m_id);
+		LOGF("stream: dep_insert dep_stream(%s)=%d, stream(%s)=%d", this, m_id, stream, stream.m_id);
         
 		stream.m_sum_dep_weight = m_sum_dep_weight;
 		m_sum_dep_weight = stream.m_weight;
@@ -361,7 +361,7 @@ class Stream {
         
         assert(!stream.m_item);
         
-        LOGF("stream: dep_add dep_stream(%p=%d, stream(%p)=%d\n", this, m_id, stream, stream.m_id);
+        LOGF("stream: dep_add dep_stream(%s=%d, stream(%s)=%d", this, m_id, stream, stream.m_id);
         
         root_stream = updateLength(1);
         
@@ -387,7 +387,7 @@ class Stream {
         Stream prev, next, dep_prev, si, root_stream;
         int sum_dep_weight_delta;
         
-        LOGF("stream: dep_remove stream(%p=%d\n", this, m_id);
+        LOGF("stream: dep_remove stream(%s=%d", this, m_id);
         
         /* Distribute weight of $(D Stream) to direct descendants */
         sum_dep_weight_delta = -m_weight;
@@ -460,7 +460,7 @@ class Stream {
         Stream root_stream;
         size_t delta_substreams;
         
-        LOGF("stream: dep_insert_subtree dep_stream(%p=%d stream(%p)=%d\n", this, m_id, stream, stream.m_id);
+        LOGF("stream: dep_insert_subtree dep_stream(%s=%d stream(%s)=%d", this, m_id, stream, stream.m_id);
         
 		delta_substreams = stream.m_num_substreams;
         
@@ -514,7 +514,7 @@ class Stream {
 	{
         Stream root_stream;
         
-        LOGF("stream: dep_add_subtree dep_stream(%p=%d stream(%p)=%d\n", this, m_id, stream, stream.m_id);
+        LOGF("stream: dep_add_subtree dep_stream(%s=%d stream(%s)=%d", this, m_id, stream, stream.m_id);
         
         stream.updateSetRest();
         
@@ -548,7 +548,7 @@ class Stream {
 	{
         Stream prev, next, dep_prev, root_stream;
         
-        LOGF("stream: dep_remove_subtree stream(%p=%d\n", this, m_id);
+        LOGF("stream: dep_remove_subtree stream(%s=%d", this, m_id);
         
         if (m_sib_prev) {
             prev = m_sib_prev;
@@ -600,7 +600,7 @@ class Stream {
      */
     void makeRoot(Session session)
 	{
-        LOGF("stream: dep_make_root stream(%p=%d\n", this, m_id);
+        LOGF("stream: dep_make_root stream(%s=%d", this, m_id);
         
 		m_roots.add(this);
         
@@ -624,7 +624,7 @@ class Stream {
     {
         Stream first, si;
         
-        LOGF("stream: ALL YOUR STREAM ARE BELONG TO US stream(%p=%d\n", this, m_id);
+        LOGF("stream: ALL YOUR STREAM ARE BELONG TO US stream(%s=%d", this, m_id);
         
         first = m_roots.head;
         
@@ -636,7 +636,7 @@ class Stream {
             
             prev = first;
             
-            LOGF("stream: root stream(%p=%d\n", first, first.m_id);
+            LOGF("stream: root stream(%s=%d", first, first.m_id);
             
             m_sum_dep_weight += first.m_weight;
             m_num_substreams += first.m_num_substreams;
@@ -645,7 +645,7 @@ class Stream {
                 
                 assert(si !is this);
                 
-                LOGF("stream: root stream(%p=%d\n", si, si.m_id);
+                LOGF("stream: root stream(%s=%d", si, si.m_id);
                 
                 m_sum_dep_weight += si.m_weight;
                 m_num_substreams += si.m_num_substreams;
@@ -748,8 +748,8 @@ private:
 		Stream si;
 		
 		LOGF("stream: update_dep_effective_weight "
-				"stream(%p=%d, weight=%d, sum_norest_weight=%d, "
-				"sum_top_weight=%d\n",
+				"stream(%s=%d, weight=%d, sum_norest_weight=%d, "
+				"sum_top_weight=%d",
 				this, m_id, m_weight,
 				m_sum_norest_weight, m_sum_top_weight);
 		
@@ -780,18 +780,18 @@ private:
 		for (si = m_dep_next; si; si = si.m_sib_next) {
 			if (si.m_dpri == StreamDPRI.TOP) {
 				si.m_effective_weight = distributedTopEffectiveWeight(si.m_weight);				
-				LOGF("stream: stream=%d top eweight=%d\n", si.m_id, si.m_effective_weight);
+				LOGF("stream: stream=%d top eweight=%d", si.m_id, si.m_effective_weight);
 				
 				continue;
 			}
 			
 			if (si.m_dpri == StreamDPRI.NO_ITEM) {
-				LOGF("stream: stream=%d no_item, ignored\n", si.m_id);
+				LOGF("stream: stream=%d no_item, ignored", si.m_id);
 				
 				/* Since we marked StreamDPRI.TOP under si, we make them StreamDPRI.REST again. */
 				si.m_dep_next.updateSetRest();
 			} else {
-				LOGF("stream: stream=%d rest, ignored\n", si.m_id);
+				LOGF("stream: stream=%d rest, ignored", si.m_id);
 			}
 		}
 	}
@@ -799,7 +799,7 @@ private:
 	void updateSetRest() 
 	{
 		
-		LOGF("stream: stream=%d is rest\n", m_id);
+		LOGF("stream: stream=%d is rest", m_id);
 		
 		if (m_dpri == StreamDPRI.REST)
 			return;
@@ -830,7 +830,7 @@ private:
 		
 		if (m_dpri == StreamDPRI.REST) 
 		{
-			LOGF("stream: stream=%d item is top\n", m_id);
+			LOGF("stream: stream=%d item is top", m_id);
 			
 			m_dpri = StreamDPRI.TOP;
 			
@@ -855,7 +855,7 @@ private:
 		
 		if (m_dpri == StreamDPRI.TOP) {
 			if (!m_item.queued) {
-				LOGF("stream: stream=%d enqueue\n", m_id);
+				LOGF("stream: stream=%d enqueue", m_id);
 				pushItem(session);
 			}
 			
@@ -922,7 +922,7 @@ private:
 		
 		root_stream = getRoot();
 		
-		LOGF("root=%p, stream=%p\n", root_stream, this);
+		LOGF("root=%s, stream=%s", root_stream, this);
 		
 		root_stream.updateSetTop();
 		
