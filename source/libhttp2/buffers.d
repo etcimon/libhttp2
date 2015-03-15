@@ -156,8 +156,10 @@ class Buffers {
 
 		void free() {
 			buf.free();
-			if (next)
+			if (next) {
+				next.free();
 				Mem.free(next);
+			}
 		}
 	}
 
@@ -263,6 +265,7 @@ class Buffers {
 		}
 		
 		head = null;
+		destroy(this);
 	}	
 
 	/*
@@ -385,7 +388,7 @@ class Buffers {
 	}
 
 	void fastAdd(ubyte b) {
-		assert(cur.buf.last+1 < cur.buf.end);
+		assert(cur.buf.last+1 <= cur.buf.end);
 		*cur.buf.last++ = b;
 	}
 
@@ -438,7 +441,7 @@ class Buffers {
 	}
 
 	void fastOr(ubyte b) {
-		assert(cur.buf.last+1 < cur.buf.end);
+		assert(cur.buf.last+1 <= cur.buf.end);
 		*cur.buf.last++ |= b;
 	}
 
@@ -449,7 +452,7 @@ class Buffers {
 	/*
 	 * Copies all data stored in Buffers to the contagious buffer.  This
 	 * function allocates the contagious memory to store all data in
-	 * Buffers and assigns it to |*out|.
+	 * Buffers and returns it.
 	 */
 	ubyte[] remove()
 	{
@@ -463,13 +466,10 @@ class Buffers {
 		for (chain = head; chain; chain = chain.next) {
 			len += chain.buf.length;
 		}
-		logDebug("Len: ", len);
 		if (!len) 
 			res = null;
 		else {
-			logDebug("Alloc len: ", len);
 			res = Mem.alloc!(ubyte[])(len);
-			logDebug("Allocated");
 		}
 		resbuf = Buffer(res);
 		

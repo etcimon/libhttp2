@@ -39,7 +39,7 @@ struct Deflater
 	{
 		ctx = Mem.alloc!HDTable();
 		
-		if (deflate_hd_table_bufsize_max < HD_DEFAULT_MAX_BUFFER_SIZE) {
+		if (_deflate_hd_table_bufsize_max < HD_DEFAULT_MAX_BUFFER_SIZE) {
 			notify_table_size_change = true;
 			ctx.hd_table_bufsize_max = _deflate_hd_table_bufsize_max;
 		} else {
@@ -87,23 +87,29 @@ struct Deflater
 			min_hd_table_bufsize_max = uint.max;
 			
 			if (ctx.hd_table_bufsize_max > _min_hd_table_bufsize_max) {
-				
+
+				logDebug("bufs.len emitTableSize: ", bufs.length);
 				rv = emitTableSize(bufs, _min_hd_table_bufsize_max);
+				logDebug("bufs.len emitTableSize: ", bufs.length);
 
 				if (rv != 0) {
 					goto fail;
 				}
 			}
-			
+
+			logDebug("bufs.len emitTableSize 2: ", bufs.length);
 			rv = emitTableSize(bufs, ctx.hd_table_bufsize_max);
+			logDebug("bufs.len emitTableSize 2: ", bufs.length);
 			
 			if (rv != 0) {
 				goto fail;
 			}
 		}
+		logDebug("len now: ", bufs.length);
 		
 		for (i = 0; i < hfa.length; ++i) {
 			rv = deflate(bufs, hfa[i]);
+			logDebug("len now: ", bufs.length);
 			if (rv != 0)
 				goto fail;
 		}
@@ -140,7 +146,7 @@ struct Deflater
 	 * $(D ErrorCode.INSUFF_BUFSIZE)
 	 *     The provided |buflen| size is too small to hold the output.
 	 */
-	ErrorCode deflate(ubyte[] buf, in HeaderField[] hfa)
+	int deflate(ubyte[] buf, in HeaderField[] hfa)
 	{
 		Buffers bufs = Mem.alloc!Buffers(buf);
 		ErrorCode rv;
@@ -154,7 +160,7 @@ struct Deflater
 
 		if (rv == ErrorCode.BUFFER_ERROR)
 			return ErrorCode.INSUFF_BUFSIZE;
-		return rv;
+		return cast(int)buflen;
 	}
 
 	/**
@@ -261,7 +267,8 @@ package:
 
 			if (!new_ent)
 				return ErrorCode.HEADER_COMP;
-
+			if (new_ent.refcnt == 0)
+				Mem.free(new_ent);
 
 			incidx = true;
 		}
@@ -344,7 +351,7 @@ ErrorCode emitNewNameBlock(Buffers bufs, in HeaderField hf, bool inc_indexing) {
 	
 	no_index = (hf.flag & HeaderFlag.NO_INDEX) != 0;
 	
-	LOGF("deflatehd: emit newname namelen=%d, valuelen=%d, indexing=%d, no_index=%d",	hf.name.length, hf.value.length, inc_indexing, no_index);
+	LOGF("deflatehd: emit newname namelen=%d, valuelen=%d, indexing=%d, no_index=%d", hf.name.length, hf.value.length, inc_indexing, no_index);
 	
 	rv = bufs.add(packFirstByte(inc_indexing, no_index));
 	if (rv != 0) {

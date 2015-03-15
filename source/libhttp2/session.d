@@ -15,7 +15,7 @@ import libhttp2.constants;
 import libhttp2.types;
 import libhttp2.frame;
 import libhttp2.stream;
-import libhttp2.policy;
+import libhttp2.connector;
 import libhttp2.deflater;
 import libhttp2.inflater;
 import libhttp2.buffers;
@@ -49,9 +49,11 @@ struct ActiveOutboundItem {
 	void reset() {
 		LOGF("send: reset http2_active_outbound_item");
 		LOGF("send: aob.item = %s", item);
-		item.free();
-		Mem.free(item);
-		item = null;
+		if(item) {
+			item.free();
+			Mem.free(item);
+			item = null;
+		}
 		framebufs.reset();
 		state = OutboundState.POP_ITEM;
 	}
@@ -179,7 +181,7 @@ struct InboundFrame {
 			iva[INBOUND_NUM_IV - 1] = _iv;
 		}
 	}
-	
+private:
 	/*
 	 * Checks PADDED flags and set iframe.sbuf to read them accordingly.
 	 * If padding is set, this function returns 1.  If no padding is set,
@@ -240,6 +242,54 @@ struct InboundFrame {
 		}
 		return cast(int)readlen;
 	}
+
+	void reset()
+	{
+		/* A bit risky code, since if this function is called from Session(), we rely on the fact that
+     	   frame.hd.type is 0, so that no free is performed. */
+		with (FrameType) switch (frame.hd.type) {
+			case HEADERS:
+				frame.headers.free();
+				break;
+			case PRIORITY:
+				frame.priority.free();
+				break;
+			case RST_STREAM:
+				frame.rst_stream.free();
+				break;
+			case SETTINGS:
+				frame.settings.free();
+				break;
+			case PUSH_PROMISE:
+				frame.push_promise.free();
+				break;
+			case PING:
+				frame.ping.free();
+				break;
+			case GOAWAY:
+				frame.goaway.free();
+				break;
+			case WINDOW_UPDATE:
+				frame.window_update.free();
+				break;
+			default: break;
+		}
+		
+		destroy(frame);
+		
+		state = InboundState.READ_HEAD;
+		
+		sbuf = Buffer(raw_sbuf.ptr[0 .. raw_sbuf.sizeof]);
+		sbuf.mark += FRAME_HDLEN;
+		
+		lbuf.free();
+		lbuf = Buffer();
+		destroy(iva);
+		payloadleft = 0;
+		padlen = 0;
+		iva[INBOUND_NUM_IV - 1].id = Setting.HEADER_TABLE_SIZE;
+		iva[INBOUND_NUM_IV - 1].value = uint.max;
+	}
 }
 
 struct SettingsStorage {
@@ -289,7 +339,7 @@ enum {
 
 class Session {
 
-	this(bool server, Policy callbacks, in Options options = Options.init)
+	this(bool server, Connector callbacks, in Options options = Options.init)
 	{
 		if (server) {
 			is_server = true;
@@ -298,10 +348,10 @@ class Session {
 		else
 			next_stream_id = 1; // client IDs always impair
 
-		hd_inflater = Inflater();
+		hd_inflater = Inflater(true);
 		scope(failure) hd_inflater.free();
 
-		hd_deflater = Deflater();
+		hd_deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
 		scope(failure) hd_deflater.free();
 
 		ob_pq = PriorityQueue(128);
@@ -341,11 +391,11 @@ class Session {
 			}
 		}
 		
-		policy = callbacks;
+		connector = callbacks;
 
-		inboundFrameReset();
+		iframe.reset();
 		
-		if  (is_server && opt_flags & OptionsMask.RECV_CLIENT_PREFACE) 
+		if (is_server && opt_flags & OptionsMask.RECV_CLIENT_PREFACE) 
 		{
 			iframe.state = InboundState.READ_CLIENT_PREFACE;
 			iframe.payloadleft = CLIENT_CONNECTION_PREFACE.length;
@@ -360,18 +410,20 @@ class Session {
 	 * `null`, this function does nothing.
 	 */
 	void free() {		
-		Mem.free(inflight_iva);
+		if (inflight_iva) 
+			Mem.free(inflight_iva);
 		roots.free();
 		freeAllStreams();
 		aob.reset();
-		inboundFrameReset();
+		iframe.reset();
 		ob_pq.free();
 		ob_ss_pq.free();
 		ob_da_pq.free();
 		hd_deflater.free();
 		hd_inflater.free();
 		aob.framebufs.free();
-		Mem.free(aob.framebufs);
+		if (aob.framebufs)
+			Mem.free(aob.framebufs);
 	}
 
 	/**
@@ -379,10 +431,10 @@ class Session {
 	 *
 	 * This function retrieves the highest prioritized frame from the
 	 * outbound queue and sends it to the remote peer.  It does this as
-	 * many as possible until the user callback $(D Policy.write) returns
+	 * many as possible until the user callback $(D Connector.write) returns
 	 * $(D ErrorCode.WOULDBLOCK) or the outbound queue becomes empty.
 	 * 
-	 * This function calls several $(D Policy) functions which are passed
+	 * This function calls several $(D Connector) functions which are passed
 	 * when initializing the $(D Session).  Here is the simple time chart
 	 * which tells when each callback is invoked:
 	 *
@@ -390,22 +442,22 @@ class Session {
 	 *
 	 * 2. Prepare transmission of the frame.
 	 *
-	 * 3. $(D Policy.onFrameFailure) may be invoked if the control frame cannot 
+	 * 3. $(D Connector.onFrameFailure) may be invoked if the control frame cannot 
 	 * 	  be sent because some preconditions are not met (e.g., request HEADERS 
 	 * 	  cannot be sent after GOAWAY). This then aborts the following steps.
 	 *
-	 * 4. $(D Policy.selectPaddingLength) is invoked if the frame is HEADERS, 
+	 * 4. $(D Connector.selectPaddingLength) is invoked if the frame is HEADERS, 
 	 *    PUSH_PROMISE or DATA.
 	 *
 	 * 5. If the frame is request HEADERS, the stream is opened here.
 	 *
-	 * 6. $(D Policy.onFrameReady) is invoked.
+	 * 6. $(D Connector.onFrameReady) is invoked.
 	 *
-	 * 7. $(D Policy.write) is invoked one or more times to send the frame.
+	 * 7. $(D Connector.write) is invoked one or more times to send the frame.
 	 *
-	 * 8. $(D Policy.onFrameSent) is invoked after all data is transmitted.
+	 * 8. $(D Connector.onFrameSent) is invoked after all data is transmitted.
 	 *
-	 * 9. $(D Policy.onStreamExit) may be invoked if the transmission of the frame 
+	 * 9. $(D Connector.onStreamExit) may be invoked if the transmission of the frame 
 	 *    triggers closure of the stream, it is destroyed afterwards.
 	 *
 	 * This function returns 0 if it succeeds, or one of the following
@@ -421,13 +473,14 @@ class Session {
 		Buffers framebufs = aob.framebufs;
 		
 		for (;;) {
+			logDebug(framebufs.length);
 			rv = memSendInternal(data, false);
 			if (rv < 0)
 				return rv;
 			else if (data.length == 0)
 				return ErrorCode.OK;
-			
-			sentlen = policy.write(data);
+			sentlen = connector.write(data);
+			logDebug("write: ", data.length, " buf state: ", aob.state, " Sent: ", sentlen);
 			
 			if (sentlen < 0) {
 				if (cast(ErrorCode) sentlen == ErrorCode.WOULDBLOCK) {
@@ -440,9 +493,9 @@ class Session {
 			}
 			
 			/* Rewind the offset to the amount of unsent bytes */
-			framebufs.cur.buf.pos -= data.length - sentlen;
+			framebufs.cur.buf.pos -= (data.length - sentlen);
 		}
-		
+
 		assert(false);
 	}
 
@@ -452,7 +505,7 @@ class Session {
 	 * Returns the serialized data to send.
 	 *
 	 * This function behaves like `send()` except that it
-	 * does not use $(D Policy.write) to transmit data.
+	 * does not use $(D Connector.write) to transmit data.
 	 * Instead, it assigns the serialized data to the given $(D ubyte[])
 	 * |data_arr|.  The other callbacks are called in the same way as they are
 	 * in `send()`.
@@ -496,44 +549,44 @@ class Session {
 	 * Receives frames from the remote peer.
 	 *
 	 * This function receives as many frames as possible until the user
-	 * callback $(D Policy.read) returns $(D ErrorCode.WOULDBLOCK).  
-	 * This function calls several $(D Policy) functions which are passed 
+	 * callback $(D Connector.read) returns $(D ErrorCode.WOULDBLOCK).  
+	 * This function calls several $(D Connector) functions which are passed 
 	 * when initializing the $(D Session).  
 	 * 
 	 * Here is the simple time chart which tells when each callback is invoked:
 	 *
-	 * 1. $(D Policy.read) is invoked one or more times to receive the frame header.
+	 * 1. $(D Connector.read) is invoked one or more times to receive the frame header.
 	 *
-	 * 2. $(D Policy.onFrameHeader) is invoked after the frame header is received.
+	 * 2. $(D Connector.onFrameHeader) is invoked after the frame header is received.
 	 *
 	 * 3. If the frame is DATA frame:
 	 *
-	 *    1. $(D Policy.read) is invoked one or more times to receive the DATA payload. 
+	 *    1. $(D Connector.read) is invoked one or more times to receive the DATA payload. 
 	 * 
-	 * 	  2. $(D Policy.onDataChunk) is invoked alternatively with $(D Policy.read) 
+	 * 	  2. $(D Connector.onDataChunk) is invoked alternatively with $(D Connector.read) 
 	 *       for each chunk of data.
 	 *
-	 *    2. $(D Policy.onFrame) may be invoked if one DATA frame is completely received.
+	 *    2. $(D Connector.onFrame) may be invoked if one DATA frame is completely received.
 	 * 
-	 * 	  3. $(D Policy.onStreamExit) may be invoked if the reception of the frame triggers 
+	 * 	  3. $(D Connector.onStreamExit) may be invoked if the reception of the frame triggers 
 	 *  	 closure of the stream.
 	 *
 	 * 4. If the frame is the control frame:
 	 *
-	 *    1. $(D Policy.read) is invoked one or more times to receive the whole frame.
+	 *    1. $(D Connector.read) is invoked one or more times to receive the whole frame.
 	 *
 	 *    2. If the received frame is valid, then following actions are
 	 *       taken.  
 	 * 		- If the frame is either HEADERS or PUSH_PROMISE:
-	 *      	- $(D Policy.onHeaders) is invoked first.
-	 * 			- $(D Policy.onHeaderField) is invoked for each header fields.
-	 * 			- $(D Policy.onFrame) is invoked after all header fields.
+	 *      	- $(D Connector.onHeaders) is invoked first.
+	 * 			- $(D Connector.onHeaderField) is invoked for each header fields.
+	 * 			- $(D Connector.onFrame) is invoked after all header fields.
 	 * 		- For other frames:
-	 *       	- $(D Policy.onFrame) is invoked.  
-	 *          - $(D Policy.onStreamExit) may be invoked if the reception of the frame 
+	 *       	- $(D Connector.onFrame) is invoked.  
+	 *          - $(D Connector.onStreamExit) may be invoked if the reception of the frame 
 	 * 			  triggers the closure of the stream.
 	 *
-	 *    3. $(D Policy.onInvalidFrame) may be invoked if the received frame is unpacked 
+	 *    3. $(D Connector.onInvalidFrame) may be invoked if the received frame is unpacked 
 	 * 		 but is interpreted as invalid.
 	 *
 	 * This function returns 0 if it succeeds, or one of the following
@@ -575,15 +628,15 @@ class Session {
 	 * |inlen| indicates the number of bytes in the |in|.
 	 *
 	 * This function behaves like $(D Session.recv) except that it
-	 * does not use $(D Policy.read) to receive data; the
+	 * does not use $(D Connector.read) to receive data; the
 	 * |input| is the only data for the invocation of this function.  If all
-	 * bytes are processed, this function returns.  The other policy
+	 * bytes are processed, this function returns.  The other connector
 	 * are called in the same way as they are in $(D Session.recv).
 	 *
 	 * In the current implementation, this function always tries to
 	 * process all input data unless either an error occurs or
-	 * $(D ErrorCode.PAUSE) is returned from $(D Policy.onHeaderField) or
-	 * $(D Policy.onDataChunk).  If $(D ErrorCode.PAUSE) is used, 
+	 * $(D ErrorCode.PAUSE) is returned from $(D Connector.onHeaderField) or
+	 * $(D Connector.onDataChunk).  If $(D ErrorCode.PAUSE) is used, 
 	 * the return value includes the number of bytes which was used to 
 	 * produce the data or frame for the callback.
 	 *
@@ -626,7 +679,7 @@ class Session {
 					pos += readlen;
 					
 					if (iframe.payloadleft == 0) {
-						inboundFrameReset();
+						iframe.reset();
 						iframe.state = READ_FIRST_SETTINGS;
 					}
 					
@@ -1037,7 +1090,7 @@ class Session {
 								return rv;
 							}
 							
-							inboundFrameReset();
+							iframe.reset();
 							
 							break;
 						case FrameType.RST_STREAM:
@@ -1046,7 +1099,7 @@ class Session {
 								return rv;
 							}
 							
-							inboundFrameReset();
+							iframe.reset();
 							
 							break;
 						case FrameType.PUSH_PROMISE:
@@ -1098,7 +1151,7 @@ class Session {
 								return rv;
 							}
 							
-							inboundFrameReset();
+							iframe.reset();
 							
 							break;
 						case FrameType.GOAWAY: {
@@ -1124,12 +1177,12 @@ class Session {
 								return rv;
 							}
 							
-							inboundFrameReset();
+							iframe.reset();
 							
 							break;
 						default:
 							/* This is unknown frame */
-							inboundFrameReset();
+							iframe.reset();
 							
 							break;
 					}
@@ -1191,7 +1244,7 @@ class Session {
 						if (rv == ErrorCode.HEADER_COMP) {
 							/* GOAWAY is already issued */
 							if (iframe.payloadleft == 0) {
-								inboundFrameReset();
+								iframe.reset();
 							} else {
 								busy = true;
 								iframe.state = IGN_PAYLOAD;
@@ -1225,7 +1278,7 @@ class Session {
 								return rv;
 							}
 						}
-						inboundFrameReset();
+						iframe.reset();
 					}
 					break;
 				}
@@ -1253,7 +1306,7 @@ class Session {
 							break;
 					}
 					
-					inboundFrameReset();
+					iframe.reset();
 					
 					break;
 				case FRAME_SIZE_ERROR:
@@ -1296,7 +1349,7 @@ class Session {
 						return rv;
 					}
 					
-					inboundFrameReset();
+					iframe.reset();
 					
 					break;
 				case READ_GOAWAY_DEBUG:
@@ -1324,7 +1377,7 @@ class Session {
 						return rv;
 					}
 					
-					inboundFrameReset();
+					iframe.reset();
 					
 					break;
 				case EXPECT_CONTINUATION:
@@ -1481,7 +1534,7 @@ class Session {
 							FrameFlags flags = iframe.frame.hd.flags;
 							int stream_id = iframe.frame.hd.stream_id;
 							bool pause;
-							bool ok = policy.onDataChunk(flags, stream_id, data_nopad, pause);
+							bool ok = connector.onDataChunk(flags, stream_id, data_nopad, pause);
 
 							if (pause) {
 								return cast(int)(pos - first);
@@ -1503,7 +1556,7 @@ class Session {
 						return rv;
 					}
 					
-					inboundFrameReset();
+					iframe.reset();
 					
 					break;
 				case IGN_DATA:
@@ -1537,7 +1590,7 @@ class Session {
 						break;
 					}
 					
-					inboundFrameReset();
+					iframe.reset();
 					
 					break;
 				case IGN_ALL:
@@ -1825,7 +1878,7 @@ package:
 	 * Signals the session so that the connection should be terminated.
 	 *
 	 * The last stream ID is the minimum value between the stream ID of a
-	 * stream for which $(D Policy.onFrame) was called
+	 * stream for which $(D Connector.onFrame) was called
 	 * most recently and the last stream ID we have sent to the peer
 	 * previously.
 	 *
@@ -2519,7 +2572,7 @@ package:
 		     may be PROTOCOL_ERROR, but without notifying stream closure will
 		     hang the stream in a local endpoint.
 		*/    
-		if (!policy.onStreamExit(stream_id, error_code))
+		if (!connector.onStreamExit(stream_id, error_code))
 			return ErrorCode.CALLBACK_FAILURE;
 		
 		/* pushed streams which is not opened yet is not counted toward max concurrent limits */
@@ -3205,7 +3258,7 @@ package:
 			return ErrorCode.IGN_HEADER_BLOCK;
 		}
 		if (stream.shutFlags & ShutdownFlag.RD) {
-			if (!policy.onInvalidFrame(frame, FrameError.PROTOCOL_ERROR)) 
+			if (!connector.onInvalidFrame(frame, FrameError.PROTOCOL_ERROR)) 
 				return ErrorCode.CALLBACK_FAILURE;
 
 			addRstStream(frame.push_promise.promised_stream_id, FrameError.PROTOCOL_ERROR);
@@ -3423,7 +3476,7 @@ package:
 		if (!stream)
 			return ErrorCode.INVALID_ARGUMENT;
 		
-		payloadlen = policy.maxFrameSize(frame.hd.type, stream.id, remote_window_size, stream.remoteWindowSize, remote_settings.max_frame_size);
+		payloadlen = connector.maxFrameSize(frame.hd.type, stream.id, remote_window_size, stream.remoteWindowSize, remote_settings.max_frame_size);
 		
 		LOGF("send: read_length_callback=%d", payloadlen);
 		
@@ -3870,7 +3923,7 @@ package:
 	 * @function
 	 *
 	 * Returns the last stream ID of a stream for which
-	 * $(D Policy.onFrame) was invoked most recently.
+	 * $(D Connector.onFrame) was invoked most recently.
 	 * The returned value can be used as last_stream_id parameter for
 	 * `submitGoAway()` and `terminateSession()`.
 	 *
@@ -3879,54 +3932,6 @@ package:
 	int getLastProcStreamID() 
 	{
 		return last_proc_stream_id;
-	}
-
-	void inboundFrameReset()
-	{
-		/* A bit risky code, since if this function is called from Session(), we rely on the fact that
-     	   iframe.frame.hd.type is 0, so that no free is performed. */
-		with (FrameType) switch (iframe.frame.hd.type) {
-			case HEADERS:
-				iframe.frame.headers.free();
-				break;
-			case PRIORITY:
-				iframe.frame.priority.free();
-				break;
-			case RST_STREAM:
-				iframe.frame.rst_stream.free();
-				break;
-			case SETTINGS:
-				iframe.frame.settings.free();
-				break;
-			case PUSH_PROMISE:
-				iframe.frame.push_promise.free();
-				break;
-			case PING:
-				iframe.frame.ping.free();
-				break;
-			case GOAWAY:
-				iframe.frame.goaway.free();
-				break;
-			case WINDOW_UPDATE:
-				iframe.frame.window_update.free();
-				break;
-			default: break;
-		}
-		
-		destroy(iframe.frame);
-
-		iframe.state = InboundState.READ_HEAD;
-		
-		iframe.sbuf = Buffer(iframe.raw_sbuf.ptr[0 .. iframe.raw_sbuf.sizeof]);
-		iframe.sbuf.mark += FRAME_HDLEN;
-
-		iframe.lbuf.free();
-		iframe.lbuf = Buffer();
-		destroy(iframe.iva);
-		iframe.payloadleft = 0;
-		iframe.padlen = 0;
-		iframe.iva[INBOUND_NUM_IV - 1].id = Setting.HEADER_TABLE_SIZE;
-		iframe.iva[INBOUND_NUM_IV - 1].value = uint.max;
 	}
 
 	bool idleStreamDetect(int stream_id) 
@@ -4404,20 +4409,24 @@ package:
 	ErrorCode updateRecvConnectionWindowSize(size_t delta_size) 
 	{
 		ErrorCode rv;
+		logDebug("updateRecvConnectionWindowSize");
 		bool ok = adjustRecvWindowSize(recv_window_size, delta_size, local_window_size);
 		if (!ok) {
 			return terminateSession(FrameError.FLOW_CONTROL_ERROR);
 		}
+		logDebug("opt_flags: ", opt_flags & OptionsMask.NO_AUTO_WINDOW_UPDATE, " raw: ", opt_flags);
 		if (!(opt_flags & OptionsMask.NO_AUTO_WINDOW_UPDATE))
 		{
 			
 			if (shouldSendWindowUpdate(local_window_size, recv_window_size)) 
 			{
+				logDebug("Add Window Update");
 				/* Use stream ID 0 to update connection-level flow control window */
 				addWindowUpdate(FrameFlags.NONE, 0, recv_window_size);
 				recv_window_size = 0;
 			}
-		}
+		} else 
+			logDebug("Cannot add Window Update");
 		return ErrorCode.OK;
 	}
 	
@@ -4484,7 +4493,7 @@ package:
 		
 		int max_paddedlen = cast(int) min(frame.hd.length + MAX_PADLEN, max_payloadlen);
 		
-		rv = policy.selectPaddingLength(frame, max_paddedlen);
+		rv = connector.selectPaddingLength(frame, max_paddedlen);
 		if (rv < cast(int)frame.hd.length || rv > cast(int)max_paddedlen) {
 			return cast(int) ErrorCode.CALLBACK_FAILURE;
 		}
@@ -4493,34 +4502,34 @@ package:
 	
 	bool callOnFrameReady(in Frame frame)
 	{
-		return policy.onFrameReady(frame);
+		return connector.onFrameReady(frame);
 	}
 
 	bool callOnFrameSent(in Frame frame)
 	{
-		return policy.onFrameSent(frame);
+		return connector.onFrameSent(frame);
 	}
 
 	bool callOnFrameHeader(in FrameHeader hd) 
 	{
-		return policy.onFrameHeader(hd);
+		return connector.onFrameHeader(hd);
 	}
 
 	bool callOnHeaders(in Frame frame) 
 	{
 		LOGF("recv: call onHeaders callback stream_id=%d", frame.hd.stream_id);
-		return policy.onHeaders(frame);
+		return connector.onHeaders(frame);
 
 	}
 
 	bool callOnHeaderField(in Frame frame, in HeaderField hf, ref bool pause, ref bool close) 
 	{
-		return policy.onHeaderField(frame, hf, pause, close);
+		return connector.onHeaderField(frame, hf, pause, close);
 	}
 
 	int callRead(ubyte[] buf)
 	{
-		int len = policy.read(buf);
+		int len = connector.read(buf);
 
 		if (len > 0) {
 			if (cast(size_t) len > buf.length)
@@ -4533,7 +4542,7 @@ package:
 
 	bool callOnFrame(in Frame frame) 
 	{
-		return policy.onFrame(frame);
+		return connector.onFrame(frame);
 	}
 
 	/*
@@ -4618,7 +4627,7 @@ package:
 		Frame* frame = &iframe.frame;
 		Stream stream;
 		
-		/* We don't call Policy.onFrame if stream has been closed already or being closed. */
+		/* We don't call Connector.onFrame if stream has been closed already or being closed. */
 		stream = getStream(frame.hd.stream_id);
 		if (!stream || stream.state == StreamState.CLOSING)
 		{
@@ -4678,7 +4687,7 @@ package:
 				addRstStream(stream_id, FrameError.PROTOCOL_ERROR);
 			}
 		}
-		
+
 		if (call_cb) {
 			bool ok = callOnFrame(*frame);
 			if (!ok) 
@@ -4833,7 +4842,7 @@ package:
 		
 		addRstStream(frame.hd.stream_id, error_code);
 		
-		if (!policy.onInvalidFrame(frame, error_code))
+		if (!connector.onInvalidFrame(frame, error_code))
 			return ErrorCode.CALLBACK_FAILURE;
 		
 		return ErrorCode.OK;
@@ -4853,7 +4862,7 @@ package:
 	 */
 	ErrorCode handleInvalidConnection(Frame frame, FrameError error_code, string reason)
 	{
-		if (!policy.onInvalidFrame(frame, error_code))
+		if (!connector.onInvalidFrame(frame, error_code))
 			return ErrorCode.CALLBACK_FAILURE;
 
 		return terminateSessionWithReason(error_code, reason);
@@ -5222,7 +5231,7 @@ package:
 	
 	/*
 	 * Called after a frame is sent.  This function runs
-	 * $(D Policy.onFrameSent) and handles stream closure upon END_STREAM
+	 * $(D Connector.onFrameSent) and handles stream closure upon END_STREAM
 	 * or RST_STREAM.  This function does not reset aob.  It is a
 	 * responsibility of $(D resetActiveOutboundItem).
 	 *
@@ -5453,7 +5462,7 @@ package:
 		
 		/* On EOF, we have already detached data.  Please note that
 	       application may issue submitData() in
-	       $(D Policy.onFrameSent) (call from afterFrameSent),
+	       $(D Connector.onFrameSent) (call from afterFrameSent),
 	       which attach data to stream.  We don't want to detach it. */
 		if (aux_data.eof) {
 			aob.reset();			
@@ -5594,7 +5603,7 @@ package:
 						if (item.frame.hd.type != FrameType.DATA && !isFatal(rv)) {
 							Frame* frame = &item.frame;
 							/* The library is responsible for the transmission of WINDOW_UPDATE frame, so we don't call error callback for it. */
-							if (frame.hd.type != FrameType.WINDOW_UPDATE && policy.onFrameFailure(*frame, rv) != 0)
+							if (frame.hd.type != FrameType.WINDOW_UPDATE && connector.onFrameFailure(*frame, rv) != 0)
 							{
 								item.free();
 								Mem.free(item);
@@ -5671,7 +5680,7 @@ package:
 				}
 				case OutboundState.SEND_DATA: {
 					size_t datalen;
-					Buffer buf = framebufs.cur.buf;
+					Buffer* buf = &framebufs.cur.buf;
 					
 					if (buf.pos == buf.last) {
 						LOGF("send: end transmission of a frame");
@@ -5853,7 +5862,7 @@ package:
 	InboundFrame iframe;
 	Deflater hd_deflater;
 	Inflater hd_inflater;
-	Policy policy;
+	Connector connector;
 	
 	/// Sequence number of outbound frame to maintain the order of enqueue if priority is equal.
 	long next_seq;
@@ -6047,7 +6056,7 @@ int packSettingsPayload(ubyte[] buf, in Setting[] iva)
  *
  *   This function returns assigned stream ID if it succeeds.  But
  *   that stream is not opened yet. The application must not submit
- *   a frame to that stream ID before $(D Policy.onFrameReady) is called for this
+ *   a frame to that stream ID before $(D Connector.onFrameReady) is called for this
  *   frame.
  *
  */
@@ -6171,7 +6180,7 @@ ErrorCode submitResponse(Session session, int stream_id, in HeaderField[] hfa, i
  *   This function returns assigned stream ID if it succeeds and
  *   |stream_id| is -1.  But that stream is not opened yet.  The
  *   application must not submit frame to that stream ID before
- *   $(D Policy.onFrameHeader) is called for this
+ *   $(D Connector.onFrameHeader) is called for this
  *   frame.
  *
  */
@@ -6210,7 +6219,7 @@ ErrorCode submitHeaders(Session session, FrameFlags flags, int stream_id = -1, i
  *   Submitting data more than once before first data is finished
  *   results in $(D ErrorCode.DATA_EXIST) error code.  The
  *   earliest callback which tells that previous data is done is
- *   $(D Policy.onFrameSent).  In side that callback,
+ *   $(D Connector.onFrameSent).  In side that callback,
  *   new data can be submitted using `submitData()`.  Of
  *   course, all data except for last one must not have
  *   $(D FrameFlags.END_STREAM) flag set in |flags|.
@@ -6370,8 +6379,8 @@ ErrorCode submitSettings(Session session, in Setting[] iva)
  * The |promised_stream_user_data| is a pointer to an arbitrary data
  * which is associated to the promised stream this frame will open and
  * make it in reserved state.  It is available using $(D Session.getStreamUserData).  
- * The application can access it in $(D Policy.onFrameHeader) and
- * $(D Policy.onFrameSent) of this frame.
+ * The application can access it in $(D Connector.onFrameHeader) and
+ * $(D Connector.onFrameSent) of this frame.
  *
  * The client side is not allowed to use this function.
  *
@@ -6396,7 +6405,7 @@ ErrorCode submitSettings(Session session, in Setting[] iva)
  *   This function returns assigned promised stream ID if it succeeds.
  *   But that stream is not opened yet.  The application must not
  *   submit frame to that stream ID before
- *   $(D Policy.onFrameHeader) is called for this
+ *   $(D Connector.onFrameHeader) is called for this
  *   frame.
  *
  */

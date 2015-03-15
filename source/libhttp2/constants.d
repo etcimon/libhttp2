@@ -39,8 +39,8 @@ public static LibInfo g_lib_info;
 package:
 
 /// Enables READ_FIRST_SETTINGS in Session
-const ENABLE_FIRST_SETTING_CHECK = true;
-
+version(unittest) const ENABLE_FIRST_SETTING_CHECK = false;
+else const ENABLE_FIRST_SETTING_CHECK = true;
 /**
 * The seriazlied form of ALPN protocol identifier this library
 * supports.  Notice that first byte is the length of following

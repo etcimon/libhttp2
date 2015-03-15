@@ -67,6 +67,7 @@ class HDEntry
 	uint name_hash;
 	uint value_hash;
 	HDFlags flags;
+	short refcnt;
 
 	/*
 	 * Initializes the HDEntry members. If HDFlags.NAME_ALLOC bit
@@ -77,9 +78,8 @@ class HDEntry
 	 * value for |name| and |value| respectively.
 	 */
 	this(HDFlags _flags, in string name,  in string value, uint _name_hash, uint _value_hash) {
-		int rv = 0;
-		
 		flags = _flags;
+		refcnt = 1;
 		
 		/// Since HDEntry is used for indexing, ent.hf.flag always HeaderFlag.NONE
 		hf.flag = HeaderFlag.NONE;
@@ -111,18 +111,18 @@ class HDEntry
 		name_hash = _name_hash;
 		value_hash = _value_hash;
 	}
-	
+
 	~this() 
 	{
-		if (flags & HDFlags.NAME_ALLOC) {
-			logDebug("free***************");
-			Mem.free(hf.name);
+		if (refcnt != 0)
+		{
+			LOGF("hdentry: Freed HDEntry refcnt must be 0, was: %s", refcnt);
+			assert(false);
 		}
-		
-		if (flags & HDFlags.VALUE_ALLOC) {
-			logDebug("free***************");
+		if (hf.name && flags & HDFlags.NAME_ALLOC)
+			Mem.free(hf.name);		
+		if (hf.value && flags & HDFlags.VALUE_ALLOC)
 			Mem.free(hf.value);
-		}
 	}
 }
 
@@ -165,23 +165,30 @@ class HDTable
 	
 	/// The effective header table size.
 	size_t hd_table_bufsize_max = HD_DEFAULT_MAX_BUFFER_SIZE;
-	
+
 	/// If inflate/deflate error occurred, this value is set to 1 and further invocation of inflate/deflate will fail with ErrorCode.HEADER_COMP.
 	bool bad;
 	
 	this() {
-		hd_table = CircularBuffer!HDEntry(hd_table_bufsize_max / ENTRY_OVERHEAD);
+		hd_table = CircularBuffer!HDEntry(hd_table_bufsize_max);
 	}
-	
+
+	~this() {
+		foreach (HDEntry ent; hd_table) {
+			ent.refcnt--;
+			Mem.free(ent);	
+		}
+	}
+
 	void shrink(size_t room = 0) 
 	{
 		while (hd_table_bufsize + room > hd_table_bufsize_max && hd_table.length > 0) {
 			// TODO: Debugging printf
-
 			size_t idx = hd_table.length - 1;
 			HDEntry ent = hd_table[idx];
 			hd_table_bufsize -= entryRoom(ent.hf.name.length, ent.hf.value.length);
 			hd_table.popBack();
+			if (--ent.refcnt == 0) Mem.free(ent);
 		}
 	}
 	
@@ -190,12 +197,24 @@ class HDTable
 		HDEntry new_ent;
 		size_t room = entryRoom(hf.name.length, hf.value.length);		
 		shrink(room);
-
-		new_ent = new HDEntry(entry_flags, hf.name, hf.value, name_hash, value_hash);
+		new_ent = Mem.alloc!HDEntry(entry_flags, hf.name, hf.value, name_hash, value_hash);
 
 		if (room <= hd_table_bufsize_max) {
+			scope(failure) {
+				new_ent.refcnt--;
+				if (entry_flags & HDFlags.NAME_ALLOC && entry_flags & HDFlags.NAME_GIFT)
+					new_ent.hf.name = null; // managed by caller
+				if (entry_flags & HDFlags.VALUE_ALLOC && entry_flags & HDFlags.VALUE_GIFT)
+					new_ent.hf.value = null; // managed by caller
+
+				Mem.free(new_ent);
+			}
+			if (hd_table.freeSpace == 0)
+				hd_table.capacity = hd_table.capacity * 3 / 2;
 			hd_table.put(new_ent);
 			hd_table_bufsize += room;
+		} else {
+			new_ent.refcnt--;
 		}
 
 		return new_ent;
@@ -547,13 +566,22 @@ uint hash(in string str) {
 /// Sorted by hash(name) and its table index
 __gshared StaticEntry[] static_table;
 
+static ~this() {
+	import core.thread : thread_isMainThread;
+	if (!thread_isMainThread) return;
+	foreach (ref StaticEntry statent; static_table) {
+		statent.ent.refcnt--;
+		Mem.free(statent.ent);	
+	}
+}
+
 static this() { 
 	if (static_table) return;
 
 	/* Make scalar initialization form of HeaderField */
-	string MAKE_STATIC_ENT(int I, string N, string V, long NH, int VH) {
+	string MAKE_STATIC_ENT(int I, string N, string V, long NH, long VH) {
 		return `StaticEntry( 
-					new HDEntry(HDFlags.NONE, "` ~ N ~ `", "` ~ V ~ `", ` ~ NH.to!string ~ `, ` ~ VH.to!string ~ `), 
+					Mem.alloc!HDEntry(HDFlags.NONE, "` ~ N ~ `", "` ~ V ~ `", ` ~ NH.to!string ~ `u, ` ~ VH.to!string ~ `u), 
 				` ~ I.to!string ~ 
 			`)`;
 	}

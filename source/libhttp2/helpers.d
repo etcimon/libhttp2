@@ -25,7 +25,7 @@ void write(T)(ubyte* buf, T n) {
 }
 
 void write(T)(ubyte[] buf, T n) {
-	if (buf.length < n) onRangeError();
+	if (buf.length < T.sizeof) onRangeError();
 	auto x = nativeToBigEndian(n);
 	memcpy(buf.ptr, x.ptr, T.sizeof);
 }
@@ -76,6 +76,12 @@ bool equals(in HeaderField[] hfa, in HeaderField[] other)
 	auto hfa2 = hfa.copy();
 	auto other2 = other.copy();
 	scope(exit) {
+		foreach(i, ref hf; hfa2) {
+			hf.free();
+		}
+		foreach(i, ref hf; other2) {
+			hf.free();
+		}
 		Mem.free(hfa2);
 		Mem.free(other2);
 	}

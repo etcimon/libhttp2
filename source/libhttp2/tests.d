@@ -90,21 +90,17 @@ struct HeaderFields
 			for (;;) {
 				inflate_flag = InflateFlag.NONE;
 				rv = inflater.inflate(hf, inflate_flag, bp[], is_final);
-				logDebug("Done inflater");
 				if (rv < 0)
 					return rv;
 				
 				bp.pos += rv;
 				processed += rv;
-				logDebug("Adding");
 				if (inflate_flag & InflateFlag.EMIT) 
 					add(hf);
-				logDebug("Done add");
 				if (inflate_flag & InflateFlag.FINAL)
 					break;
 			}
 		}
-
 		inflater.endHeaders();
 		
 		return processed;

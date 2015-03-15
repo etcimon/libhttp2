@@ -64,6 +64,8 @@ struct Inflater
 	}
 
 	void free() {
+		if (ent_keep && ent_keep.refcnt == 0) Mem.free(ent_keep);
+		ent_keep = null;
 		Mem.free(ctx);
 		hfbufs.free();
 		Mem.free(hfbufs);
@@ -76,10 +78,10 @@ struct Inflater
 	 * The |settings_hd_table_bufsize_max| should be the value transmitted
 	 * in SettingsID.HEADER_TABLE_SIZE.
 	 */
-	void changeTableSize(size_t settings_hd_table_bufsize_max) 
+	void changeTableSize(size_t _settings_hd_table_bufsize_max) 
 	{
-		settings_hd_table_bufsize_max = settings_hd_table_bufsize_max;
-		ctx.hd_table_bufsize_max = settings_hd_table_bufsize_max;
+		settings_hd_table_bufsize_max = _settings_hd_table_bufsize_max;
+		ctx.hd_table_bufsize_max = _settings_hd_table_bufsize_max;
 		ctx.shrink();
 	}
 
@@ -154,18 +156,17 @@ struct Inflater
 		ubyte* first = input.ptr;
 		ubyte* last = input.ptr + input.length;
 		bool rfin; // read finished
-		
 		if (ctx.bad) return ErrorCode.HEADER_COMP;
 		scope(failure) ctx.bad = 1;
 		
 		LOGF("inflatehd: start state=%s pos=%s last=%s", state, pos, last);
 		if (state == InflateState.READ_VALUE && pos is last)
 			assert(false);
-		ent_keep = HDEntry.init;
-		logDebug("ent_keep");
+		if (ent_keep && ent_keep.refcnt == 0) Mem.free(ent_keep);
+		ent_keep = null;
 		inflate_flags = InflateFlag.NONE;
 
-		for (; pos !is last;) {
+		for (; pos < last;) {
 			final switch (state) {
 				case InflateState.OPCODE:
 					if ((*pos & 0xe0) == 0x20) {
@@ -361,7 +362,7 @@ struct Inflater
 						else
 							hf_out = commitIndexedName();
 
-						if (rv != 0)
+						if (hf_out == HeaderField.init)
 							goto fail;
 
 						state = InflateState.OPCODE;
@@ -389,8 +390,7 @@ struct Inflater
 					LOGF("inflatehd: %d bytes read in READ_VALUEHUFF", len);
 					
 					if (left) {
-						LOGF("inflatehd: still %d bytes to go", left);
-						
+						LOGF("inflatehd: still %d bytes to go", left);						
 						goto almost_ok;
 					}
 					
@@ -398,11 +398,12 @@ struct Inflater
 						hf_out = commitNewName();
 					else
 						hf_out = commitIndexedName();
-															
+					if (hf_out == HeaderField.init) {
+						goto fail;
+					}
 					state = InflateState.OPCODE;
 					inflate_flags |= InflateFlag.EMIT;
 
-					logDebug("return");
 					return cast(int)(pos - first);
 
 				case InflateState.READ_VALUE:
@@ -427,6 +428,9 @@ struct Inflater
 						hf_out = commitNewName();
 					else
 						hf_out = commitIndexedName();
+
+					if (hf_out == HeaderField.init)
+						goto fail;
 
 					state = InflateState.OPCODE;
 					inflate_flags |= InflateFlag.EMIT;
@@ -472,7 +476,8 @@ struct Inflater
 	 * Signals the end of decompression for one header block.
 	 */
 	void endHeaders() {
-		ent_keep = HDEntry.init;
+		if (ent_keep && ent_keep.refcnt == 0) Mem.free(ent_keep);
+		ent_keep = null;
 	}
 
 	void setHuffmanEncoded(in ubyte* input) {
@@ -580,25 +585,26 @@ struct Inflater
 		size_t buflen;
 		ubyte[] buf;
 		Buffer* pbuf;
-		logDebug("RemoveBufs");
+
 		if (index_required || hfbufs.head != hfbufs.cur) {
-			logDebug("Removing");
 			buf = hfbufs.remove();
-			logDebug("Removed");
 			buflen = buf.length;
 			
 			if (value_only)
 				hf.name = null;
-			else
-				hf.name = cast(string)buf[0 .. newnamelen];
-			
-			hf.value = cast(string)(buf.ptr + hf.name.length)[0 .. buflen - hf.name.length];
-			
+			else if (newnamelen > 0) {
+				hf.name = cast(string)Mem.copy(buf[0 .. newnamelen]);
+			}
+			if (buflen - hf.name.length > 0) {
+				hf.value = cast(string)Mem.copy((buf.ptr + hf.name.length)[0 .. buflen - hf.name.length]);
+			}
+			Mem.free(buf);
+
 			return hf;
 		}
 		
 		// If we are not going to store header in header table and name/value are in first chunk, 
-		// we just refer them from hf, instead of mallocing another memory.		
+		// we just refer them from hf, instead of mallocing another memory.
 		pbuf = &hfbufs.head.buf;
 		
 		if (value_only)
@@ -631,22 +637,26 @@ package:
 			HDEntry new_ent;
 			HDFlags ent_flags;
 			
-			/* hf.value points to the middle of the buffer pointed by
-		       hf.name.  So we just need to keep track of hf.name for memory
-		       management. */
-			ent_flags = HDFlags.NAME_ALLOC | HDFlags.NAME_GIFT;
+			ent_flags = HDFlags.NAME_ALLOC | HDFlags.NAME_GIFT | HDFlags.VALUE_ALLOC | HDFlags.VALUE_GIFT;
 			
 			new_ent = ctx.add(hf, hf.name.hash(), hf.value.hash(), ent_flags);
+
+			if (new_ent) {
+				ret = emitIndexedHeader(new_ent);
+				
+				ent_keep = new_ent;
 			
-			ret = emitIndexedHeader(new_ent);
-			
-			ent_keep = new_ent;
-			
-			return ret;
+				return ret;
+			}
+
+			Mem.free(hf.name);
+			Mem.free(hf.value);
+
+			return HeaderField.init;
 		}
 		
 		ret = emitLiteralHeader(hf);
-		
+
 		return ret;
 	}
 	
@@ -655,7 +665,6 @@ package:
 		HeaderField ret;
 		HDEntry ent_name;
 
-		logDebug("IndName");
 		HeaderField hf = removeBufs(true /* value only */);
 		
 		if (no_index)
@@ -667,7 +676,6 @@ package:
 		hf.name = ent_name.hf.name;
 		
 		if (index_required) {
-			logDebug("index required");
 			HDEntry new_ent;
 			HDFlags ent_flags;
 			bool static_name;
@@ -675,19 +683,30 @@ package:
 			ent_flags = HDFlags.VALUE_ALLOC | HDFlags.VALUE_GIFT;
 			static_name = index < static_table.length;
 			
-			if (!static_name) 
+			if (!static_name) {
 				ent_flags |= HDFlags.NAME_ALLOC;
-			
+				/* For entry in static table, we must not touch ref, because it is shared by threads */
+				++ent_name.refcnt;
+			}
 			new_ent = ctx.add(hf, ent_name.name_hash, hf.value.hash(), ent_flags);
-			ret = emitIndexedHeader(new_ent);
-			ent_keep = new_ent;
-			
+
+			if (!static_name && --ent_name.refcnt == 0) {
+				Mem.free(ent_name);
+			}
+
+			if (new_ent) {
+				ret = emitIndexedHeader(new_ent);
+				ent_keep = new_ent;
+				return ret;
+			}
+
+			Mem.free(hf.value);
+
 			return ret;
 		}
 		
 		ret = emitLiteralHeader(hf);
 
-		logDebug("done emit");
 		return ret;
 	}
 
@@ -702,9 +721,9 @@ package:
 
 	// for debugging
 	HeaderField emitIndexedHeader(ref HDEntry ent) {
-		LOGF("inflatehd: indexed header emission: %s: %s", ent.hf.name, ent.hf.value);
+		LOGF("inflatehd: indexed header emission: %s: %s", ent?ent.hf.name:"null", ent?ent.hf.value:"null");
 		
-		return ent.hf;
+		return ent?ent.hf : HeaderField.init;
 	}
 	
 	HeaderField emitLiteralHeader(ref HeaderField hf) {

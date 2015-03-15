@@ -1,5 +1,5 @@
 ﻿/**
- * Policy
+ * Connector
  * 
  * Copyright:
  * (C) 2012-2015 Tatsuhiro Tsujikawa
@@ -9,7 +9,7 @@
  * Distributed under the terms of the MIT license with an additional section 1.2 of the curl/libcurl project. 
  * Consult the provided LICENSE.md file for details
  */
-module libhttp2.policy;
+module libhttp2.connector;
 
 import libhttp2.types;
 import libhttp2.frame;
@@ -17,7 +17,7 @@ import libhttp2.session;
 
 
 package:
-abstract class Policy
+abstract class Connector
 {
 public:
 ////////////////// Protocol ////////////////////////
@@ -105,10 +105,10 @@ public:
      * Callback function invoked when a frame header is received.  The
      * |hd| points to received frame header.
      *
-     * Unlike $(D Policy.onFrame), this callback will
+     * Unlike $(D Connector.onFrame), this callback will
      * also be called when frame header of CONTINUATION frame is received.
      *
-     * If both $(D Policy.onFrameHeader) and
+     * If both $(D Connector.onFrameHeader) and
      * :type:`http2_on_begin_headers_callback` are set and HEADERS or
      * PUSH_PROMISE is received, :type:`http2_on_begin_frame_callback`
      * will be called first.
@@ -150,8 +150,8 @@ public:
      * When this callback is invoked, $(D frame.hd.type) is either
      * $(D FrameFlags.HEADERS) or $(D FrameFlags.PUSH_PROMISE).  After all
      * header fields are processed with this callback, and no
-     * error has been detected, $(D Policy.onFrame) will be invoked.  
-     * If there is an error in decompression, $(D Policy.onFrame) for the |frame| 
+     * error has been detected, $(D Connector.onFrame) will be invoked.  
+     * If there is an error in decompression, $(D Connector.onFrame) for the |frame| 
      * will not be invoked.
      *
      * The |value| may be null if the |value.length| is 0.
@@ -172,7 +172,7 @@ public:
      * included in the input bytes.
      *
      * Enabling $(D rst_stream) will close  the stream by issuing RST_STREAM with 
-     * $(D FrameError.INTERNAL_ERROR).  In this case, $(D Policy.onFrame) will 
+     * $(D FrameError.INTERNAL_ERROR).  In this case, $(D Connector.onFrame) will 
      * not be invoked.  If a different error code is desirable, use
      * $(D submitRstStream) with a desired error code and then
      * set $(D rst_stream) to true.
@@ -190,13 +190,13 @@ public:
      * to. The |flags| is the flags of DATA frame which this data chunk
      * is contained.  ``(flags & FrameFlags.END_STREAM) != 0`` does not
      * necessarily mean this chunk of data is the last one in the stream.
-     * You should use $(D Policy.onFrame) to determine that all data 
+     * You should use $(D Connector.onFrame) to determine that all data 
      * frames are received. 
      *
      * 
      * The memory pointed by the |data| is not copied within $(D Session.memRecv)
      * or $(D Session.recv), so the data provider controls its lifetime. This
-     * can be either $(D Policy.read) for $(D Session.recv), or a $(D ubyte[])
+     * can be either $(D Connector.read) for $(D Session.recv), or a $(D ubyte[])
      * slice from the one provided to $(D Session.memRecv)
      * 
      * If the application uses $(D Session.memRecv), it can set |pause|
@@ -300,7 +300,7 @@ public:
 
 }
 
-class CallbackPolicy : Policy
+class CallbackConnector : Connector
 {
 public:
 	/**
@@ -413,8 +413,8 @@ override:
 
 	bool onFrame(in Frame frame)
 	{
-		if (!on_frame_cb) 
-			return true; 
+		if (!on_frame_cb)
+			return true;
 		return on_frame_cb(frame);
 	}
 	

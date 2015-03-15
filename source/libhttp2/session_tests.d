@@ -15,7 +15,7 @@ import libhttp2.constants;
 //static if (TEST_ALL):
 
 import libhttp2.session;
-import libhttp2.policy;
+import libhttp2.connector;
 import libhttp2.frame;
 import libhttp2.types;
 import libhttp2.buffers;
@@ -58,6 +58,7 @@ struct ScriptedDataFeed {
 		for (ci = bufs.head; ci; ci = ci.next) {
 			buf = &ci.buf;
 			memcpy(ptr, buf.pos, buf.length);
+			ptr += buf.length;
 			len += buf.length;
 		}
 		
@@ -110,7 +111,7 @@ const HeaderField[] reqhf = [HeaderField(":method", "GET"), HeaderField(":path",
 
 const HeaderField[] reshf = [HeaderField(":status", "200")];
 
-alias Callbacks = RefCounted!CallbackPolicy;
+alias Callbacks = RefCounted!CallbackConnector;
 
 struct MyCallbacks {
 	Session* session;
@@ -353,8 +354,7 @@ void test_session_read() {
 	
 	session = new Session(SERVER, *callbacks);
 	deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
-	
-	
+		
 	hfa = reqhf.copy();
 	frame.headers = Headers(FrameFlags.END_HEADERS, 1, HeadersCategory.HEADERS, pri_spec_default, hfa);
 	rv = frame.headers.pack(bufs, deflater);
@@ -374,10 +374,13 @@ void test_session_read() {
 	
 	user_data.frame_recv_cb_called = 0;
 	user_data.begin_frame_cb_called = 0;
-	
+	logDebug("bufs.length: ", bufs.length);
+	logDebug("framelen: ", framelen);
 	while (cast(size_t)df.seqidx < framelen) {
 		assert(0 == session.recv());
 	}
+	logDebug("df.seqidx: ", df.seqidx, " framelen: ", framelen);
+	logDebug("user data frame recv: ", user_data.frame_recv_cb_called);
 	assert(1 == user_data.frame_recv_cb_called);
 	assert(1 == user_data.begin_frame_cb_called);
 	
@@ -1289,6 +1292,7 @@ void test_session_continue() {
 	
 	framelen1 = buf.length;
 	memcpy(databuf.last, buf.pos, buf.length);
+	databuf.last += buf.length;
 	
 	hfa = hf2.copy();
 	frame.headers = Headers(FrameFlags.END_HEADERS, 3, HeadersCategory.HEADERS, pri_spec_default, hfa);
@@ -1304,7 +1308,8 @@ void test_session_continue() {
 	
 	framelen2 = buf.length;
 	memcpy(databuf.last, buf.pos, buf.length);
-	
+	databuf.last += buf.length;
+
 	/* Receive 1st HEADERS and pause */
 	user_data.begin_headers_cb_called = 0;
 	user_data.header_cb_called = 0;
@@ -6762,6 +6767,9 @@ void test_http_push_promise() {
 }
 
 unittest {
+	import backtrace.backtrace;
+	import std.stdio : stdout;
+	install(stdout, PrintOptions.init, 0);
 	test_session_read();
 	test_session_read_invalid_stream_id();
 	test_session_read_invalid_frame();

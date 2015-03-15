@@ -254,6 +254,15 @@ struct HeaderField
 		return name == other.name && value == other.value;
 	}
 
+	package void free() {
+		if (name)
+			Mem.free(name);
+		if (value)
+			Mem.free(value);
+		name = null;
+		value = null;
+	}
+
 	/**
 	* Returns true if HTTP header field name |name| of length |len| is
 	* valid according to http://tools.ietf.org/html/rfc7230#section-3.2

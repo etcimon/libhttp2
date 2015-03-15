@@ -45,7 +45,8 @@ public:
 			Mem.free(item);
 			pop();
 		}
-		Mem.free(m_queue[0 .. m_capacity]);
+		if (m_queue)
+			Mem.free(m_queue.ptr[0 .. m_capacity]);
 		m_queue = null;
 		m_capacity = 0;
 	}

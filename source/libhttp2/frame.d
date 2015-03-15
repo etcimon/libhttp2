@@ -205,7 +205,7 @@ struct Headers
 	}
 
 	void free() {
-		Mem.free(hfa);
+		if (hfa) Mem.free(hfa);
 	}
 
 	/*
@@ -241,7 +241,8 @@ struct Headers
 		
 		/* This call will adjust buf.last to the correct position */
 		rv = deflater.deflate(bufs, hfa);
-		
+		logDebug("bufs.length: ", bufs.length);
+		logDebug("return rv: ", rv);
 		if (rv == ErrorCode.BUFFER_ERROR)
 			rv = ErrorCode.HEADER_COMP;
 
@@ -256,8 +257,8 @@ struct Headers
 		
 		padlen = 0;
 		hd.length = bufs.length;
-		
 		hd.packShared(bufs);
+		logDebug("bufs.length: ", bufs.length);
 
 		return ErrorCode.OK;
 	}
@@ -470,7 +471,7 @@ struct Settings {
 		iva = _iva;
 	}
 	
-	void free() { Mem.free(iva); }
+	void free() { if (iva) Mem.free(iva); }
 
 
 	/*
@@ -594,7 +595,7 @@ struct PushPromise {
 		promised_stream_id = _promised_stream_id;
 	}
 	
-	void free() { Mem.free(hfa); }
+	void free() { if (hfa) Mem.free(hfa); }
 
 	/*
 	 * Packs PUSH_PROMISE frame in wire format and store it in
@@ -735,7 +736,7 @@ struct GoAway {
 		opaque_data = _opaque_data;
 	}
 
-	void free() { Mem.free(opaque_data); }
+	void free() { if (opaque_data) Mem.free(opaque_data); }
 
 
 	/*
@@ -1148,8 +1149,7 @@ void frameSetPad(Buffer* buf, int padlen)
 
 /**
  * Returns the number of priority field depending on the |flags|.  If
- * |flags| has neither NGFLAG_PRIORITY_GROUP nor
- * NGFLAG_PRIORITY_DEPENDENCY set, return 0.
+ * |flags| has no priority designation, return 0.
  */
 size_t priorityLength(FrameFlags flags) {
 	if (flags & FrameFlags.PRIORITY) {
