@@ -31,6 +31,7 @@ import memutils.hashmap;
 import std.algorithm : min, max;
 
 enum OptionsMask {
+	NONE = 0,
     NO_AUTO_WINDOW_UPDATE = 1 << 0,
     RECV_CLIENT_PREFACE = 1 << 1,
     NO_HTTP_MESSAGING = 1 << 2,
@@ -139,6 +140,7 @@ struct InboundFrame {
 
 		memcpy(sbuf.last, input, readlen);
 		sbuf.last += readlen;
+
 		return readlen;
 	}
 	
@@ -227,13 +229,13 @@ private:
 	 * |payloadleft| does not include |readlen|. If padding was started
 	 * strictly before this data chunk, this function returns -1.
 	 */
-	int effectiveReadLength(size_t payloadleft, size_t readlen) 
+	int effectiveReadLength(size_t _payloadleft, size_t readlen) 
 	{
 		size_t trail_padlen = frame.trailPadlen(padlen);
-		
-		if (trail_padlen > payloadleft) {
+
+		if (trail_padlen > _payloadleft) {
 			size_t padlen;
-			padlen = trail_padlen - payloadleft;
+			padlen = trail_padlen - _payloadleft;
 			if (readlen < padlen) {
 				return -1;
 			} else {
@@ -313,25 +315,6 @@ enum GoAwayFlags {
     RECV = 0x8,
 }
 
-/// Struct used when updating initial window size of each active stream.
-struct UpdateWindowSizeArgs{
-    Session session;
-    int new_window_size, old_window_size;
-}
-
-struct CloseStreamOnGoAwayArgs {
-    Session session;
-
-    /// linked list of streams to close
-    Stream head;
-    int last_stream_id;
-
-    /* nonzero if GOAWAY is sent to peer, which means we are going to
-     close incoming streams.  zero if GOAWAY is received from peer and
-     we are going to close outgoing streams. */
-    int incoming;
-}
-
 enum {
 	CLIENT = false,
 	SERVER = true
@@ -347,6 +330,9 @@ class Session {
 		}
 		else
 			next_stream_id = 1; // client IDs always impair
+
+		roots = Mem.alloc!StreamRoots();
+		scope(failure) Mem.free(roots);
 
 		hd_inflater = Inflater(true);
 		scope(failure) hd_inflater.free();
@@ -413,6 +399,7 @@ class Session {
 		if (inflight_iva) 
 			Mem.free(inflight_iva);
 		roots.free();
+		Mem.free(roots);
 		freeAllStreams();
 		aob.reset();
 		iframe.reset();
@@ -819,7 +806,6 @@ class Session {
 								iframe.state = READ_NBYTE;
 								
 								iframe.setMark(pri_fieldlen);
-								
 								break;
 							}
 							
@@ -1030,7 +1016,7 @@ class Session {
 					pos += readlen;
 					iframe.payloadleft -= readlen;
 					
-					LOGF("recv: readlen=%d, payloadleft=%d, left=%d", readlen, iframe.payloadleft, iframe.sbuf.markAvailable);
+					LOGF("recv: readlen=%d, payloadleft=%d, left=%d, type=%s", readlen, iframe.payloadleft, iframe.sbuf.markAvailable, iframe.frame.hd.type);
 					
 					if (iframe.sbuf.markAvailable) {
 						return cast(int)(pos - first);
@@ -1038,8 +1024,7 @@ class Session {
 					
 					switch (iframe.frame.hd.type) {
 						case FrameType.HEADERS:
-							if (iframe.padlen == 0 &&
-								(iframe.frame.hd.flags & FrameFlags.PADDED)) {
+							if (iframe.padlen == 0 && (iframe.frame.hd.flags & FrameFlags.PADDED)) {
 								padlen = iframe.computePad();
 								if (padlen < 0) {
 									busy = true;
@@ -1053,7 +1038,6 @@ class Session {
 								iframe.frame.headers.padlen = padlen;
 								
 								pri_fieldlen = priorityLength(iframe.frame.hd.flags);
-								
 								if (pri_fieldlen > 0) {
 									if (iframe.payloadleft < pri_fieldlen) {
 										busy = true;
@@ -2414,6 +2398,7 @@ package:
 	 */
 	Stream openStream(int stream_id, StreamFlags flags, PrioritySpec pri_spec_in, StreamState initial_state, void *stream_user_data = null)
 	{
+		logDebug("Open stream: ", stream_id, " Pri_spec: ", pri_spec_in, " initial_state: ", initial_state);
 		ErrorCode rv;
 		Stream stream;
 		Stream dep_stream = null;
@@ -2436,10 +2421,13 @@ package:
 		}
 		
 		if (pri_spec.stream_id != 0) {
+			logDebug("pri_spec stream_id != 0");
 			dep_stream = getStreamRaw(pri_spec.stream_id);
-			
+			logDebug("dep_stream: ", &dep_stream);
+			logDebug("in dep tree: ", dep_stream.inDepTree);
 			if  (is_server && !dep_stream && idleStreamDetect(pri_spec.stream_id)) 
 			{
+				logDebug("pri_spec idle stream");
 				/* Depends on idle stream, which does not exist in memory. Assign default priority for it. */            
 				dep_stream = openStream(pri_spec.stream_id, StreamFlags.NONE, pri_spec_default, StreamState.IDLE, null);
 			} else if (!dep_stream || !dep_stream.inDepTree()) {
@@ -2458,7 +2446,6 @@ package:
 
 		if (stream_alloc)
 			streams[stream_id] = stream;
-		
 		scope(failure) if (stream_alloc) streams.remove(stream_id);
 		
 		switch (initial_state) {
@@ -2491,6 +2478,7 @@ package:
 		
 		if (pri_spec.stream_id == 0)
 		{
+			logDebug("Has no dep stream");
 			
 			++roots.num_streams;
 			
@@ -2501,7 +2489,8 @@ package:
 			
 			return stream;
 		}
-		
+
+
 		/* TODO Client does not have to track dependencies of streams except
 	     for those which have upload data.  Currently, we just track
 	     everything. */    
@@ -2866,7 +2855,7 @@ package:
 		if (isIncomingConcurrentStreamsPendingMax()) {
 			return handleInflateInvalidStream(frame, FrameError.REFUSED_STREAM);
 		}
-		
+
 		stream = openStream(frame.hd.stream_id, StreamFlags.NONE, frame.headers.pri_spec, StreamState.OPENING, null);
 		last_proc_stream_id = last_recv_stream_id;
 
@@ -6877,7 +6866,8 @@ public:
 	 */
 	@property void setNoAutoWindowUpdate(bool val)
 	{
-		m_opt_set_mask |= OptionFlags.NO_AUTO_WINDOW_UPDATE;
+		if (val) m_opt_set_mask |= OptionFlags.NO_AUTO_WINDOW_UPDATE;
+		else m_opt_set_mask |= ~OptionFlags.NO_AUTO_WINDOW_UPDATE;
 		m_no_auto_window_update = val;
 	}
 

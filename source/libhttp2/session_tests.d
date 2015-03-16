@@ -678,25 +678,23 @@ void test_session_read_continuation() {
 	Frame frame;
 	Buffers bufs = framePackBuffers();
 	Buffer* buf;
-	size_t rv;
+	int rv;
 	MyUserData user_data = MyUserData(&session);
 	Deflater deflater;
 	ubyte[1024] data;
 	size_t datalen;
 	FrameHeader cont_hd;
-	PrioritySpec pri_spec;	
-
+	PrioritySpec pri_spec;
 	
 	callbacks.on_header_field_cb = &user_data.cb_handlers.onHeaderField;
 	callbacks.on_headers_cb = &user_data.cb_handlers.onHeaders;
 	callbacks.on_frame_header_cb = &user_data.cb_handlers.onFrameHeader;
 	
-	session = new Session(CLIENT, *callbacks);
+	session = new Session(SERVER, *callbacks);
 	
 	deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
 	
-	/* Make 1 HEADERS and insert CONTINUATION header */
-	
+	/* Make 1 HEADERS and insert CONTINUATION header */	
 	hfa = reqhf.copy();
 	frame.headers = Headers(FrameFlags.NONE, 1, HeadersCategory.HEADERS, pri_spec_default, hfa);
 	rv = frame.headers.pack(bufs, deflater);
@@ -744,14 +742,14 @@ void test_session_read_continuation() {
 	
 	rv = session.memRecv(data[0 .. datalen]);
 	assert(cast(size_t)datalen == rv);
-	assert(4 == user_data.header_cb_called);
+	assert(4 == user_data.header_cb_called, "headers called times: " ~ user_data.header_cb_called.to!string);
 	assert(3 == user_data.begin_frame_cb_called);
 	
 	deflater.free();
 	session.free();
 	
 	/* Expecting CONTINUATION, but get the other frame */
-	session = new Session(CLIENT, *callbacks);
+	session = new Session(SERVER, *callbacks);
 	
 	deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
 
@@ -812,10 +810,9 @@ void test_session_read_headers_with_priority() {
 	PrioritySpec pri_spec;
 	Stream stream;
 
-	
 	callbacks.on_frame_cb = &user_data.cb_handlers.onFrame;
 	
-	session = new Session(CLIENT, *callbacks);
+	session = new Session(SERVER, *callbacks);
 	
 	deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
 
@@ -824,9 +821,8 @@ void test_session_read_headers_with_priority() {
 	/* With FrameFlags.PRIORITY without exclusive flag set */
 	
 	hfa = reqhf.copy();
-	
 	pri_spec = PrioritySpec(1, 99, 0);
-	
+
 	frame.headers = Headers(cast(FrameFlags)(FrameFlags.END_HEADERS | FrameFlags.PRIORITY), 3, HeadersCategory.HEADERS, pri_spec, hfa);
 	
 	rv = frame.headers.pack(bufs, deflater);
@@ -853,8 +849,7 @@ void test_session_read_headers_with_priority() {
 	
 	bufs.reset();
 	
-	/* With FrameFlags.PRIORITY, but cut last 1 byte to make it
-     invalid. */
+	/* With FrameFlags.PRIORITY, but cut last 1 byte to make it invalid. */
 	
 	hfa = reqhf.copy();
 	
@@ -896,7 +891,7 @@ void test_session_read_headers_with_priority() {
 	session.free();
 	
 	/* Check dep_stream_id == stream_id */
-	session = new Session(CLIENT, *callbacks);
+	session = new Session(SERVER, *callbacks);
 	
 	deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
 	
@@ -953,7 +948,7 @@ void test_session_read_premature_headers() {
 	OutboundItem item;
 
 	
-	session = new Session(CLIENT, *callbacks);
+	session = new Session(SERVER, *callbacks);
 	
 	deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
 	
@@ -1003,7 +998,7 @@ void test_session_read_unknown_frame() {
 	
 	callbacks.on_frame_cb = &user_data.cb_handlers.onFrame;
 	
-	session = new Session(CLIENT, *callbacks);
+	session = new Session(SERVER, *callbacks);
 	
 	user_data.frame_recv_cb_called = 0;
 	
@@ -1035,7 +1030,7 @@ void test_session_read_unexpected_continuation() {
 	
 	callbacks.on_frame_cb = &user_data.cb_handlers.onFrame;
 	
-	session = new Session(CLIENT, *callbacks);
+	session = new Session(SERVER, *callbacks);
 	
 	openStream(session, 1);
 	

@@ -241,8 +241,6 @@ struct Headers
 		
 		/* This call will adjust buf.last to the correct position */
 		rv = deflater.deflate(bufs, hfa);
-		logDebug("bufs.length: ", bufs.length);
-		logDebug("return rv: ", rv);
 		if (rv == ErrorCode.BUFFER_ERROR)
 			rv = ErrorCode.HEADER_COMP;
 
@@ -252,7 +250,7 @@ struct Headers
 			return rv;
 		
 		if (hd.flags & FrameFlags.PRIORITY) {
-			pri_spec.unpack((*buf)[]);
+			pri_spec.pack((*buf)[]);
 		}
 		
 		padlen = 0;
@@ -269,8 +267,12 @@ struct Headers
 	 * after possible Pad Length field.
 	 */
 	void unpack(in ubyte[] payload) {
-		if (hd.flags & FrameFlags.PRIORITY)
-			pri_spec = PrioritySpec(payload);
+		logDebug("Unpacking headers: ", hd.flags);
+		if (hd.flags & FrameFlags.PRIORITY) {
+			logDebug("Unpacking pri_spec with ", payload.ptr[0 .. 10]);
+			pri_spec.unpack(payload);
+			logDebug("Got: ", pri_spec);
+		}
 	}
 
 	/*

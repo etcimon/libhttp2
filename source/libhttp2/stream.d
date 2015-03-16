@@ -19,7 +19,7 @@ import std.algorithm : max;
 
 const MAX_DEP_TREE_LENGTH = 100;
 
-struct StreamRoots
+class StreamRoots
 {
 	void free() { }
 
@@ -675,7 +675,7 @@ class Stream {
     }
     
     /*
-     * Returns nonzero if $(D Stream) is in any dependency tree.
+     * Returns true if $(D Stream) is in any dependency tree.
      */
     bool inDepTree() {
         return m_dep_prev || m_dep_next || m_sib_prev ||
