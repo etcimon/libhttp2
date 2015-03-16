@@ -283,9 +283,9 @@ class Buffers {
 	 *     chunk_length < offset
 	 */
 	void realloc(size_t _chunk_length)
-	in { assert(chunk_length < offset, "Invalid Arguments"); }
+	in { assert(_chunk_length >= offset, "Invalid Arguments"); }
 	body {
-		Chain chain = Chain(chunk_length);
+		Chain chain = Chain(_chunk_length);
 		
 		free();
 		

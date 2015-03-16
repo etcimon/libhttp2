@@ -1070,12 +1070,11 @@ void test_session_read_settings_header_table_size() {
 	
 	iva[1].id = Setting.INITIAL_WINDOW_SIZE;
 	iva[1].value = 16384;
-	
-	frame.settings = Settings(FrameFlags.NONE, iva.copy());
+
+	frame.settings = Settings(FrameFlags.NONE, iva[0 .. 2].copy());
 	
 	frame.settings.pack(bufs);
-	
-	assert(0 == rv);
+
 	assert(bufs.length > 0);
 	
 	frame.settings.free();
@@ -1108,8 +1107,7 @@ void test_session_read_settings_header_table_size() {
 	frame.settings = Settings(FrameFlags.NONE, iva.copy());
 	
 	frame.settings.pack(bufs);
-	
-	assert(0 == rv);
+
 	assert(bufs.length > 0);
 	
 	frame.settings.free();
@@ -1147,8 +1145,7 @@ void test_session_read_settings_header_table_size() {
 	frame.settings = Settings(FrameFlags.NONE, iva.copy());
 	
 	frame.settings.pack(bufs);
-	
-	assert(0 == rv);
+
 	assert(bufs.length > 0);
 	
 	frame.settings.free();
@@ -1169,8 +1166,7 @@ void test_session_read_settings_header_table_size() {
 	
 	bufs.reset();
 	
-	/* 2 SettingsID.HEADER_TABLE_SIZE; second entry clears dynamic header
-     table. */
+	/* 2 SettingsID.HEADER_TABLE_SIZE; second entry clears dynamic header table. */
 	
 	submitRequest(session, pri_spec_default, (&hf)[0 .. 1], DataProvider.init, null);
 	session.send();
@@ -1189,8 +1185,7 @@ void test_session_read_settings_header_table_size() {
 	frame.settings = Settings(FrameFlags.NONE, iva.copy());
 	
 	frame.settings.pack(bufs);
-	
-	assert(0 == rv);
+
 	assert(bufs.length > 0);
 	
 	frame.settings.free();
@@ -2171,11 +2166,8 @@ void test_session_on_goaway_received() {
 	Frame frame;
 	int i;
 
-	
-
 	user_data.frame_recv_cb_called = 0;
 	user_data.invalid_frame_recv_cb_called = 0;
-	
 	
 	callbacks.on_frame_cb = &user_data.cb_handlers.onFrame;
 	callbacks.on_invalid_frame_cb = &user_data.cb_handlers.onInvalidFrame;
@@ -2256,16 +2248,18 @@ void test_session_on_window_update_received() {
 	assert(session.goaway_flags & GoAwayFlags.TERM_ON_SEND);
 	
 	frame.window_update.free();
-	
+	logDebug("free session");
 	session.free();
-	
+	logDebug("Create session");
 	/* Receiving WINDOW_UPDATE on reserved (local) stream is allowed */
 	session = new Session(SERVER, *callbacks);
-	
+	logDebug("Openstream");
 	stream = session.openStream(2, StreamFlags.NONE, pri_spec_default, StreamState.RESERVED, null);
-	
+
+	logDebug("make window update");
 	frame.window_update = WindowUpdate(FrameFlags.NONE, 2, 4096);
-	
+
+	logDebug("send window update");
 	assert(0 == session.onWindowUpdate(frame));
 	assert(!(session.goaway_flags & GoAwayFlags.TERM_ON_SEND));
 	
@@ -2490,7 +2484,7 @@ void test_session_write_push_promise() {
 	callbacks.write_cb = toDelegate(&MyCallbacks.writeNull);
 	callbacks.on_frame_failure_cb = &user_data.cb_handlers.onFrameFailure;
 	
-	session = new Session(CLIENT, *callbacks);
+	session = new Session(SERVER, *callbacks);
 	session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
 	
 	item = Mem.alloc!OutboundItem(session);
@@ -2636,7 +2630,7 @@ void test_session_reprioritize_stream() {
 
 	callbacks.write_cb = &user_data.cb_handlers.writeWouldBlock;
 	
-	session = new Session(CLIENT, *callbacks);
+	session = new Session(SERVER, *callbacks);
 	
 	stream = session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
 	
@@ -2824,8 +2818,8 @@ void test_submit_data_read_length_too_large() {
 	
 	payloadlen = min(INITIAL_CONNECTION_WINDOW_SIZE, INITIAL_WINDOW_SIZE);
 	
-	assert(FRAME_HDLEN + 1 + payloadlen == cast(size_t)buf.capacity);
-	assert(FrameFlags.NONE == hd.flags);
+	assert(FRAME_HDLEN + 1 + payloadlen == cast(size_t)buf.capacity, "Capacity error, got payloadlen " ~ payloadlen.to!string ~ " and capacity: " ~ buf.capacity.to!string);
+	assert(FrameFlags.NONE == hd.flags, "Flag error");
 	assert(FrameFlags.NONE == frame.hd.flags);
 	assert(payloadlen == hd.length);
 	/* aux_data.data.flags has these flags */
@@ -3267,7 +3261,7 @@ void test_submit_settings() {
 	
 	callbacks.write_cb = toDelegate(&MyCallbacks.writeNull);
 	callbacks.on_frame_sent_cb = &user_data.cb_handlers.onFrameSent;
-	session = new Session(CLIENT, *callbacks);
+	session = new Session(SERVER, *callbacks);
 
 	assert(ErrorCode.INVALID_ARGUMENT == submitSettings(session, iva[0 .. 6]));
 	
@@ -3538,7 +3532,7 @@ void test_submit_shutdown_notice() {
 	callbacks.on_frame_sent_cb = &user_data.cb_handlers.onFrameSent;
 	callbacks.on_frame_failure_cb = &user_data.cb_handlers.onFrameFailure;
 	
-	session = new Session(CLIENT, *callbacks);
+	session = new Session(SERVER, *callbacks);
 	
 	assert(0 == submitShutdownNotice(session));
 	
@@ -3900,7 +3894,7 @@ void test_session_stop_data_with_rst_stream() {
 	user_data.frame_send_cb_called = 0;
 	user_data.data_source_length = DATA_PAYLOADLEN * 4;
 
-	session = new Session(CLIENT, *callbacks);
+	session = new Session(SERVER, *callbacks);
 	session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
 	submitResponse(session, 1, null, data_prd);
 	
@@ -3941,8 +3935,8 @@ void test_session_defer_data() {
 	
 	user_data.frame_send_cb_called = 0;
 	user_data.data_source_length = DATA_PAYLOADLEN * 4;
-	
-	session = new Session(CLIENT, *callbacks);
+
+	session = new Session(SERVER, *callbacks);
 	stream = session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
 	
 	session.remote_window_size = 1 << 20;
@@ -4477,8 +4471,8 @@ private void check_session_read_data_with_padding(Buffers bufs, size_t datalen) 
 	
 	callbacks.on_frame_cb = &user_data.cb_handlers.onFrame;
 	callbacks.on_data_chunk_cb = &user_data.cb_handlers.onDataChunk;
-	session = new Session(CLIENT, *callbacks);
-	
+	session = new Session(SERVER, *callbacks);
+
 	session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
 	
 	input = bufs.remove();
@@ -5771,7 +5765,7 @@ void test_session_graceful_shutdown() {
 	callbacks.on_frame_sent_cb = &user_data.cb_handlers.onFrameSent;
 	callbacks.on_stream_exit_cb = &user_data.cb_handlers.onStreamExit;
 	
-	session = new Session(CLIENT, *callbacks);
+	session = new Session(SERVER, *callbacks);
 	
 	openStream(session, 301);
 	openStream(session, 302);
@@ -5836,7 +5830,7 @@ void test_session_on_header_temporal_failure() {
 		
 	callbacks.on_header_field_cb = &user_data.cb_handlers.onHeaderFieldRstStream;
 	
-	session = new Session(CLIENT, *callbacks);
+	session = new Session(SERVER, *callbacks);
 		
 	deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
 

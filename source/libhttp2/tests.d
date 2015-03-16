@@ -224,5 +224,5 @@ Stream openStreamWithDepExclusive(Session session, int stream_id, Stream dep_str
 }
 
 OutboundItem createDataOutboundItem() {
-	return new OutboundItem;
+	return Mem.alloc!OutboundItem();
 }

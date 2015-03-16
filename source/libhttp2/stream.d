@@ -307,10 +307,10 @@ class Stream {
         if (this is target)
             return true;
         
-		if (m_sib_next.subtreeContains(target))
+		if (m_sib_next && m_sib_next.subtreeContains(target))
             return true;
         
-		return m_dep_next.subtreeContains(target);
+		return m_dep_next?m_dep_next.subtreeContains(target):false;
     }
     
     /*
@@ -475,7 +475,7 @@ class Stream {
             
             dep_next = m_dep_next;
             
-			dep_next.updateSetRest();
+			if (dep_next) dep_next.updateSetRest();
             
             linkDependency(stream);
             
@@ -789,7 +789,7 @@ private:
 				LOGF("stream: stream=%d no_item, ignored", si.m_id);
 				
 				/* Since we marked StreamDPRI.TOP under si, we make them StreamDPRI.REST again. */
-				si.m_dep_next.updateSetRest();
+				if (si.m_dep_next) si.m_dep_next.updateSetRest();
 			} else {
 				LOGF("stream: stream=%d rest, ignored", si.m_id);
 			}
@@ -798,7 +798,6 @@ private:
 	
 	void updateSetRest() 
 	{
-		
 		LOGF("stream: stream=%d is rest", m_id);
 		
 		if (m_dpri == StreamDPRI.REST)
@@ -808,13 +807,16 @@ private:
 		{
 			m_dpri = StreamDPRI.REST;
 			
-			m_sib_next.updateSetRest();
+			if (m_sib_next)
+				m_sib_next.updateSetRest();
 			
 			return;
 		}
 
-		m_sib_next.updateSetRest();
-		m_dep_next.updateSetRest();
+		if (m_sib_next)
+			m_sib_next.updateSetRest();
+		if (m_dep_next)
+			m_dep_next.updateSetRest();
 	}
 	
 	/*
@@ -918,7 +920,7 @@ private:
 		
 		m_dpri = StreamDPRI.REST;
 		
-		m_dep_next.updateSetRest();
+		if (m_dep_next) m_dep_next.updateSetRest();
 		
 		root_stream = getRoot();
 		

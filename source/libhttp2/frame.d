@@ -502,7 +502,6 @@ struct Settings {
 		buf.pos -= FRAME_HDLEN;
 		
 		hd.pack((*buf)[]);
-		
 		buf.last += pack(buf.last[0 .. buf.available], iva);
 		
 		return ErrorCode.OK;
@@ -520,8 +519,8 @@ struct Settings {
 			iva = null;
 			return;
 		}
-		iva = Mem.alloc!(Setting[])(_iva.length);
-		memcpy(iva.ptr, _iva.ptr, _iva.length * Setting.sizeof);
+
+		iva = _iva.copy();
 		
 	}
 
@@ -535,9 +534,7 @@ struct Settings {
 	 * to store the result in |iva|. The caller is responsible to free
 	 * |iva| after its use.
 	 */
-	static void unpack(Setting[] iva, in ubyte[] payload) {
-		size_t i;
-		
+	static void unpack(ref Setting[] iva, in ubyte[] payload) {		
 		size_t len = payload.length / FRAME_SETTINGS_ENTRY_LENGTH;
 		
 		if (len == 0) {
@@ -547,9 +544,9 @@ struct Settings {
 		
 		iva = Mem.alloc!(Setting[])(len);
 
-		foreach(ref iv; iva) {
+		foreach(i, ref iv; iva) {
 			size_t off = i * FRAME_SETTINGS_ENTRY_LENGTH;
-			iv.unpack(&payload[off]);
+			iv.unpack(payload[off .. $]);
 		}
 	}
 
@@ -561,10 +558,11 @@ struct Settings {
 	 */
 	static int pack(ubyte[] buf, in Setting[] _iva)
 	{
-		size_t i;
-		for (i = 0; i < _iva.length; ++i, buf = buf[FRAME_SETTINGS_ENTRY_LENGTH .. $]) {
-			write!ushort(buf, _iva[i].id);
-			write!uint(buf[2 .. $], _iva[i].value);
+		foreach (ref iv; _iva) {
+			write!ushort(buf, iv.id);
+			write!uint(buf[2 .. $], iv.value);
+			if (FRAME_SETTINGS_ENTRY_LENGTH < buf.length)
+				buf = buf[FRAME_SETTINGS_ENTRY_LENGTH .. $];
 		}
 		return cast(int) (FRAME_SETTINGS_ENTRY_LENGTH * _iva.length);
 	}
@@ -1092,25 +1090,25 @@ bool check(in Setting[] iva)
 		with(Setting) switch (entry.id) {
 			case HEADER_TABLE_SIZE:
 				if (entry.value > MAX_HEADER_TABLE_SIZE) {
-					return true;
+					return false;
 				}
 				break;
 			case MAX_CONCURRENT_STREAMS:
 				break;
 			case ENABLE_PUSH:
 				if (entry.value != 0 && entry.value != 1) {
-					return true;
+					return false;
 				}
 				break;
 			case INITIAL_WINDOW_SIZE:
 				if (entry.value > cast(uint)MAX_WINDOW_SIZE) {
-					return true;
+					return false;
 				}
 				break;
 			case MAX_FRAME_SIZE:
 				if (entry.value < MAX_FRAME_SIZE_MIN ||
 					entry.value > MAX_FRAME_SIZE_MAX) {
-					return true;
+					return false;
 				}
 				break;
 			case MAX_HEADER_LIST_SIZE:
@@ -1119,7 +1117,7 @@ bool check(in Setting[] iva)
 				break;
 		}
 	}
-	return false;
+	return true;
 }
 
 void frameSetPad(Buffer* buf, int padlen) 

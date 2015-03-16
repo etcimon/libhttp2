@@ -150,7 +150,7 @@ struct InboundFrame {
 	void unpackSetting() 
 	{
 		Setting _iv;
-		_iv.unpack(sbuf.pos);
+		_iv.unpack(sbuf[]);
 
 		size_t i;
 			
@@ -167,7 +167,7 @@ struct InboundFrame {
 				return;
 		}
 		
-		for(i = 0; i < niv; i++) {
+		for(i = 0; i < niv; ++i) {
 			if (iva[i].id == _iv.id) {
 				iva[i] = _iv;
 				break;
@@ -175,7 +175,13 @@ struct InboundFrame {
 		}
 		
 		if (i == niv) {
-			iva[niv++] = _iv;
+			logDebug("niv: ", niv);
+			logDebug("max niv: ", INBOUND_NUM_IV);
+			foreach (ref iv; iva) {
+				logDebug(iv.id, " => ", iv.value);
+			}
+			iva[niv] = _iv;
+			niv++;
 		}
 		
 		if (_iv.id == Setting.HEADER_TABLE_SIZE && _iv.value < iva[INBOUND_NUM_IV - 1].value) 
@@ -291,6 +297,7 @@ private:
 		padlen = 0;
 		iva[INBOUND_NUM_IV - 1].id = Setting.HEADER_TABLE_SIZE;
 		iva[INBOUND_NUM_IV - 1].value = uint.max;
+		niv = 0;
 	}
 }
 
@@ -401,11 +408,11 @@ class Session {
 		roots.free();
 		Mem.free(roots);
 		freeAllStreams();
-		aob.reset();
 		iframe.reset();
 		ob_pq.free();
 		ob_ss_pq.free();
 		ob_da_pq.free();
+		aob.reset();
 		hd_deflater.free();
 		hd_inflater.free();
 		aob.framebufs.free();
@@ -2068,7 +2075,7 @@ package:
 			rv = submitSettings(this, iva);
 		}
 		
-		Mem.free(iva);
+		if (iva) Mem.free(iva);
 		
 		stream = openStream(1, StreamFlags.NONE, pri_spec, StreamState.OPENING, is_server ? null : stream_user_data);
 		
@@ -2478,7 +2485,6 @@ package:
 		
 		if (pri_spec.stream_id == 0)
 		{
-			logDebug("Has no dep stream");
 			
 			++roots.num_streams;
 			
@@ -3079,6 +3085,7 @@ package:
 		if (frame.hd.stream_id != 0) {
 			return handleInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "SETTINGS: stream_id != 0");
 		}
+		logDebug("Got flag: ", frame.hd.flags);
 		if (frame.hd.flags & FrameFlags.ACK) {
 			if (frame.settings.iva.length != 0) {
 				return handleInvalidConnection(frame, FrameError.FRAME_SIZE_ERROR, "SETTINGS: ACK and payload != 0");
@@ -3116,7 +3123,8 @@ package:
 					}
 					
 					hd_deflater.changeTableSize(entry.value);
-					
+					logDebug("remote settings, header_table_size = ", entry.value, " at i: ", i);
+					foreach (iv;frame.settings.iva) logDebug(iv.id, " => ", iv.value);
 					remote_settings.header_table_size = entry.value;
 					
 					break;
@@ -3178,9 +3186,11 @@ package:
 		}
 		
 		if (!noack && !isClosing()) {
+			logDebug("Call ACK");
 			rv = addSettings(FrameFlags.ACK, null);
 			
 			if (rv != ErrorCode.OK) {
+				logDebug("ERROR: ", rv);
 				if (isFatal(rv)) {
 					return rv;
 				}
@@ -3324,7 +3334,7 @@ package:
 		if (!ok)
 			return ErrorCode.CALLBACK_FAILURE;
 		
-		return closeStreamOnGoAway(frame.goaway.last_stream_id, 0);
+		return closeStreamOnGoAway(frame.goaway.last_stream_id, false);
 	}
 
 	/*
@@ -3485,13 +3495,11 @@ package:
 				assert(aob.framebufs == bufs);
 				buf = &bufs.cur.buf;
 			} catch (OutOfMemoryError oom) {
-				LOGF("send: realloc buffer failed rv=%d", rv);
+				LOGF("send: realloc buffer failed with out of memory error");
 				/* If reallocation failed, old buffers are still in tact.  So use safe limit. */
 				payloadlen = datamax;
-				
-				LOGF("send: use safe limit payloadlen=%d", payloadlen);
+				rv = ErrorCode.NOMEM;
 			}
-
 		}
 
 		datamax = payloadlen;
@@ -4464,7 +4472,6 @@ package:
 	int nextDataRead(Stream stream) 
 	{
 		int window_size;
-		
 		window_size = enforceFlowControlLimits(stream, DATA_PAYLOADLEN);
 		
 		LOGF("send: available window=%d", window_size);
@@ -4755,7 +4762,7 @@ package:
 		Frame* frame = &iframe.frame;
 		size_t i;
 		Setting min_header_size_entry;
-		
+		logDebug("Process settings frame");
 		min_header_size_entry = iframe.iva[INBOUND_NUM_IV - 1];
 		
 		if (min_header_size_entry.value < uint.max) {
@@ -4773,8 +4780,11 @@ package:
 				iframe.iva[i] = min_header_size_entry;
 			}
 		}
+
+		logDebug("Unpack settings");
 		
-		frame.settings.unpack(iframe.iva);
+		frame.settings.unpack(iframe.iva[0 .. iframe.niv]);
+		logDebug("Settings: ", frame.settings);
 		return onSettings(*frame, false /* ACK */);
 	}
 
@@ -4966,16 +4976,19 @@ package:
 	/* Closes non-idle and non-closed streams whose stream ID > last_stream_id. 
 	 * If incoming is nonzero, we are going to close incoming streams.  
 	 * Otherwise, close outgoing streams. */
-	ErrorCode closeStreamOnGoAway(int last_stream_id, int incoming)
+	ErrorCode closeStreamOnGoAway(int last_stream_id, bool incoming)
 	{
 		ErrorCode rv;
 		
 		foreach(stream; streams) {
-			if (!incoming || (isMyStreamId(stream.id) && incoming))
+			logDebug("Scanning stream ", stream.id, " last: ", last_stream_id, " state: ", stream.state);
+
+			if ((!isMyStreamId(stream.id) && !incoming) || (isMyStreamId(stream.id) && incoming))
 				continue;
-			
-			if (stream.state != StreamState.IDLE && (stream.flags & StreamFlags.CLOSED) == 0 && stream.id > last_stream_id)
+
+			if (stream.state != StreamState.IDLE && !(stream.flags & StreamFlags.CLOSED) && stream.id > last_stream_id)
 			{
+				logDebug("Close the stream");
 				rv = closeStream(stream.id, FrameError.REFUSED_STREAM);
 				if (isFatal(rv))
 					return rv;
@@ -5344,7 +5357,7 @@ package:
 						
 						goaway_flags |= GoAwayFlags.SENT;
 						
-						rv = closeStreamOnGoAway(frame.goaway.last_stream_id, 1);
+						rv = closeStreamOnGoAway(frame.goaway.last_stream_id, true);
 						
 						if (isFatal(rv)) {
 							return rv;
@@ -5592,7 +5605,7 @@ package:
 						if (item.frame.hd.type != FrameType.DATA && !isFatal(rv)) {
 							Frame* frame = &item.frame;
 							/* The library is responsible for the transmission of WINDOW_UPDATE frame, so we don't call error callback for it. */
-							if (frame.hd.type != FrameType.WINDOW_UPDATE && connector.onFrameFailure(*frame, rv) != 0)
+							if (frame.hd.type != FrameType.WINDOW_UPDATE && !connector.onFrameFailure(*frame, rv))
 							{
 								item.free();
 								Mem.free(item);
@@ -5642,7 +5655,7 @@ package:
 					
 					aob.item = item;
 					
-					framebufs.rewind();
+					if (aob.framebufs) aob.framebufs.rewind();
 					
 					if (item.frame.hd.type != FrameType.DATA) {
 						Frame* frame = &item.frame;

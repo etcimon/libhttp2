@@ -738,10 +738,10 @@ struct Setting {
 	/// The SETTINGS ID.
 	SettingCode id;
 	uint value;
-	
-	void unpack(in ubyte* payload) {
+
+	void unpack(in ubyte[] payload) {
 		id = read!ushort(payload);
-		value = read!uint(&payload[2]);
+		value = read!uint(payload[2 .. $]);
 	}
 }
 

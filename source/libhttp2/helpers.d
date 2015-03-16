@@ -62,11 +62,10 @@ HeaderField[] copy()(auto const ref HeaderField[] hfa) {
  * Makes copy of |iv| and return the copy. This function returns the 
  * copy if it succeeds, or null.
  */
-Setting[] copy(in Setting[] iv) {
-	if (iv.length == 0)
+Setting[] copy(in Setting[] iva) {
+	if (iva.length == 0)
 		return null;
-
-	return cast(Setting[]) Mem.copy(iv);
+	return cast(Setting[]) Mem.copy(iva);
 }
 
 
