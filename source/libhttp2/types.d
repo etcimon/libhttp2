@@ -366,7 +366,7 @@ struct HeaderField
 				if (stream.contentLength != -1) 
 					return false;
 				import std.conv : parse;
-				stream.contentLength = parse!uint(value);
+				stream.contentLength = parse!long(value);
 				if (stream.contentLength == -1) 
 					return false;
 				break;
@@ -423,7 +423,7 @@ struct HeaderField
 				if (stream.contentLength != -1) {
 					return false;
 				}
-				stream.contentLength = parse!uint(value);
+				stream.contentLength = parse!long(value);
 				if (stream.contentLength == -1) {
 					return false;
 				}

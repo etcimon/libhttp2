@@ -1079,7 +1079,6 @@ void test_hd_huff_encode() {
 }
 
 unittest {
-	/*
 	test_hd_deflate();
 	test_hd_deflate_same_indexed_repr();
 	test_hd_inflate_indexed();
@@ -1098,5 +1097,4 @@ unittest {
 	test_hd_public_api();
 	test_hd_decode_length();
 	test_hd_huff_encode();
-	*/
 }

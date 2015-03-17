@@ -304,7 +304,6 @@ struct MyDataSource
 		if (user_data.data_source_length == 0) {
 			data_flags |= DataFlags.EOF;
 		}
-		logDebug("user_data.data_source_length: ", user_data.data_source_length);
 		return cast(int)wlen;
 	}
 
@@ -376,13 +375,9 @@ void test_session_read() {
 	
 	user_data.frame_recv_cb_called = 0;
 	user_data.begin_frame_cb_called = 0;
-	logDebug("bufs.length: ", bufs.length);
-	logDebug("framelen: ", framelen);
 	while (cast(size_t)df.seqidx < framelen) {
 		assert(0 == session.recv());
 	}
-	logDebug("df.seqidx: ", df.seqidx, " framelen: ", framelen);
-	logDebug("user data frame recv: ", user_data.frame_recv_cb_called);
 	assert(1 == user_data.frame_recv_cb_called);
 	assert(1 == user_data.begin_frame_cb_called);
 	
@@ -2250,18 +2245,13 @@ void test_session_on_window_update_received() {
 	assert(session.goaway_flags & GoAwayFlags.TERM_ON_SEND);
 	
 	frame.window_update.free();
-	logDebug("free session");
 	session.free();
-	logDebug("Create session");
 	/* Receiving WINDOW_UPDATE on reserved (local) stream is allowed */
 	session = new Session(SERVER, *callbacks);
-	logDebug("Openstream");
 	stream = session.openStream(2, StreamFlags.NONE, pri_spec_default, StreamState.RESERVED, null);
 
-	logDebug("make window update");
 	frame.window_update = WindowUpdate(FrameFlags.NONE, 2, 4096);
 
-	logDebug("send window update");
 	assert(0 == session.onWindowUpdate(frame));
 	assert(!(session.goaway_flags & GoAwayFlags.TERM_ON_SEND));
 	
@@ -3700,8 +3690,6 @@ void test_session_open_stream_with_idle_stream_dep() {
 	
 	pri_spec = PrioritySpec(211, 1, 0);
 
-	logDebug("pri_spec: ", pri_spec);
-
 	/* stream 101 was already created as idle. */
 	stream = session.openStream(101, StreamFlags.NONE, pri_spec, StreamState.OPENED, null);
 	
@@ -4237,9 +4225,11 @@ void test_session_data_read_temporal_failure() {
 	assert(FrameType.RST_STREAM == user_data.sent_frame_type);
 	
 	data_prd.read_callback = toDelegate(&MyDataSource.readFailure);
+
 	submitRequest(session, pri_spec_default, null, data_prd, null);
 	/* Sending data will fail (hard fail) and session tear down */
-	assert(ErrorCode.CALLBACK_FAILURE == session.send());
+	auto send_ret = session.send();
+	assert(ErrorCode.CALLBACK_FAILURE == send_ret, "send returned: "~ send_ret.to!string);
 	
 	session.free();
 }
@@ -4555,8 +4545,8 @@ void test_session_pack_headers_with_padding() {
 	
 	assert(acc.length < MAX_PAYLOADLEN);
 	user_data.frame_recv_cb_called = 0;
-	assert(cast(size_t)acc.length == sv_session.memRecv(acc[]));
-	assert(1 == user_data.frame_recv_cb_called);
+	assert(cast(int)acc.length == sv_session.memRecv(acc[]), "memRecv");
+	assert(1 == user_data.frame_recv_cb_called, "frame_recv_cb_called");
 	assert(!sv_session.getNextOutboundItem());
 	
 	sv_session.free();
@@ -4749,7 +4739,7 @@ void test_session_stream_dep_remove() {
    * d
    */
 	
-	assert(3 == a.subStreams);
+	assert(3 == a.subStreams, "substreams is: " ~ a.subStreams.to!string);
 	assert(1 == b.subStreams);
 	assert(2 == c.subStreams);
 	assert(1 == d.subStreams);
@@ -5912,7 +5902,7 @@ void test_session_read_client_preface() {
 	session = new Session(SERVER, *callbacks, options);
 	
 	/* Feed preface with one byte less */
-	rv = session.memRecv(cast(ubyte[])CLIENT_CONNECTION_PREFACE);
+	rv = session.memRecv(cast(ubyte[])CLIENT_CONNECTION_PREFACE[0 .. $-1]);
 	
 	assert(rv == CLIENT_CONNECTION_PREFACE.length - 1);
 	assert(InboundState.READ_CLIENT_PREFACE == session.iframe.state);

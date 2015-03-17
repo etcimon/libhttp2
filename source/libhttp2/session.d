@@ -175,11 +175,6 @@ struct InboundFrame {
 		}
 		
 		if (i == niv) {
-			logDebug("niv: ", niv);
-			logDebug("max niv: ", INBOUND_NUM_IV);
-			foreach (ref iv; iva) {
-				logDebug(iv.id, " => ", iv.value);
-			}
 			iva[niv] = _iv;
 			niv++;
 		}
@@ -418,6 +413,7 @@ class Session {
 		aob.framebufs.free();
 		if (aob.framebufs)
 			Mem.free(aob.framebufs);
+		destroy(streams);
 	}
 
 	/**
@@ -467,14 +463,12 @@ class Session {
 		Buffers framebufs = aob.framebufs;
 		
 		for (;;) {
-			logDebug(framebufs.length);
 			rv = memSendInternal(data, false);
 			if (rv < 0)
 				return rv;
 			else if (data.length == 0)
 				return ErrorCode.OK;
 			sentlen = connector.write(data);
-			logDebug("write: ", data.length, " buf state: ", aob.state, " Sent: ", sentlen);
 			
 			if (sentlen < 0) {
 				if (cast(ErrorCode) sentlen == ErrorCode.WOULDBLOCK) {
@@ -664,7 +658,7 @@ class Session {
 				case READ_CLIENT_PREFACE:
 					readlen = min(input.length, iframe.payloadleft);
 					
-					if (CLIENT_CONNECTION_PREFACE[$ - iframe.payloadleft .. readlen] != pos[0 .. readlen])
+					if (CLIENT_CONNECTION_PREFACE[$ - iframe.payloadleft .. $ - iframe.payloadleft + readlen] != pos[0 .. readlen])
 					{
 						return ErrorCode.BAD_PREFACE;
 					}
@@ -2405,15 +2399,13 @@ package:
 	 */
 	Stream openStream(int stream_id, StreamFlags flags, PrioritySpec pri_spec_in, StreamState initial_state, void *stream_user_data = null)
 	{
-		logDebug("Open stream: ", stream_id, " Pri_spec: ", pri_spec_in, " initial_state: ", initial_state);
 		ErrorCode rv;
 		Stream stream;
-		Stream dep_stream = null;
+		Stream dep_stream;
 		Stream root_stream;
 		bool stream_alloc;
 		PrioritySpec pri_spec_default;
 		PrioritySpec pri_spec = pri_spec_in;
-		logDebug("got pri_spec weight: ", pri_spec.weight);
 		stream = getStreamRaw(stream_id);
 		
 		if (stream) {
@@ -2500,7 +2492,7 @@ package:
 	     for those which have upload data.  Currently, we just track
 	     everything. */    
 		assert(dep_stream);
-		
+
 		root_stream = dep_stream.getRoot();
 		
 		if (root_stream.subStreams < MAX_DEP_TREE_LENGTH) {
@@ -3084,7 +3076,6 @@ package:
 		if (frame.hd.stream_id != 0) {
 			return handleInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "SETTINGS: stream_id != 0");
 		}
-		logDebug("Got flag: ", frame.hd.flags);
 		if (frame.hd.flags & FrameFlags.ACK) {
 			if (frame.settings.iva.length != 0) {
 				return handleInvalidConnection(frame, FrameError.FRAME_SIZE_ERROR, "SETTINGS: ACK and payload != 0");
@@ -3122,8 +3113,7 @@ package:
 					}
 					
 					hd_deflater.changeTableSize(entry.value);
-					logDebug("remote settings, header_table_size = ", entry.value, " at i: ", i);
-					foreach (iv;frame.settings.iva) logDebug(iv.id, " => ", iv.value);
+
 					remote_settings.header_table_size = entry.value;
 					
 					break;
@@ -3185,11 +3175,9 @@ package:
 		}
 		
 		if (!noack && !isClosing()) {
-			logDebug("Call ACK");
 			rv = addSettings(FrameFlags.ACK, null);
 			
 			if (rv != ErrorCode.OK) {
-				logDebug("ERROR: ", rv);
 				if (isFatal(rv)) {
 					return rv;
 				}
@@ -3490,12 +3478,10 @@ package:
 			import core.exception : OutOfMemoryError;
 			/* Resize the current buffer(s).  The reason why we do +1 for buffer size is for possible padding field. */
 			try {
-				logDebug("Reallocating!");
 				aob.framebufs.realloc(FRAME_HDLEN + 1 + payloadlen);
 				assert(aob.framebufs == bufs);
 				buf = &bufs.cur.buf;
 			} catch (OutOfMemoryError oom) {
-				LOGF("send: realloc buffer failed with out of memory error");
 				/* If reallocation failed, old buffers are still in tact.  So use safe limit. */
 				payloadlen = datamax;
 				rv = ErrorCode.NOMEM;
@@ -3511,7 +3497,7 @@ package:
 
 		// TODO: Deferred and all
 		payloadlen = aux_data.data_prd.read_callback(frame.hd.stream_id, buf.pos[0 .. datamax], data_flags, aux_data.data_prd.source);
-		logDebug("Callback returned: ", payloadlen, " dataflags: ", data_flags);
+
 		if (payloadlen == ErrorCode.DEFERRED ||
 			payloadlen == ErrorCode.TEMPORAL_CALLBACK_FAILURE)
 		{
@@ -3534,7 +3520,6 @@ package:
 		frame.hd.flags = FrameFlags.NONE;
 		
 		if (data_flags & DataFlags.EOF) {
-			logDebug("EOF true");
 			aux_data.eof = true;
 			if (aux_data.flags & FrameFlags.END_STREAM)
 				frame.hd.flags |= FrameFlags.END_STREAM;
@@ -3724,7 +3709,6 @@ package:
 			hd_inflater.changeTableSize(header_table_size);
 
 		if (new_initial_window_size != -1) {
-			logDebug("new initial window size: ", new_initial_window_size);
 			rv = updateLocalInitialWindowSize(new_initial_window_size, local_settings.initial_window_size);
 			if (rv != ErrorCode.OK) {
 				return rv;
@@ -4408,24 +4392,20 @@ package:
 	ErrorCode updateRecvConnectionWindowSize(size_t delta_size) 
 	{
 		ErrorCode rv;
-		logDebug("updateRecvConnectionWindowSize");
 		bool ok = adjustRecvWindowSize(recv_window_size, delta_size, local_window_size);
 		if (!ok) {
 			return terminateSession(FrameError.FLOW_CONTROL_ERROR);
 		}
-		logDebug("opt_flags: ", opt_flags & OptionsMask.NO_AUTO_WINDOW_UPDATE, " raw: ", opt_flags);
 		if (!(opt_flags & OptionsMask.NO_AUTO_WINDOW_UPDATE))
 		{
 			
 			if (shouldSendWindowUpdate(local_window_size, recv_window_size)) 
 			{
-				logDebug("Add Window Update");
 				/* Use stream ID 0 to update connection-level flow control window */
 				addWindowUpdate(FrameFlags.NONE, 0, recv_window_size);
 				recv_window_size = 0;
 			}
-		} else 
-			logDebug("Cannot add Window Update");
+		}
 		return ErrorCode.OK;
 	}
 	
@@ -4621,7 +4601,7 @@ package:
 	ErrorCode afterHeaderBlockReceived() 
 	{
 		ErrorCode rv;
-		bool call_cb = 1;
+		bool call_cb = true;
 		Frame* frame = &iframe.frame;
 		Stream stream;
 		
@@ -4667,7 +4647,7 @@ package:
 						assert(0);
 				}
 				if (rv == 0 && (frame.hd.flags & FrameFlags.END_STREAM)) {
-					if (stream.validateRemoteEndStream())
+					if (!stream.validateRemoteEndStream())
 						rv = ErrorCode.ERROR;
 				}
 			}
@@ -4680,7 +4660,7 @@ package:
 					stream_id = frame.hd.stream_id;
 				}
 				
-				call_cb = 0;
+				call_cb = false;
 				
 				addRstStream(stream_id, FrameError.PROTOCOL_ERROR);
 			}
@@ -4764,7 +4744,6 @@ package:
 		Frame* frame = &iframe.frame;
 		size_t i;
 		Setting min_header_size_entry;
-		logDebug("Process settings frame");
 		min_header_size_entry = iframe.iva[INBOUND_NUM_IV - 1];
 		
 		if (min_header_size_entry.value < uint.max) {
@@ -4782,11 +4761,9 @@ package:
 				iframe.iva[i] = min_header_size_entry;
 			}
 		}
-
-		logDebug("Unpack settings");
 		
 		frame.settings.unpack(iframe.iva[0 .. iframe.niv]);
-		logDebug("Settings: ", frame.settings);
+
 		return onSettings(*frame, false /* ACK */);
 	}
 
@@ -4952,7 +4929,6 @@ package:
 		auto old_window_size = old_initial_window_size;
 		
 		foreach(stream; streams) {
-			logDebug("stream localWindowSize: ", stream.localWindowSize);
 			if (!stream.updateLocalInitialWindowSize(new_window_size, old_window_size))
 				return terminateSession(FrameError.FLOW_CONTROL_ERROR);
 
@@ -4984,14 +4960,12 @@ package:
 		ErrorCode rv;
 		
 		foreach(stream; streams) {
-			logDebug("Scanning stream ", stream.id, " last: ", last_stream_id, " state: ", stream.state);
 
 			if ((!isMyStreamId(stream.id) && !incoming) || (isMyStreamId(stream.id) && incoming))
 				continue;
 
 			if (stream.state != StreamState.IDLE && !(stream.flags & StreamFlags.CLOSED) && stream.id > last_stream_id)
 			{
-				logDebug("Close the stream");
 				rv = closeStream(stream.id, FrameError.REFUSED_STREAM);
 				if (isFatal(rv))
 					return rv;
@@ -5027,7 +5001,6 @@ package:
 	{
 		ErrorCode rv;
 		Frame* frame = &item.frame;
-		logDebug("Preparing outbound frame type: ", frame.hd.type); 
 		if (frame.hd.type != FrameType.DATA) {
 			with(FrameType) switch (frame.hd.type) {
 				case HEADERS: {
@@ -5228,8 +5201,10 @@ package:
 				addRstStream(frame.hd.stream_id, FrameError.INTERNAL_ERROR);
 				return ErrorCode.TEMPORAL_CALLBACK_FAILURE;
 			}
-			if (rv != 0)
+			if (rv != 0) {
 				stream.detachItem(this);
+				return rv;
+			}
 			return ErrorCode.OK;
 		}
 	}
@@ -5378,13 +5353,10 @@ package:
 
 		Stream stream = getStream(frame.hd.stream_id);
 		DataAuxData *aux_data = &item.aux_data.data;
-		logDebug("remote_window_size: ", remote_window_size);
-		logDebug("frame.hd.length: ", frame.hd.length);
 		/* We update flow control window after a frame was completely
 	       sent. This is possible because we choose payload length not to
 	       exceed the window */
 		remote_window_size -= frame.hd.length;
-		logDebug("remote_window_Size:" , remote_window_size);
 		if (stream) {
 			stream.remoteWindowSize = stream.remoteWindowSize - frame.hd.length;
 		}
@@ -5594,7 +5566,6 @@ package:
 							break;
 						}
 					}
-					logDebug("Before prepareFrame");
 					rv = prepareFrame(item);
 					if (rv == ErrorCode.DEFERRED) {
 						LOGF("send: frame transmission deferred");
@@ -5659,8 +5630,6 @@ package:
 					}
 					
 					aob.item = item;
-
-					logDebug("framebufs len: ", framebufs.length);
 
 					framebufs.rewind();
 					
@@ -6675,7 +6644,7 @@ int submitHeadersShared(Session session, FrameFlags flags, int stream_id,
 	Frame* frame;
 	HeadersCategory hcat;
 	bool owns_hfa = true;
-	scope(failure) if (owns_hfa) Mem.free(hfa_copy);
+	scope(failure) if (owns_hfa && hfa_copy) Mem.free(hfa_copy);
 		
 	if (stream_id == 0) {
 		Mem.free(hfa_copy);
@@ -6683,7 +6652,7 @@ int submitHeadersShared(Session session, FrameFlags flags, int stream_id,
 	}
 
 	item = Mem.alloc!OutboundItem(session);
-	scope(failure) Mem.free(item);
+	scope(failure) if (item) Mem.free(item);
 
 	if (data_prd.read_callback) {
 		item.aux_data.headers.data_prd = data_prd;
@@ -6696,8 +6665,8 @@ int submitHeadersShared(Session session, FrameFlags flags, int stream_id,
 	
 	if (stream_id == -1) {
 		if (session.next_stream_id > int.max) {
-			Mem.free(item);
-			Mem.free(hfa_copy);
+			if (item) Mem.free(item);
+			if (hfa_copy) Mem.free(hfa_copy);
 			return ErrorCode.STREAM_ID_NOT_AVAILABLE;
 		}
 		
@@ -6718,7 +6687,7 @@ int submitHeadersShared(Session session, FrameFlags flags, int stream_id,
 	
 	if (rv != ErrorCode.OK) {
 		frame.headers.free();
-		Mem.free(item);
+		if (item) Mem.free(item);
 		return rv;
 	}
 	

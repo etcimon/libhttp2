@@ -104,7 +104,6 @@ class Stream {
         m_id = stream_id;
         m_flags = flags;
         m_state = initial_state;
-		logDebug("initializing with weight: ", weight);
         m_weight = weight;
         m_effective_weight = m_weight;
 		m_roots = roots;
@@ -262,7 +261,6 @@ class Stream {
 	 */
     bool updateLocalInitialWindowSize(int new_initial_window_size, int old_initial_window_size) 
 	{
-		logDebug("Updatelocal Initial :", m_local_window_size);
 		return updateInitialWindowSize(m_local_window_size, new_initial_window_size, old_initial_window_size);
     }
     
@@ -290,7 +288,7 @@ class Stream {
             }
             
             if (stream.m_dep_prev) {
-                stream = m_dep_prev;
+                stream = stream.m_dep_prev;
                 
                 continue;
             }
@@ -402,7 +400,7 @@ class Stream {
         
         prev = firstSibling();
         
-        m_dep_prev = prev.m_dep_prev;
+        dep_prev = prev.m_dep_prev;
         
         if (dep_prev) {
 			root_stream = dep_prev.updateLength(-1);
@@ -1298,10 +1296,10 @@ private:
 	ShutdownFlag m_shut_flags = ShutdownFlag.NONE;
 
     /// Content-Length of request/response body. -1 if unknown.
-	int m_content_length = -1;
+	long m_content_length = -1;
 
     /// Received body so far 
-    int m_recv_content_length;
+    long m_recv_content_length;
 
     /// status code from remote server
 	short m_status_code = -1;
@@ -1338,10 +1336,10 @@ package: // used by Session
 	@property Stream closedNext() { return m_closed_next; } 
 	@property void closedPrev(Stream s) { m_closed_prev = s; }
 	@property void closedNext(Stream s) { m_closed_next = s; } 
-	@property int contentLength() { return m_content_length; }
+	@property long contentLength() { return m_content_length; }
 	@property short statusCode() { return m_status_code; }
 	@property void statusCode(short status) { m_status_code = status; }
-	@property void contentLength(int len) { m_content_length = len; }
+	@property void contentLength(long len) { m_content_length = len; }
 	// tests
 	@property int subStreams() { return m_num_substreams; }
 	@property int sumDepWeight() { return m_sum_dep_weight; }

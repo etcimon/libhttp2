@@ -88,28 +88,22 @@ struct Deflater
 			
 			if (ctx.hd_table_bufsize_max > _min_hd_table_bufsize_max) {
 
-				logDebug("bufs.len emitTableSize: ", bufs.length);
 				rv = emitTableSize(bufs, _min_hd_table_bufsize_max);
-				logDebug("bufs.len emitTableSize: ", bufs.length);
 
 				if (rv != 0) {
 					goto fail;
 				}
 			}
 
-			logDebug("bufs.len emitTableSize 2: ", bufs.length);
 			rv = emitTableSize(bufs, ctx.hd_table_bufsize_max);
-			logDebug("bufs.len emitTableSize 2: ", bufs.length);
 			
 			if (rv != 0) {
 				goto fail;
 			}
 		}
-		logDebug("len now: ", bufs.length);
 		
 		for (i = 0; i < hfa.length; ++i) {
 			rv = deflate(bufs, hfa[i]);
-			logDebug("len now: ", bufs.length);
 			if (rv != 0)
 				goto fail;
 		}

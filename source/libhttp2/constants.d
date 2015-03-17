@@ -15,7 +15,7 @@ version(unittest)
 	const TEST_ALL = true;
 else
 	const TEST_ALL = false;
-const DEBUG = true;
+const DEBUG = false;
 
 /// Version of this library
 const VERSION = "0.2";

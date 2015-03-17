@@ -256,7 +256,6 @@ struct Headers
 		padlen = 0;
 		hd.length = bufs.length;
 		hd.packShared(bufs);
-		logDebug("bufs.length: ", bufs.length);
 
 		return ErrorCode.OK;
 	}
@@ -267,11 +266,8 @@ struct Headers
 	 * after possible Pad Length field.
 	 */
 	void unpack(in ubyte[] payload) {
-		logDebug("Unpacking headers: ", hd.flags);
 		if (hd.flags & FrameFlags.PRIORITY) {
-			logDebug("Unpacking pri_spec with ", payload.ptr[0 .. 10]);
 			pri_spec.unpack(payload);
-			logDebug("Got: ", pri_spec);
 		}
 	}
 
