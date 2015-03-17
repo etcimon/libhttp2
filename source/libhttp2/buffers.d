@@ -265,7 +265,6 @@ class Buffers {
 		}
 		
 		head = null;
-		destroy(this);
 	}	
 
 	/*

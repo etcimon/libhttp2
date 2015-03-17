@@ -93,7 +93,7 @@ struct MyUserData {
 	ErrorCode not_sent_error;
 	int stream_close_cb_called;
 	FrameError stream_close_error_code;
-	size_t data_source_length;
+	int data_source_length;
 	int stream_id;
 	size_t block_count;
 	int data_chunk_recv_cb_called;
@@ -300,9 +300,11 @@ struct MyDataSource
 			wlen = user_data.data_source_length;
 		}
 		user_data.data_source_length -= wlen;
+		assert(user_data.data_source_length >= 0);
 		if (user_data.data_source_length == 0) {
 			data_flags |= DataFlags.EOF;
 		}
+		logDebug("user_data.data_source_length: ", user_data.data_source_length);
 		return cast(int)wlen;
 	}
 
@@ -2950,7 +2952,7 @@ void test_submit_request_without_data() {
 	output.inflate(inflater, bufs, FRAME_HDLEN);
 	
 	assert(reqhf.length == output.length);
-	assert(reqhf.equals(output.hfa_raw));
+	assert(reqhf.equals(output[]));
 	frame.headers.free();
 	output.reset();
 	
@@ -3014,7 +3016,7 @@ void test_submit_response_without_data() {
 	output.inflate(inflater, bufs, FRAME_HDLEN);
 	
 	assert(reshf.length == output.length);
-	assert(reshf.equals(output.hfa_raw));
+	assert(reshf.equals(output[]));
 	
 	output.reset();
 	bufs.free();
@@ -3158,7 +3160,7 @@ void test_submit_headers() {
 	output.inflate(inflater, bufs, FRAME_HDLEN);
 	
 	assert(reqhf.length == output.length);
-	assert(reqhf.equals(output.hfa_raw));
+	assert(reqhf.equals(output[]));
 	
 	output.reset();
 	bufs.free();
@@ -3284,7 +3286,7 @@ void test_submit_settings() {
 	assert(16 * 1024 == frame.settings.iva[1].value);
 	assert(Setting.INITIAL_WINDOW_SIZE == frame.settings.iva[1].id);
 	
-	assert(UNKNOWN_ID == frame.settings.iva[4].id);
+	assert(cast(ushort)UNKNOWN_ID == frame.settings.iva[4].id);
 	assert(999 == frame.settings.iva[4].value);
 	
 	user_data.frame_send_cb_called = 0;
@@ -3357,8 +3359,8 @@ void test_submit_settings_update_local_window_size() {
 	assert(0 == session.onSettings(ack_frame, false));
 	
 	item = session.getNextOutboundItem();
-	assert(FrameType.GOAWAY == item.frame.hd.type);
-	assert(FrameError.FLOW_CONTROL_ERROR == item.frame.goaway.error_code);
+	assert(FrameType.GOAWAY == item.frame.hd.type, "Expected GoAway frame type, got " ~ item.frame.hd.type.to!string);
+	assert(FrameError.FLOW_CONTROL_ERROR == item.frame.goaway.error_code, "Expected a Flow control error, got " ~ item.frame.goaway.error_code.to!string);
 	
 	session.free();
 	ack_frame.settings.free();
@@ -3684,6 +3686,7 @@ void test_session_open_stream_with_idle_stream_dep() {
 	
 	/* Dependency to idle stream */
 	pri_spec = PrioritySpec(101, 245, 0);
+
 	
 	stream = session.openStream(1, StreamFlags.NONE, pri_spec, StreamState.OPENED, null);
 	
@@ -3696,7 +3699,9 @@ void test_session_open_stream_with_idle_stream_dep() {
 	assert(DEFAULT_WEIGHT == stream.weight);
 	
 	pri_spec = PrioritySpec(211, 1, 0);
-	
+
+	logDebug("pri_spec: ", pri_spec);
+
 	/* stream 101 was already created as idle. */
 	stream = session.openStream(101, StreamFlags.NONE, pri_spec, StreamState.OPENED, null);
 	
@@ -3996,8 +4001,7 @@ void test_session_flow_control() {
 	int new_initial_window_size;
 	Setting[1] iva;
 	Frame settings_frame;
-
-	
+		
 	callbacks.write_cb = &user_data.cb_handlers.writeFixedBytes;
 	callbacks.on_frame_sent_cb = &user_data.cb_handlers.onFrameSent;
 	data_prd.read_callback = &user_data.datasrc.readFixedLength;
@@ -4015,10 +4019,10 @@ void test_session_flow_control() {
 	session.remote_settings.initial_window_size = 64 * 1024;
 	
 	submitRequest(session, pri_spec_default, null, data_prd, null);
-	
+
 	/* Sends 64KiB - 1 data */
 	assert(0 == session.send());
-	assert(64 * 1024 == user_data.data_source_length);
+	assert(64 * 1024 == user_data.data_source_length, "Wrong data source length: " ~ user_data.data_source_length.to!string);
 	
 	/* Back 32KiB in stream window */
 	frame.window_update = WindowUpdate(FrameFlags.NONE, 1, 32 * 1024);
@@ -4192,7 +4196,7 @@ void test_session_data_read_temporal_failure() {
 	DataProvider data_prd;
 	Frame frame;
 	Stream stream;
-	size_t data_size = 128 * 1024;
+	int data_size = 128 * 1024;
 	
 	
 	callbacks.write_cb = toDelegate(&MyCallbacks.writeNull);
@@ -4495,7 +4499,7 @@ void test_session_pack_data_with_padding() {
 	Callbacks callbacks;
 	DataProvider data_prd;
 	Frame* frame;
-	size_t datalen = 55;
+	int datalen = 55;
 	
 	
 	callbacks.write_cb = &user_data.cb_handlers.writeWouldBlock;

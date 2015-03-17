@@ -2413,7 +2413,7 @@ package:
 		bool stream_alloc;
 		PrioritySpec pri_spec_default;
 		PrioritySpec pri_spec = pri_spec_in;
-		
+		logDebug("got pri_spec weight: ", pri_spec.weight);
 		stream = getStreamRaw(stream_id);
 		
 		if (stream) {
@@ -2428,13 +2428,9 @@ package:
 		}
 		
 		if (pri_spec.stream_id != 0) {
-			logDebug("pri_spec stream_id != 0");
 			dep_stream = getStreamRaw(pri_spec.stream_id);
-			logDebug("dep_stream: ", &dep_stream);
-			logDebug("in dep tree: ", dep_stream.inDepTree);
 			if  (is_server && !dep_stream && idleStreamDetect(pri_spec.stream_id)) 
 			{
-				logDebug("pri_spec idle stream");
 				/* Depends on idle stream, which does not exist in memory. Assign default priority for it. */            
 				dep_stream = openStream(pri_spec.stream_id, StreamFlags.NONE, pri_spec_default, StreamState.IDLE, null);
 			} else if (!dep_stream || !dep_stream.inDepTree()) {
@@ -2446,9 +2442,12 @@ package:
 		if (initial_state == StreamState.RESERVED)
 			flags |= StreamFlags.PUSH;
 
-		if (stream_alloc) 
+		if (stream_alloc)
 			stream = Mem.alloc!Stream(stream_id, flags, initial_state, pri_spec.weight, roots, 
 									  remote_settings.initial_window_size, local_settings.initial_window_size, stream_user_data);
+		else
+			stream.initialize(stream_id, flags, initial_state, pri_spec.weight, roots, 
+				remote_settings.initial_window_size, local_settings.initial_window_size, stream_user_data);
 		scope(failure) if (stream_alloc) Mem.free(stream);
 
 		if (stream_alloc)
@@ -3456,7 +3455,7 @@ package:
 	 * ErrorCode.CALLBACK_FAILURE
 	 *     The read_callback failed (session error).
 	 */
-	ErrorCode packData(Buffers bufs, int datamax, Frame frame, ref DataAuxData aux_data) {
+	ErrorCode packData(Buffers bufs, int datamax, ref Frame frame, ref DataAuxData aux_data) {
 		ErrorCode rv;
 		DataFlags data_flags;
 		int payloadlen;
@@ -3491,6 +3490,7 @@ package:
 			import core.exception : OutOfMemoryError;
 			/* Resize the current buffer(s).  The reason why we do +1 for buffer size is for possible padding field. */
 			try {
+				logDebug("Reallocating!");
 				aob.framebufs.realloc(FRAME_HDLEN + 1 + payloadlen);
 				assert(aob.framebufs == bufs);
 				buf = &bufs.cur.buf;
@@ -3511,7 +3511,7 @@ package:
 
 		// TODO: Deferred and all
 		payloadlen = aux_data.data_prd.read_callback(frame.hd.stream_id, buf.pos[0 .. datamax], data_flags, aux_data.data_prd.source);
-		
+		logDebug("Callback returned: ", payloadlen, " dataflags: ", data_flags);
 		if (payloadlen == ErrorCode.DEFERRED ||
 			payloadlen == ErrorCode.TEMPORAL_CALLBACK_FAILURE)
 		{
@@ -3534,6 +3534,7 @@ package:
 		frame.hd.flags = FrameFlags.NONE;
 		
 		if (data_flags & DataFlags.EOF) {
+			logDebug("EOF true");
 			aux_data.eof = true;
 			if (aux_data.flags & FrameFlags.END_STREAM)
 				frame.hd.flags |= FrameFlags.END_STREAM;
@@ -3723,6 +3724,7 @@ package:
 			hd_inflater.changeTableSize(header_table_size);
 
 		if (new_initial_window_size != -1) {
+			logDebug("new initial window size: ", new_initial_window_size);
 			rv = updateLocalInitialWindowSize(new_initial_window_size, local_settings.initial_window_size);
 			if (rv != ErrorCode.OK) {
 				return rv;
@@ -4950,6 +4952,7 @@ package:
 		auto old_window_size = old_initial_window_size;
 		
 		foreach(stream; streams) {
+			logDebug("stream localWindowSize: ", stream.localWindowSize);
 			if (!stream.updateLocalInitialWindowSize(new_window_size, old_window_size))
 				return terminateSession(FrameError.FLOW_CONTROL_ERROR);
 
@@ -5024,7 +5027,7 @@ package:
 	{
 		ErrorCode rv;
 		Frame* frame = &item.frame;
-		
+		logDebug("Preparing outbound frame type: ", frame.hd.type); 
 		if (frame.hd.type != FrameType.DATA) {
 			with(FrameType) switch (frame.hd.type) {
 				case HEADERS: {
@@ -5375,12 +5378,13 @@ package:
 
 		Stream stream = getStream(frame.hd.stream_id);
 		DataAuxData *aux_data = &item.aux_data.data;
-
+		logDebug("remote_window_size: ", remote_window_size);
+		logDebug("frame.hd.length: ", frame.hd.length);
 		/* We update flow control window after a frame was completely
 	       sent. This is possible because we choose payload length not to
 	       exceed the window */
 		remote_window_size -= frame.hd.length;
-
+		logDebug("remote_window_Size:" , remote_window_size);
 		if (stream) {
 			stream.remoteWindowSize = stream.remoteWindowSize - frame.hd.length;
 		}
@@ -5461,13 +5465,13 @@ package:
 		OutboundItem next_item;
 		Stream stream;
 		DataAuxData aux_data = item.aux_data.data;
-		
+
 		/* On EOF, we have already detached data.  Please note that
 	       application may issue submitData() in
 	       $(D Connector.onFrameSent) (call from afterFrameSent),
 	       which attach data to stream.  We don't want to detach it. */
 		if (aux_data.eof) {
-			aob.reset();			
+			aob.reset();
 			return ErrorCode.OK;
 		}
 		
@@ -5526,7 +5530,7 @@ package:
 			
 			framebufs.reset();
 			
-			rv = packData(framebufs, next_readmax, *frame, aux_data);
+			rv = packData(framebufs, next_readmax, *frame, item.aux_data.data);
 			if (isFatal(rv)) {
 				return rv;
 			}
@@ -5590,12 +5594,13 @@ package:
 							break;
 						}
 					}
-					
+					logDebug("Before prepareFrame");
 					rv = prepareFrame(item);
 					if (rv == ErrorCode.DEFERRED) {
 						LOGF("send: frame transmission deferred");
 						break;
 					}
+
 					if (rv < 0) {
 						int opened_stream_id;
 						FrameError error_code = FrameError.INTERNAL_ERROR;
@@ -5654,8 +5659,10 @@ package:
 					}
 					
 					aob.item = item;
-					
-					if (aob.framebufs) aob.framebufs.rewind();
+
+					logDebug("framebufs len: ", framebufs.length);
+
+					framebufs.rewind();
 					
 					if (item.frame.hd.type != FrameType.DATA) {
 						Frame* frame = &item.frame;
@@ -5684,7 +5691,7 @@ package:
 					size_t datalen;
 					Buffer* buf = &framebufs.cur.buf;
 					
-					if (buf.pos == buf.last) {
+					if (buf.pos is buf.last) {
 						LOGF("send: end transmission of a frame");
 
 						/* Frame has completely sent */

@@ -92,18 +92,19 @@ class Stream {
 
 	void free() { } // We don't free stream.item. It is deleted in ActiveOutboundItem.reset(), Sessioin.free() or PriorityQueue
 
-    private void initialize(int stream_id,
-		 StreamFlags flags,
-		 StreamState initial_state,
-		 int weight,
-		 StreamRoots roots,
-		 int remote_initial_window_size,
-         int local_initial_window_size,
-         void *stream_user_data) 
+    package void initialize(int stream_id,
+							StreamFlags flags,
+							StreamState initial_state,
+							int weight,
+							StreamRoots roots,
+							int remote_initial_window_size,
+					        int local_initial_window_size,
+					        void *stream_user_data) 
 	{
         m_id = stream_id;
         m_flags = flags;
         m_state = initial_state;
+		logDebug("initializing with weight: ", weight);
         m_weight = weight;
         m_effective_weight = m_weight;
 		m_roots = roots;
@@ -261,6 +262,7 @@ class Stream {
 	 */
     bool updateLocalInitialWindowSize(int new_initial_window_size, int old_initial_window_size) 
 	{
+		logDebug("Updatelocal Initial :", m_local_window_size);
 		return updateInitialWindowSize(m_local_window_size, new_initial_window_size, old_initial_window_size);
     }
     
@@ -688,11 +690,12 @@ private:
 
 	bool updateInitialWindowSize(ref int window_size, int new_initial_window_size, int old_initial_window_size)
 	{
-		int new_window_size = window_size + new_initial_window_size - old_initial_window_size;
+		long new_window_size = ( cast(long)window_size ) + new_initial_window_size - old_initial_window_size;
+
 		if (int.min > new_window_size || new_window_size > MAX_WINDOW_SIZE)
 			return false;
-		
-		window_size = new_window_size;
+
+		window_size = cast(int) new_window_size;
 
 		return true;
 	}
