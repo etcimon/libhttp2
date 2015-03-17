@@ -632,7 +632,7 @@ private:
 
 		chain = Chain(chunk_length);
 		
-		LOGF("new buffer %d bytes allocated for bufs %s, used %d", chunk_length, &this, chunk_used);
+		LOGF("new buffer %d bytes allocated for bufs %s, used %d", chunk_length, this, chunk_used);
 		
 		++chunk_used;
 		

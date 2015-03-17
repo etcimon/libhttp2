@@ -6750,9 +6750,6 @@ void test_http_push_promise() {
 }
 
 unittest {
-	import backtrace.backtrace;
-	import std.stdio : stdout;
-	install(stdout, PrintOptions.init, 0);
 	test_session_read();
 	test_session_read_invalid_stream_id();
 	test_session_read_invalid_frame();

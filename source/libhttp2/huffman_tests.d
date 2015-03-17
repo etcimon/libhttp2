@@ -985,19 +985,19 @@ void test_hd_public_api() {
 private size_t encodeLength(ubyte *buf, ulong n, size_t prefix) {
 	size_t k = (1 << prefix) - 1;
 	size_t len;
-	*buf &= ~k;
+	*buf &= ~(cast(ubyte)k);
 	if (n >= k) {
-		*buf++ |= k;
+		*buf++ |= cast(ubyte) k;
 		n -= k;
 		++len;
 	} else {
-		*buf++ |= n;
+		*buf++ |= cast(ubyte) n;
 		return 1;
 	}
 	do {
 		++len;
 		if (n >= 128) {
-			*buf++ = (1 << 7) | (n & 0x7f);
+			*buf++ = cast(ubyte)((1 << 7) | ((cast(ubyte)n) & 0x7f));
 			n >>= 7;
 		} else {
 			*buf++ = cast(ubyte)n;
@@ -1019,9 +1019,9 @@ void test_hd_decode_length() {
 
 	len = encodeLength(buf.ptr, uint.max, 7);
 
-	rv = output.decodeLength(shift, is_final, 0, 0, buf.ptr, buf.ptr + len, 7);
+	rv = output.decodeLength(shift, is_final, 0, 0, buf.ptr, buf.ptr + cast(size_t)len, 7);
 	
-	assert(cast(size_t)len == rv);
+	assert(cast(int)len == rv, len.to!string ~ " != " ~ rv.to!string);
 	assert(false != is_final);
 	assert(uint.max == output);
 	

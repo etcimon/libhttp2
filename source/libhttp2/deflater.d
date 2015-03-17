@@ -430,7 +430,6 @@ ErrorCode emitString(Buffers bufs, in string str) {
 	encodeLength(bufp, enclen, 7);
 	
 	rv = bufs.add(cast(string)sb[0 .. blocklen]);
-
 	if (rv != 0)
 		return rv;
 		
@@ -483,22 +482,22 @@ ubyte packFirstByte(bool inc_indexing, bool no_index) {
 size_t encodeLength(ubyte* buf, size_t n, size_t prefix) {
 	size_t k = (1 << prefix) - 1;
 	ubyte *begin = buf;
-	
-	*buf &= ~k;
+
+	*buf &= ~(cast(ubyte) k);
 	
 	if (n < k) {
-		*buf |= n;
+		*buf |= cast(ubyte) n;
 		return 1;
 	}
 	
-	*buf++ |= k;
+	*buf++ |= (cast(ubyte)k);
 	n -= k;
-	
+
 	for (; n >= 128; n >>= 7) {
-		*buf++ = (1 << 7) | (n & 0x7f);
+		*buf++ = cast(ubyte)((1 << 7) | ((cast(ubyte)n) & 0x7f));
 	}
 	
-	*buf++ = cast(ubyte)n;
+	*buf++ = cast(ubyte) n;
 	
 	return cast(size_t)(buf - begin);
 }

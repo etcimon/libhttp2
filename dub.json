@@ -7,5 +7,5 @@
 	"targetType": "staticLibrary",
 	"targetPath": "build",
 	"workingDirectory": "build",
-	"dependencies": { "memutils": { "version": "~master", "path": "../memutils" }, "backtrace-d": "~master" }
+	"dependencies": { "memutils": { "version": "~>0.3.1", "path": "../memutils" } }
 }

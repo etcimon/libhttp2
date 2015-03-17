@@ -413,8 +413,8 @@ int decodeLength(ref uint res, ref size_t shift_ptr, ref bool is_final, // <-- o
 	is_final = false;
 	
 	if (n == 0) {
-		if (((*input) & k) != k) {
-			res = (*input) & k;
+		if (((*input) & (cast(ubyte)k)) != cast(ubyte)k) {
+			res = (*input) & (cast(ubyte) k);
 			is_final = true;
 			return 1;
 		}
@@ -444,7 +444,7 @@ int decodeLength(ref uint res, ref size_t shift_ptr, ref bool is_final, // <-- o
 		
 		n += add;
 		
-		if (((*input) & (1 << 7)) == 0) 
+		if (((*input) & (cast(ubyte) (1 << 7))) == 0) 
 			break;
 	}
 	

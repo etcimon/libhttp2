@@ -481,7 +481,7 @@ struct Inflater
 	}
 
 	void setHuffmanEncoded(in ubyte* input) {
-		huffman_encoded = (*input & (1 << 7)) != 0;
+		huffman_encoded = (*input & (cast(ubyte)(1 << 7))) != 0;
 	}
 	
 	/*
