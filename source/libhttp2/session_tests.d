@@ -6854,4 +6854,10 @@ unittest {
 	test_http_ignore_content_length();
 	test_http_record_request_method();
 	test_http_push_promise();
+	/*
+	import memutils.allocators;
+	import memutils.constants;
+	libhttp2.types.logDebug(getAllocator!(0x02)().bytesAllocated());
+	getAllocator!(0x02)().printMap();
+*/
 }

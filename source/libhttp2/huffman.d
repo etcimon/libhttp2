@@ -80,7 +80,6 @@ class HDEntry
 	this(HDFlags _flags, in string name,  in string value, uint _name_hash, uint _value_hash) {
 		flags = _flags;
 		refcnt = 1;
-		
 		/// Since HDEntry is used for indexing, ent.hf.flag always HeaderFlag.NONE
 		hf.flag = HeaderFlag.NONE;
 		

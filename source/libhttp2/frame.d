@@ -205,7 +205,7 @@ struct Headers
 	}
 
 	void free() {
-		if (hfa) Mem.free(hfa);
+		if (hfa) hfa.free();
 	}
 
 	/*
@@ -591,7 +591,7 @@ struct PushPromise {
 		promised_stream_id = _promised_stream_id;
 	}
 	
-	void free() { if (hfa) Mem.free(hfa); }
+	void free() { if (hfa) hfa.free(); }
 
 	/*
 	 * Packs PUSH_PROMISE frame in wire format and store it in
