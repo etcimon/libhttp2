@@ -565,14 +565,6 @@ uint hash(in string str) {
 /// Sorted by hash(name) and its table index
 __gshared StaticEntry[] static_table;
 
-static ~this() {
-	import core.thread : thread_isMainThread;
-	if (!thread_isMainThread) return;
-	foreach (ref StaticEntry statent; static_table) {
-		statent.ent.refcnt--;
-		Mem.free(statent.ent);	
-	}
-}
 
 static this() { 
 	if (static_table) return;
@@ -580,7 +572,7 @@ static this() {
 	/* Make scalar initialization form of HeaderField */
 	string MAKE_STATIC_ENT(int I, string N, string V, long NH, long VH) {
 		return `StaticEntry( 
-					Mem.alloc!HDEntry(HDFlags.NONE, "` ~ N ~ `", "` ~ V ~ `", ` ~ NH.to!string ~ `u, ` ~ VH.to!string ~ `u), 
+					new HDEntry(HDFlags.NONE, "` ~ N ~ `", "` ~ V ~ `", ` ~ NH.to!string ~ `u, ` ~ VH.to!string ~ `u), 
 				` ~ I.to!string ~ 
 			`)`;
 	}

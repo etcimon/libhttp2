@@ -205,7 +205,7 @@ struct Headers
 	}
 
 	void free() {
-		if (hfa) hfa.free();
+		if (hfa) { hfa.free(); }
 	}
 
 	/*
@@ -1023,6 +1023,7 @@ class OutboundItem {
 
 		with (FrameType) switch (frame.hd.type) {
 			case HEADERS:
+			case CONTINUATION:
 				frame.headers.free();
 				break;
 			case PRIORITY:

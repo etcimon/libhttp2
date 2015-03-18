@@ -517,7 +517,7 @@ class Buffers {
 				chain = ci.next;
 				
 				ci.free();
-				
+				Mem.free(ci);
 				ci = chain;
 			}
 			

@@ -461,11 +461,10 @@ void test_session_read_invalid_stream_id() {
 	user_data.invalid_frame_recv_cb_called = 0;
 	session = new Session(SERVER, *callbacks);
 	deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
-	
+
 	
 	hfa = reqhf.copy();
-	frame.headers = Headers(FrameFlags.END_HEADERS, 2,
-		HeadersCategory.HEADERS, pri_spec_default, hfa);
+	frame.headers = Headers(FrameFlags.END_HEADERS, 2, HeadersCategory.HEADERS, pri_spec_default, hfa);
 	rv = frame.headers.pack(bufs, deflater);
 	
 	assert(0 == rv);
@@ -503,8 +502,7 @@ void test_session_read_invalid_frame() {
 	deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
 	
 	hfa = reqhf.copy();
-	frame.headers = Headers(FrameFlags.END_HEADERS, 1,
-		HeadersCategory.HEADERS, pri_spec_default, hfa);
+	frame.headers = Headers(FrameFlags.END_HEADERS, 1, HeadersCategory.HEADERS, pri_spec_default, hfa);
 	rv = frame.headers.pack(bufs, deflater);
 	
 	assert(0 == rv);
@@ -1437,7 +1435,6 @@ void test_session_add_frame() {
 	assert(cast(ubyte)(FrameFlags.END_HEADERS | FrameFlags.PRIORITY) == acc.buf[4]);
 	/* check stream id */
 	assert(1 == read!uint(&acc.buf[5]));
-	
 	session.free();
 }
 
@@ -6750,6 +6747,11 @@ void test_http_push_promise() {
 }
 
 unittest {
+
+	import memutils.allocators;
+	enum Debugger = 0x02;
+	assert(0 == getAllocator!Debugger().bytesAllocated());
+
 	test_session_read();
 	test_session_read_invalid_stream_id();
 	test_session_read_invalid_frame();
@@ -6854,10 +6856,6 @@ unittest {
 	test_http_ignore_content_length();
 	test_http_record_request_method();
 	test_http_push_promise();
-	/*
-	import memutils.allocators;
-	import memutils.constants;
-	libhttp2.types.logDebug(getAllocator!(0x02)().bytesAllocated());
-	getAllocator!(0x02)().printMap();
-*/
+	getAllocator!Debugger().printMap();
+	assert(0 == getAllocator!Debugger().bytesAllocated());
 }

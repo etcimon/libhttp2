@@ -255,9 +255,9 @@ struct HeaderField
 	}
 
 	package void free() {
-		if (name)
+		if (name.length > 0)
 			Mem.free(name);
-		if (value)
+		if (value.length > 0)
 			Mem.free(value);
 		name = null;
 		value = null;

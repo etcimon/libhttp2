@@ -6644,16 +6644,19 @@ int submitHeadersShared(Session session, FrameFlags flags, int stream_id,
 	Frame* frame;
 	HeadersCategory hcat;
 	bool owns_hfa = true;
-	scope(failure) if (owns_hfa && hfa_copy) Mem.free(hfa_copy);
+	scope(failure) 
+		if (owns_hfa && hfa_copy) 
+			hfa_copy.free();
 		
 	if (stream_id == 0) {
-		Mem.free(hfa_copy);
+		hfa_copy.free();
 		return ErrorCode.INVALID_ARGUMENT;
 	}
 
 	item = Mem.alloc!OutboundItem(session);
-	scope(failure) if (item) Mem.free(item);
-
+	scope(failure) {
+		if (item) Mem.free(item);
+	}
 	if (data_prd.read_callback) {
 		item.aux_data.headers.data_prd = data_prd;
 	}
@@ -6666,7 +6669,8 @@ int submitHeadersShared(Session session, FrameFlags flags, int stream_id,
 	if (stream_id == -1) {
 		if (session.next_stream_id > int.max) {
 			if (item) Mem.free(item);
-			if (hfa_copy) Mem.free(hfa_copy);
+			if (hfa_copy) 
+				hfa_copy.free();
 			return ErrorCode.STREAM_ID_NOT_AVAILABLE;
 		}
 		
@@ -6686,8 +6690,9 @@ int submitHeadersShared(Session session, FrameFlags flags, int stream_id,
 	session.addItem(item);
 	
 	if (rv != ErrorCode.OK) {
-		frame.headers.free();
-		if (item) Mem.free(item);
+		if (item) { Mem.free(item); }
+		if (hfa_copy) 
+			hfa_copy.free();
 		return rv;
 	}
 	

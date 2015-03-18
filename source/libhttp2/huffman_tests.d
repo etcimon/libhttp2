@@ -1079,6 +1079,9 @@ void test_hd_huff_encode() {
 }
 
 unittest {
+	import memutils.allocators;
+	enum Debugger = 0x02;
+	assert(0 == getAllocator!Debugger().bytesAllocated());
 	test_hd_deflate();
 	test_hd_deflate_same_indexed_repr();
 	test_hd_inflate_indexed();
@@ -1097,4 +1100,5 @@ unittest {
 	test_hd_public_api();
 	test_hd_decode_length();
 	test_hd_huff_encode();
+	assert(0 == getAllocator!Debugger().bytesAllocated());
 }
