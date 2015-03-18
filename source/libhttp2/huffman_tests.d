@@ -12,7 +12,7 @@
 module libhttp2.huffman_tests;
 
 import libhttp2.constants;
-//static if (TEST_ALL):
+static if (TEST_ALL):
 
 import libhttp2.buffers;
 import libhttp2.huffman;

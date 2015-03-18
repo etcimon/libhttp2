@@ -12,7 +12,7 @@
 module libhttp2.session_tests;
 
 import libhttp2.constants;
-//static if (TEST_ALL):
+static if (TEST_ALL):
 
 import libhttp2.session;
 import libhttp2.connector;
