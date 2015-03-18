@@ -86,7 +86,7 @@ public:
      * $(D onFrameHeader).
      *
      * For HEADERS, PUSH_PROMISE and DATA frames, this callback may be
-     * called after stream is closed (see :type:`http2_on_stream_close_callback`). 
+     * called after stream is closed (see $(D Connector.onStreamExit)). 
      *
      * Only HEADERS and DATA frame can signal the end of incoming data.
      * If ``frame.hd.flags & FrameFlags.END_STREAM`` is nonzero, the
@@ -109,8 +109,8 @@ public:
      * also be called when frame header of CONTINUATION frame is received.
      *
      * If both $(D Connector.onFrameHeader) and
-     * :type:`http2_on_begin_headers_callback` are set and HEADERS or
-     * PUSH_PROMISE is received, :type:`http2_on_begin_frame_callback`
+     * $(D Connector.onHeaders) are set and HEADERS or
+     * PUSH_PROMISE is received, $(D Connector.onFrameReady)
      * will be called first.
      *
      * The implementation of this function must return true if it succeeds.
@@ -123,7 +123,7 @@ public:
 	/**
      * Callback function invoked when the reception of header block in
      * HEADERS or PUSH_PROMISE is started.  Each header header field
-     * will be emitted by :type:`http2_on_header_callback`.
+     * will be emitted by $(D Connector.onHeaderField)`.
      *
      * The ``frame.hd.flags`` may not have
      * $(D FrameFlags.END_HEADERS) flag set, which indicates that one
@@ -283,11 +283,11 @@ public:
      * smaller than this range is treated as
      * $(D ErrorCode.CALLBACK_FAILURE).  The |frame_type| is provided
      * for future extensibility and identifies the type of frame (see
-     * :type:`http2_frame_type`) for which to get the length for.
+     * $(D FrameType)) for which to get the length for.
      * Currently supported frame types are: $(D HTTP2_DATA).
      *
      * This callback can be used to control the length in bytes for which
-     * :type:`http2_data_source_read_callback` is allowed to send to the
+     * $(D DataSource.read_callback) is allowed to send to the
      * remote endpoint.  This callback is optional.  Returning
      * $(D ErrorCode.CALLBACK_FAILURE) will signal the entire session
      * failure..

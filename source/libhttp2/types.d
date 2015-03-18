@@ -136,7 +136,7 @@ enum ErrorCode : int {
 
 	/**
     * The errors < FATAL mean that the library is under unexpected condition and processing was terminated (e.g.,
-    * out of memory).  If application receives this error code, it must stop using that :type:`http2_session` object and only allowed
+    * out of memory).  If application receives this error code, it must stop using that $(D Session) object and only allowed
     * operation for that object is deallocate it using http2_session_del().
     */
 	FATAL = -900,
