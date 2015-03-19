@@ -207,7 +207,7 @@ struct MyCallbacks {
 		if (!called) {
 			called = true;
 			
-			data_prd.read_callback = toDelegate(&MyDataSource.readTwice);
+			data_prd = toDelegate(&MyDataSource.readTwice);
 
 			rv = submitData(*session, FrameFlags.END_STREAM, frame.hd.stream_id, data_prd);
 			assert(0 == rv);
@@ -291,7 +291,7 @@ struct MyDataSource
 {
 	MyUserData* user_data;
 
-	int readFixedLength(int stream_id, ubyte[] buf, ref DataFlags data_flags, DataSource source) 
+	int readFixedLength(ubyte[] buf, ref DataFlags data_flags) 
 	{
 		size_t wlen;
 		if (buf.length < user_data.data_source_length) {
@@ -307,22 +307,22 @@ struct MyDataSource
 		return cast(int)wlen;
 	}
 
-	static int readRstStream(int stream_id, ubyte[] buf, ref DataFlags data_flags, DataSource source)
+	static int readRstStream(ubyte[] buf, ref DataFlags data_flags)
 	{
 		return ErrorCode.TEMPORAL_CALLBACK_FAILURE;
 	}
 
-	static int readFailure(int stream_id, ubyte[] buf, ref DataFlags data_flags, DataSource source)
+	static int readFailure(ubyte[] buf, ref DataFlags data_flags)
 	{
 		return ErrorCode.CALLBACK_FAILURE;
 	}
 
-	static int readDeferred(int stream_id, ubyte[] buf, ref DataFlags data_flags, DataSource source)
+	static int readDeferred(ubyte[] buf, ref DataFlags data_flags)
 	{
 		return ErrorCode.DEFERRED;
 	}
 
-	static int readTwice(int stream_id, ubyte[] buf, ref DataFlags data_flags, DataSource source) 
+	static int readTwice(ubyte[] buf, ref DataFlags data_flags) 
 	{
 		data_flags |= DataFlags.EOF;
 		return min(buf.length, 16);
@@ -2719,7 +2719,7 @@ void test_submit_data() {
 
 	callbacks.write_cb = &user_data.cb_handlers.writeWouldBlock;
 	
-	data_prd.read_callback = &user_data.datasrc.readFixedLength;
+	data_prd = &user_data.datasrc.readFixedLength;
 	user_data.data_source_length = DATA_PAYLOADLEN * 2;
 	session = new Session(CLIENT, *callbacks);
 	aob = &session.aob;
@@ -2759,7 +2759,7 @@ void test_submit_data_read_length_too_large() {
 	callbacks.write_cb = &user_data.cb_handlers.writeWouldBlock;
 	callbacks.max_frame_size_cb = toDelegate(&MyCallbacks.tooLargeMaxFrameSize);
 	
-	data_prd.read_callback = &user_data.datasrc.readFixedLength;
+	data_prd = &user_data.datasrc.readFixedLength;
 	user_data.data_source_length = DATA_PAYLOADLEN * 2;
 	session = new Session(CLIENT, *callbacks);
 	aob = &session.aob;
@@ -2831,7 +2831,7 @@ void test_submit_data_read_length_smallest() {
 	callbacks.write_cb = &user_data.cb_handlers.writeWouldBlock;
 	callbacks.max_frame_size_cb = toDelegate(&MyCallbacks.smallestMaxFrameSize);
 	
-	data_prd.read_callback = &user_data.datasrc.readFixedLength;
+	data_prd = &user_data.datasrc.readFixedLength;
 	user_data.data_source_length = DATA_PAYLOADLEN * 2;
 	session = new Session(CLIENT, *callbacks);
 	aob = &session.aob;
@@ -2867,7 +2867,7 @@ void test_submit_data_twice() {
 	callbacks.write_cb = &user_data.cb_handlers.writeToAccumulator;
 	callbacks.on_frame_sent_cb = &user_data.cb_handlers.onFrameSentTwice;
 	
-	data_prd.read_callback = toDelegate(&MyDataSource.readTwice);
+	data_prd = toDelegate(&MyDataSource.readTwice);
 	
 	acc.length = 0;
 	user_data.acc = &acc;
@@ -2895,7 +2895,7 @@ void test_submit_request_with_data() {
 
 	callbacks.write_cb = toDelegate(&MyCallbacks.writeNull);
 	
-	data_prd.read_callback = &user_data.datasrc.readFixedLength;
+	data_prd = &user_data.datasrc.readFixedLength;
 	user_data.data_source_length = 64 * 1024 - 1;
 	session = new Session(CLIENT, *callbacks);
 	assert(1 == submitRequest(session, pri_spec_default, reqhf, data_prd, null));
@@ -2912,7 +2912,7 @@ void test_submit_request_without_data() {
 	Session session;
 	Callbacks callbacks;
 	Accumulator acc;
-	DataProvider data_prd = DataProvider(DataSource(-1), null);
+	DataProvider data_prd = null;
 	OutboundItem item;
 	MyUserData user_data = MyUserData(&session);
 	Frame frame;
@@ -2957,7 +2957,7 @@ void test_submit_response_with_data() {
 
 	callbacks.write_cb = toDelegate(&MyCallbacks.writeNull);
 	
-	data_prd.read_callback = &user_data.datasrc.readFixedLength;
+	data_prd = &user_data.datasrc.readFixedLength;
 	user_data.data_source_length = 64 * 1024 - 1;
 	session = new Session(SERVER, *callbacks);
 	session.openStream(1, StreamFlags.PUSH, pri_spec_default, StreamState.OPENING, null);
@@ -2975,7 +2975,7 @@ void test_submit_response_without_data() {
 	Session session;
 	Callbacks callbacks;
 	Accumulator acc;
-	DataProvider data_prd = DataProvider(DataSource(-1), null);
+	DataProvider data_prd = null;
 	OutboundItem item;
 	MyUserData user_data = MyUserData(&session);
 	Frame frame;
@@ -3824,7 +3824,7 @@ void test_session_reply_fail() {
 
 	callbacks.write_cb = toDelegate(&MyCallbacks.writeFailure);
 	
-	data_prd.read_callback = &user_data.datasrc.readFixedLength;
+	data_prd = &user_data.datasrc.readFixedLength;
 	user_data.data_source_length = 4 * 1024;
 	session = new Session(SERVER, *callbacks);
 	session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
@@ -3879,7 +3879,7 @@ void test_session_stop_data_with_rst_stream() {
 
 	callbacks.on_frame_sent_cb = &user_data.cb_handlers.onFrameSent;
 	callbacks.write_cb = &user_data.cb_handlers.writeWouldBlock;
-	data_prd.read_callback = &user_data.datasrc.readFixedLength;
+	data_prd = &user_data.datasrc.readFixedLength;
 	
 	user_data.frame_send_cb_called = 0;
 	user_data.data_source_length = DATA_PAYLOADLEN * 4;
@@ -3921,7 +3921,7 @@ void test_session_defer_data() {
 		
 	callbacks.on_frame_sent_cb = &user_data.cb_handlers.onFrameSent;
 	callbacks.write_cb = &user_data.cb_handlers.writeWouldBlock;
-	data_prd.read_callback = toDelegate(&MyDataSource.readDeferred);
+	data_prd = toDelegate(&MyDataSource.readDeferred);
 	
 	user_data.frame_send_cb_called = 0;
 	user_data.data_source_length = DATA_PAYLOADLEN * 4;
@@ -3950,14 +3950,14 @@ void test_session_defer_data() {
 	/* Resume deferred DATA */
 	assert(0 == session.resumeData(1));
 	item = session.ob_da_pq.top();
-	item.aux_data.data.data_prd.read_callback = &user_data.datasrc.readFixedLength;
+	item.aux_data.data.data_prd = &user_data.datasrc.readFixedLength;
 	user_data.block_count = 1;
 	/* Reads 2 DATA chunks */
 	assert(0 == session.send());
 	assert(user_data.data_source_length == DATA_PAYLOADLEN * 2);
 	
 	/* Deferred again */
-	item.aux_data.data.data_prd.read_callback = toDelegate(&MyDataSource.readDeferred);
+	item.aux_data.data.data_prd = toDelegate(&MyDataSource.readDeferred);
 	/* This is needed since 16KiB block is already read and waiting to be
      sent. No read_callback invocation. */
 	user_data.block_count = 1;
@@ -3967,7 +3967,7 @@ void test_session_defer_data() {
 	/* Resume deferred DATA */
 	assert(0 == session.resumeData(1));
 	item = session.ob_da_pq.top();
-	item.aux_data.data.data_prd.read_callback = &user_data.datasrc.readFixedLength;
+	item.aux_data.data.data_prd = &user_data.datasrc.readFixedLength;
 	user_data.block_count = 1;
 	/* Reads 2 16KiB blocks */
 	assert(0 == session.send());
@@ -3989,7 +3989,7 @@ void test_session_flow_control() {
 		
 	callbacks.write_cb = &user_data.cb_handlers.writeFixedBytes;
 	callbacks.on_frame_sent_cb = &user_data.cb_handlers.onFrameSent;
-	data_prd.read_callback = &user_data.datasrc.readFixedLength;
+	data_prd = &user_data.datasrc.readFixedLength;
 	
 	user_data.frame_send_cb_called = 0;
 	user_data.data_source_length = 128 * 1024;
@@ -4186,7 +4186,7 @@ void test_session_data_read_temporal_failure() {
 	
 	callbacks.write_cb = toDelegate(&MyCallbacks.writeNull);
 	callbacks.on_frame_sent_cb = &user_data.cb_handlers.onFrameSent;
-	data_prd.read_callback = &user_data.datasrc.readFixedLength;
+	data_prd = &user_data.datasrc.readFixedLength;
 	
 	user_data.data_source_length = data_size;
 	
@@ -4203,7 +4203,7 @@ void test_session_data_read_temporal_failure() {
 	assert(stream.isDeferredByFlowControl());
 	assert(FrameType.DATA == stream.item.frame.hd.type);
 	
-	stream.item.aux_data.data.data_prd.read_callback = toDelegate(&MyDataSource.readRstStream);
+	stream.item.aux_data.data.data_prd = toDelegate(&MyDataSource.readRstStream);
 	
 	/* Back INITIAL_WINDOW_SIZE to both connection-level and
      stream-wise window */
@@ -4221,7 +4221,7 @@ void test_session_data_read_temporal_failure() {
 	assert(1 == user_data.frame_send_cb_called);
 	assert(FrameType.RST_STREAM == user_data.sent_frame_type);
 	
-	data_prd.read_callback = toDelegate(&MyDataSource.readFailure);
+	data_prd = toDelegate(&MyDataSource.readFailure);
 
 	submitRequest(session, pri_spec_default, null, data_prd, null);
 	/* Sending data will fail (hard fail) and session tear down */
@@ -4416,7 +4416,7 @@ void test_session_data_backoff_by_high_pri_frame() {
 	
 	callbacks.write_cb = &user_data.cb_handlers.writeWouldBlock;
 	callbacks.on_frame_sent_cb = &user_data.cb_handlers.onFrameSent;
-	data_prd.read_callback = &user_data.datasrc.readFixedLength;
+	data_prd = &user_data.datasrc.readFixedLength;
 	
 	user_data.frame_send_cb_called = 0;
 	user_data.data_source_length = DATA_PAYLOADLEN * 4;
@@ -4493,7 +4493,7 @@ void test_session_pack_data_with_padding() {
 	callbacks.on_frame_sent_cb = &user_data.cb_handlers.onFrameSent;
 	callbacks.select_padding_length_cb = &user_data.cb_handlers.selectPaddingLength;
 	
-	data_prd.read_callback = &user_data.datasrc.readFixedLength;
+	data_prd = &user_data.datasrc.readFixedLength;
 	
 	session = new Session(CLIENT, *callbacks);
 	
@@ -5916,7 +5916,7 @@ void test_session_delete_data_item() {
 	Session session;
 	Callbacks callbacks;
 	Stream a;
-	DataProvider prd;
+	DataProvider prd = toDelegate(&MyDataSource.readFailure);
 		
 	session = new Session(SERVER, *callbacks);
 	
@@ -5924,8 +5924,6 @@ void test_session_delete_data_item() {
 	openStreamWithDep(session, 3, a);
 	
 	/* We don't care about these members, since we won't send data */
-	prd.source.ptr = null;
-	prd.read_callback = toDelegate(&MyDataSource.readFailure);
 	
 	/* This data item will be marked as TOP */
 	assert(0 == submitData(session, FrameFlags.NONE, 1, prd));

@@ -2017,8 +2017,7 @@ package:
 	 *
 	 * If called from client side, the |settings_payload| must be the
 	 * value sent in `HTTP2-Settings` header field and must be decoded
-	 * by base64url decoder.  The |settings_payloadlen| is the length of
-	 * |settings_payload|.  The |settings_payload| is unpacked and its
+	 * by base64url decoder.   The |settings_payload| is unpacked and its
 	 * setting values will be submitted using $(D submitSettings).
 	 * This means that the client application code does not need to submit
 	 * SETTINGS by itself.  The stream with stream ID=1 is opened and the
@@ -2027,8 +2026,7 @@ package:
 	 *
 	 * If called from server side, the |settings_payload| must be the
 	 * value received in `HTTP2-Settings` header field and must be
-	 * decoded by base64url decoder.  The |settings_payloadlen| is the
-	 * length of |settings_payload|.  It is treated as if the SETTINGS
+	 * decoded by base64url decoder. It is treated as if the SETTINGS
 	 * frame with that payload is received.  Thus, callback functions for
 	 * the reception of SETTINGS frame will be invoked.  The stream with
 	 * stream ID=1 is opened.  The |stream_user_data| is ignored.  The
@@ -2050,8 +2048,7 @@ package:
 		ErrorCode rv;
 		PrioritySpec pri_spec;
 		
-		if ((!is_server && next_stream_id != 1) ||
-			(is_server && last_recv_stream_id >= 1)) {
+		if ((!is_server && next_stream_id != 1) || (is_server && last_recv_stream_id >= 1)) {
 			return ErrorCode.PROTO;
 		}
 		
@@ -2064,7 +2061,7 @@ package:
 		if (is_server) {
 			frame.hd = FrameHeader(cast(uint)settings_payload.length, FrameType.SETTINGS, FrameFlags.NONE, 0);
 			frame.settings.iva = iva;
-			rv = onSettings(frame, 1 /* No ACK */);
+			rv = onSettings(frame, true /* No ACK */);
 		} else {
 			rv = submitSettings(this, iva);
 		}
@@ -2512,7 +2509,7 @@ package:
 	/*
 	 * Closes stream whose stream ID is |stream_id|. The reason of closure
 	 * is indicated by the |error_code|. When closing the stream,
-	 * on_stream_close_callback will be called.
+	 * $(D Connector.onStreamExit) will be called.
 	 *
 	 * If the session is initialized as server and |stream| is incoming
 	 * stream, stream is just marked closed and this function calls
@@ -2552,7 +2549,7 @@ package:
 			}
 		}
 		
-		/* We call on_stream_close_callback even if stream.state is
+		/* We call $(D Connector.onStreamExit) even if stream.state is
 		     StreamState.INITIAL. This will happen while sending request
 		     HEADERS, a local endpoint receives RST_STREAM for that stream. It
 		     may be PROTOCOL_ERROR, but without notifying stream closure will
@@ -2923,7 +2920,7 @@ package:
 	 *     Frame was rejected and header block must be decoded but
 	 *     result must be ignored.
 	 * ErrorCode.CALLBACK_FAILURE
-	 *     The read_callback failed
+	 *     The DataProvider failed
 	 */
 	ErrorCode onHeaders(Frame frame, Stream stream) 
 	{
@@ -2983,7 +2980,7 @@ package:
 	 * negative error codes:
 	 *
 	 * ErrorCode.CALLBACK_FAILURE
-	 *     The read_callback failed
+	 *     The DataProvider failed
 	 */
 	ErrorCode onPriority(Frame frame) 
 	{
@@ -3028,7 +3025,7 @@ package:
 	 * negative error codes:
 	 *
 	 * ErrorCode.CALLBACK_FAILURE
-	 *     The read_callback failed
+	 *     The DataProvider failed
 	 */
 	ErrorCode onRstStream(Frame frame) 
 	{
@@ -3065,7 +3062,7 @@ package:
 	 * negative error codes:
 	 *
 	 * ErrorCode.CALLBACK_FAILURE
-	 *     The read_callback failed
+	 *     The DataProvider failed
 	 */
 
 	ErrorCode onSettings(Frame frame, bool noack) 
@@ -3201,7 +3198,7 @@ package:
 	 *     Frame was rejected and header block must be decoded but
 	 *     result must be ignored.
 	 * ErrorCode.CALLBACK_FAILURE
-	 *     The read_callback failed
+	 *     The DataProvider failed
 	 */
 
 	ErrorCode onPushPromise(Frame frame) 
@@ -3439,9 +3436,9 @@ package:
 	 * ErrorCode.DEFERRED
 	 *     The DATA frame is postponed.
 	 * ErrorCode.TEMPORAL_CALLBACK_FAILURE
-	 *     The read_callback failed (stream error).
+	 *     The DataProvider failed (stream error).
 	 * ErrorCode.CALLBACK_FAILURE
-	 *     The read_callback failed (session error).
+	 *     The DataProvider failed (session error).
 	 */
 	ErrorCode packData(Buffers bufs, int datamax, ref Frame frame, ref DataAuxData aux_data) {
 		ErrorCode rv;
@@ -3496,7 +3493,7 @@ package:
 		data_flags = DataFlags.NONE;
 
 		// TODO: Deferred and all
-		payloadlen = aux_data.data_prd.read_callback(frame.hd.stream_id, buf.pos[0 .. datamax], data_flags, aux_data.data_prd.source);
+		payloadlen = aux_data.data_prd(buf.pos[0 .. datamax], data_flags);
 
 		if (payloadlen == ErrorCode.DEFERRED ||
 			payloadlen == ErrorCode.TEMPORAL_CALLBACK_FAILURE)
@@ -5262,7 +5259,7 @@ package:
 							}
 							/* We assume aux_data is a pointer to HeadersAuxData */
 							aux_data = &item.aux_data.headers;
-							if (aux_data.data_prd.read_callback) {
+							if (aux_data.data_prd) {
 								/* submitData() makes a copy of aux_data.data_prd */
 								rv = submitData(this, FrameFlags.END_STREAM, frame.hd.stream_id, aux_data.data_prd);
 								if (isFatal(rv)) {
@@ -5289,7 +5286,7 @@ package:
 							}
 							/* We assume aux_data is a pointer to HeadersAuxData */
 							aux_data = &item.aux_data.headers;
-							if (aux_data.data_prd.read_callback) {
+							if (aux_data.data_prd) {
 								rv = submitData(this, FrameFlags.END_STREAM, frame.hd.stream_id, aux_data.data_prd);
 								if (isFatal(rv)) {
 									return rv;
@@ -6162,7 +6159,7 @@ ErrorCode submitResponse(Session session, int stream_id, in HeaderField[] hfa, i
  *   frame.
  *
  */
-ErrorCode submitHeaders(Session session, FrameFlags flags, int stream_id = -1, in PrioritySpec pri_spec = PrioritySpec.init, in HeaderField[] hfa = null, void *stream_user_data = null)
+int submitHeaders(Session session, FrameFlags flags, int stream_id = -1, in PrioritySpec pri_spec = PrioritySpec.init, in HeaderField[] hfa = null, void *stream_user_data = null)
 {
 	flags &= FrameFlags.END_STREAM;
 	
@@ -6613,7 +6610,7 @@ FrameFlags setResponseFlags(in DataProvider data_prd)
 {
 	FrameFlags flags = FrameFlags.NONE;
 
-	if (data_prd == DataProvider.init || !data_prd.read_callback) 
+	if (!data_prd) 
 		flags |= FrameFlags.END_STREAM;
 
 	return flags;
@@ -6622,7 +6619,7 @@ FrameFlags setResponseFlags(in DataProvider data_prd)
 FrameFlags setRequestFlags(in PrioritySpec pri_spec, in DataProvider data_prd)
 {
 	FrameFlags flags = FrameFlags.NONE;
-	if (!data_prd.read_callback)
+	if (!data_prd)
 		flags |= FrameFlags.END_STREAM;
 		
 	if (pri_spec != PrioritySpec.init) 
@@ -6657,7 +6654,7 @@ int submitHeadersShared(Session session, FrameFlags flags, int stream_id,
 	scope(failure) {
 		if (item) Mem.free(item);
 	}
-	if (data_prd.read_callback) {
+	if (data_prd) {
 		item.aux_data.headers.data_prd = data_prd;
 	}
 	
@@ -6704,14 +6701,14 @@ int submitHeadersShared(Session session, FrameFlags flags, int stream_id,
 
 
 
-ErrorCode submitHeadersSharedHfa(Session session, FrameFlags flags, int stream_id, in PrioritySpec pri_spec, in HeaderField[] hfa, 
+int submitHeadersSharedHfa(Session session, FrameFlags flags, int stream_id, in PrioritySpec pri_spec, in HeaderField[] hfa, 
 						   in DataProvider data_prd, void *stream_user_data, bool attach_stream) 
 {
 	HeaderField[] hfa_copy = hfa.copy();
 	PrioritySpec copy_pri_spec = pri_spec;
 	copy_pri_spec.adjustWeight();
 
-	return cast(ErrorCode) submitHeadersShared(session, flags, stream_id, copy_pri_spec, hfa_copy, data_prd, stream_user_data, attach_stream);
+	return submitHeadersShared(session, flags, stream_id, copy_pri_spec, hfa_copy, data_prd, stream_user_data, attach_stream);
 }
 
 public:

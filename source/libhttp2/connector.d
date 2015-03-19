@@ -287,7 +287,7 @@ public:
      * Currently supported frame types are: $(D HTTP2_DATA).
      *
      * This callback can be used to control the length in bytes for which
-     * $(D DataSource.read_callback) is allowed to send to the
+     * $(D DataProvider) is allowed to send to the
      * remote endpoint.  This callback is optional.  Returning
      * $(D ErrorCode.CALLBACK_FAILURE) will signal the entire session
      * failure..
@@ -384,7 +384,7 @@ public:
 
 	/**
      * The callback function used to determine the length allowed in
-     * $(D DataSource.read_callback)
+     * $(D DataProvider)
      */
 	int delegate(FrameType, int, int, int, uint) max_frame_size_cb;
 

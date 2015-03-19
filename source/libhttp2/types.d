@@ -60,8 +60,8 @@ enum ErrorCode : int {
 	/// The peer performed a shutdown on the connection.
 	EOF = -507,
 
-	/// Used as a return value from http2_data_source_read_callback to indicate that data
-    /// transfer is postponed.  See http2_data_source_read_callback` for details.
+	/// Used as a return value from DataProvider to indicate that data
+    /// transfer is postponed.  See DataProvider for details.
 	DEFERRED = -508,
 
 	/// Stream ID has reached the maximum value.  Therefore no stream ID is available.
@@ -522,20 +522,9 @@ enum FrameError : uint
 	HTTP_1_1_REQUIRED = 0x0d
 }
 
-
-/// This union represents the some kind of data source passed to nghttp2_data_source_read_callback
-union DataSource
-{
-    /// The integer field, suitable for a file descriptor.
-    int fd;
-    
-    /// The pointer to an arbitrary object.
-    void *ptr;
-}
-
 /**
  * Callback function invoked when the library wants to read data from
- * the |source|.  The read data is sent in the stream |stream_id|.
+ * the source.  The read data is sent in the stream |stream_id|.
  * The implementation of this function must read at most |length|
  * bytes of data from |source| (or possibly other places) and store
  * them in |buf| and return number of data stored in |buf|.  If EOF is
@@ -556,15 +545,7 @@ union DataSource
  * 
  * Returning false will signal $(D Error.CALLBACK_FAILURE), aborting the entire session.
  */
-alias ReadCallback = int delegate(int stream_id, ubyte[] buf, ref DataFlags data_flags, DataSource source);
-
-//DataProvider
-/// This struct represents the data source and the way to read a chunk of data from it.
-struct DataProvider {
-    DataSource source;
-    ReadCallback read_callback;
-}
-
+alias DataProvider = int delegate(ubyte[] buf, ref DataFlags data_flags);
 
 /// The flags used to set in |data_flags| output parameter in DataSource.read_callback
 enum DataFlags : ubyte
