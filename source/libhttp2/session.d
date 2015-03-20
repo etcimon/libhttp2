@@ -3492,7 +3492,6 @@ package:
 		
 		data_flags = DataFlags.NONE;
 
-		// TODO: Deferred and all
 		payloadlen = aux_data.data_prd(buf.pos[0 .. datamax], data_flags);
 
 		if (payloadlen == ErrorCode.DEFERRED ||
