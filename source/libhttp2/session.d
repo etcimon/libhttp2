@@ -468,7 +468,8 @@ class Session {
 				return rv;
 			else if (data.length == 0)
 				return ErrorCode.OK;
-			sentlen = connector.write(data);
+			try sentlen = connector.write(data);
+			catch (Exception e) return ErrorCode.CALLBACK_FAILURE;
 			
 			if (sentlen < 0) {
 				if (cast(ErrorCode) sentlen == ErrorCode.WOULDBLOCK) {
@@ -1519,7 +1520,9 @@ class Session {
 							FrameFlags flags = iframe.frame.hd.flags;
 							int stream_id = iframe.frame.hd.stream_id;
 							bool pause;
-							bool ok = connector.onDataChunk(flags, stream_id, data_nopad, pause);
+							bool ok;
+							try ok = connector.onDataChunk(flags, stream_id, data_nopad, pause);
+							catch (Exception e) return ErrorCode.CALLBACK_FAILURE;
 
 							if (pause) {
 								return cast(int)(pos - first);
@@ -2555,8 +2558,10 @@ package:
 		     may be PROTOCOL_ERROR, but without notifying stream closure will
 		     hang the stream in a local endpoint.
 		*/    
-		if (!connector.onStreamExit(stream_id, error_code))
-			return ErrorCode.CALLBACK_FAILURE;
+		try 
+			if (!connector.onStreamExit(stream_id, error_code))
+				return ErrorCode.CALLBACK_FAILURE;
+		catch (Exception e) return ErrorCode.CALLBACK_FAILURE;
 		
 		/* pushed streams which is not opened yet is not counted toward max concurrent limits */
 		if ((stream.flags & StreamFlags.PUSH) == 0) {
@@ -3241,8 +3246,10 @@ package:
 			return ErrorCode.IGN_HEADER_BLOCK;
 		}
 		if (stream.shutFlags & ShutdownFlag.RD) {
-			if (!connector.onInvalidFrame(frame, FrameError.PROTOCOL_ERROR)) 
-				return ErrorCode.CALLBACK_FAILURE;
+			try 
+				if (!connector.onInvalidFrame(frame, FrameError.PROTOCOL_ERROR))
+					return ErrorCode.CALLBACK_FAILURE;
+			catch(Exception e) return ErrorCode.CALLBACK_FAILURE;
 
 			addRstStream(frame.push_promise.promised_stream_id, FrameError.PROTOCOL_ERROR);
 			return ErrorCode.IGN_HEADER_BLOCK;
@@ -3459,8 +3466,8 @@ package:
 		if (!stream)
 			return ErrorCode.INVALID_ARGUMENT;
 		
-		payloadlen = connector.maxFrameSize(frame.hd.type, stream.id, remote_window_size, stream.remoteWindowSize, remote_settings.max_frame_size);
-		
+		try payloadlen = connector.maxFrameSize(frame.hd.type, stream.id, remote_window_size, stream.remoteWindowSize, remote_settings.max_frame_size);
+		catch(Exception e) payloadlen = min(remote_window_size, stream.remoteWindowSize, remote_settings.max_frame_size);
 		LOGF("send: read_length_callback=%d", payloadlen);
 		
 		payloadlen = enforceFlowControlLimits(stream, payloadlen);
@@ -4468,7 +4475,8 @@ package:
 		
 		int max_paddedlen = cast(int) min(frame.hd.length + MAX_PADLEN, max_payloadlen);
 		
-		rv = connector.selectPaddingLength(frame, max_paddedlen);
+		try rv = connector.selectPaddingLength(frame, max_paddedlen);
+		catch (Exception e) return cast(int) ErrorCode.CALLBACK_FAILURE;
 		if (rv < cast(int)frame.hd.length || rv > cast(int)max_paddedlen) {
 			return cast(int) ErrorCode.CALLBACK_FAILURE;
 		}
@@ -4477,34 +4485,40 @@ package:
 	
 	bool callOnFrameReady(in Frame frame)
 	{
-		return connector.onFrameReady(frame);
+		try return connector.onFrameReady(frame);
+		catch(Exception e) return false;
 	}
 
 	bool callOnFrameSent(in Frame frame)
 	{
-		return connector.onFrameSent(frame);
+		try return connector.onFrameSent(frame);
+		catch(Exception e) return false;
 	}
 
 	bool callOnFrameHeader(in FrameHeader hd) 
 	{
-		return connector.onFrameHeader(hd);
+		try return connector.onFrameHeader(hd);
+		catch(Exception e) return false;
 	}
 
 	bool callOnHeaders(in Frame frame) 
 	{
 		LOGF("recv: call onHeaders callback stream_id=%d", frame.hd.stream_id);
-		return connector.onHeaders(frame);
-
+		try return connector.onHeaders(frame);
+		catch(Exception e) return false;
 	}
 
 	bool callOnHeaderField(in Frame frame, in HeaderField hf, ref bool pause, ref bool close) 
 	{
-		return connector.onHeaderField(frame, hf, pause, close);
+		try return connector.onHeaderField(frame, hf, pause, close);
+		catch(Exception e) return false;
 	}
 
 	int callRead(ubyte[] buf)
 	{
-		int len = connector.read(buf);
+		int len;
+		try len = connector.read(buf);
+		catch(Exception e) return ErrorCode.CALLBACK_FAILURE;
 
 		if (len > 0) {
 			if (cast(size_t) len > buf.length)
@@ -4517,7 +4531,8 @@ package:
 
 	bool callOnFrame(in Frame frame) 
 	{
-		return connector.onFrame(frame);
+		try return connector.onFrame(frame);
+		catch(Exception e) return false;
 	}
 
 	/*
@@ -4817,8 +4832,10 @@ package:
 		
 		addRstStream(frame.hd.stream_id, error_code);
 		
-		if (!connector.onInvalidFrame(frame, error_code))
-			return ErrorCode.CALLBACK_FAILURE;
+		try 
+			if (!connector.onInvalidFrame(frame, error_code))
+				return ErrorCode.CALLBACK_FAILURE;
+		catch (Exception e) return ErrorCode.CALLBACK_FAILURE;
 		
 		return ErrorCode.OK;
 	}
@@ -4837,8 +4854,10 @@ package:
 	 */
 	ErrorCode handleInvalidConnection(Frame frame, FrameError error_code, string reason)
 	{
-		if (!connector.onInvalidFrame(frame, error_code))
-			return ErrorCode.CALLBACK_FAILURE;
+		try 
+			if (!connector.onInvalidFrame(frame, error_code))
+				return ErrorCode.CALLBACK_FAILURE;
+		catch (Exception e) return ErrorCode.CALLBACK_FAILURE;
 
 		return terminateSessionWithReason(error_code, reason);
 	}
@@ -5578,8 +5597,12 @@ package:
 						if (item.frame.hd.type != FrameType.DATA && !isFatal(rv)) {
 							Frame* frame = &item.frame;
 							/* The library is responsible for the transmission of WINDOW_UPDATE frame, so we don't call error callback for it. */
-							if (frame.hd.type != FrameType.WINDOW_UPDATE && !connector.onFrameFailure(*frame, rv))
+							try if (frame.hd.type != FrameType.WINDOW_UPDATE && !connector.onFrameFailure(*frame, rv))
 							{
+								item.free();
+								Mem.free(item);
+								return ErrorCode.CALLBACK_FAILURE;
+							} catch (Exception e) {
 								item.free();
 								Mem.free(item);
 								return ErrorCode.CALLBACK_FAILURE;
