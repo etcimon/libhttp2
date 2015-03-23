@@ -154,12 +154,9 @@ class Buffers {
 			return chain;
 		}
 
-		void free() {
+		void free() 
+		{
 			buf.free();
-			if (next) {
-				next.free();
-				Mem.free(next);
-			}
 		}
 	}
 
@@ -489,6 +486,34 @@ class Buffers {
 		return res;
 	}
 
+	/// Fills dst with a slice of the head chain's buffer, and frees the chain if it becomes empty
+	/// chunk_keep must be 1 for buffers to be emptied this way.
+	ubyte[] removeOne(ubyte[] dst) 
+	in { 
+		assert(chunk_keep <= 1, "Cannot use removeOne with a custom keep amount set"); 
+	}
+	body {
+		Chain chain = head;
+
+		ubyte[] data = chain.buf.pos[0 .. chain.buf.length];
+		dst[0 .. $] = data[0 .. dst.length];
+
+		chain.buf.pos += dst.length;
+
+		if (chain.buf.length > 0)
+			return dst;
+
+		if (chain.next) {
+			head = chain.next;
+			chain.free();
+			chunk_used--;
+		} else {
+			chain.buf.reset();
+			chain.buf.shiftRight(offset);
+			cur = head = chain;
+		}
+		return dst[0 .. data.length];
+	}
 
 	/*
 	 * Resets Buffers and makes the buffers empty.

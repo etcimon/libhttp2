@@ -1729,7 +1729,6 @@ class Session {
 		return ErrorCode.OK;
 	}
 
-package:
 	/**
 	 * Returns the number of frames in the outbound queue.  This does not
 	 * include the deferred DATA frames.
@@ -6083,9 +6082,7 @@ int submitRequest(Session session, in PrioritySpec pri_spec, in HeaderField[] hf
  * response HEADERS.  See the specification for more details.
  *
  * If |data_prd| is not `null`, it provides data which will be sent
- * in subsequent DATA frames.  This function does not take ownership
- * of the |data_prd|.  The function copies the members of the
- * |data_prd|.  If |data_prd| is `null`, HEADERS will have
+ * in subsequent DATA frames. If |data_prd| is `null`, HEADERS will have
  * END_STREAM flag set.
  *
  * This method can be used as normal HTTP response and push response.
@@ -6096,7 +6093,7 @@ int submitRequest(Session session, in PrioritySpec pri_spec, in HeaderField[] hf
  *
  * To send non-final response headers (e.g., HTTP status 101), don't
  * use this function because this function half-closes the outbound
- * stream.  Instead, use `submitHeaders()` for this purpose.
+ * stream. Instead, use `submitHeaders()` for this purpose.
  *
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
@@ -6457,8 +6454,6 @@ int submitPushPromise(Session session, int stream_id, in HeaderField[] hfa, void
  * received PING frame.  The library automatically submits PING frame
  * in this case.
  *
- * The |flags| is currently ignored and should be
- * $(D FrameFlags.NONE).
  *
  * If the |opaque_data| is non `null`, then it should point to the 8
  * bytes array of memory to specify opaque data to send with PING
