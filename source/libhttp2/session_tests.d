@@ -153,6 +153,29 @@ struct MyCallbacks {
 		}
 		return r;
 	}
+
+	ErrorCode writeData(in Frame frame, ubyte[] framehd, uint length)
+	{
+		Accumulator *acc = user_data.acc;
+
+		FrameHeader hd;
+		hd.unpack(framehd);
+		acc.buf[acc.length .. acc.length + framehd.length] = framehd[0 .. $];
+
+		hd.unpack(acc.buf[acc.length .. acc.length + framehd.length]);
+
+		acc.length += framehd.length; // FRAME_HDLEN
+
+		if (frame.data.padlen)
+			acc.buf[acc.length++] = cast(ubyte)(frame.data.padlen - 1);
+		acc.length += length;
+
+		if (frame.data.padlen)
+			acc.length += frame.data.padlen - 1;
+
+		return ErrorCode.OK;
+
+	}
 		
 	int readScripted(ubyte[] data) 
 	{
@@ -307,6 +330,21 @@ struct MyDataSource
 		return cast(int)wlen;
 	}
 
+	int readNoCopy(ubyte[] buf, ref DataFlags data_flags)
+	{
+		size_t wlen;
+		if (buf.length < user_data.data_source_length)
+			wlen = buf.length;
+		else
+			wlen = user_data.data_source_length;
+
+		user_data.data_source_length -= wlen;
+		data_flags |= DataFlags.NO_COPY;
+		if (user_data.data_source_length == 0)
+			data_flags |= DataFlags.EOF;
+		return cast(int)wlen;
+	}
+
 	static int readRstStream(ubyte[] buf, ref DataFlags data_flags)
 	{
 		return ErrorCode.TEMPORAL_CALLBACK_FAILURE;
@@ -327,6 +365,7 @@ struct MyDataSource
 		data_flags |= DataFlags.EOF;
 		return min(buf.length, 16);
 	}
+
 }
 
 private immutable PrioritySpec pri_spec_default;
@@ -6097,6 +6136,47 @@ void test_session_reset_pending_headers() {
 	session.free();
 }
 
+
+void test_session_send_data_callback() {
+	Session session;
+	Callbacks callbacks;
+	Accumulator acc;
+	MyUserData user_data = MyUserData(&session);
+	FrameHeader hd;
+
+	callbacks.write_cb = &user_data.cb_handlers.writeToAccumulator;
+	callbacks.write_data_cb = &user_data.cb_handlers.writeData;
+	DataProvider data_prd = &user_data.datasrc.readNoCopy;
+
+	acc.length = 0;
+	user_data.acc = &acc;
+
+	user_data.data_source_length = DATA_PAYLOADLEN * 2;
+
+	session = new Session(CLIENT, *callbacks);
+
+	session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
+
+	submitData(session, FrameFlags.END_STREAM, 1, data_prd);
+
+	assert(0 == session.send());
+	assert((FRAME_HDLEN + DATA_PAYLOADLEN) * 2 == acc.length, "Accumulator length was: " ~ acc.length.to!string);
+
+	hd.unpack(acc[]);
+
+	assert(16384 == hd.length);
+	assert(FrameType.DATA == hd.type);
+	assert(FrameFlags.NONE == hd.flags, "Frame flag was: " ~ hd.flags.to!string);
+
+	hd.unpack(acc.buf[FRAME_HDLEN + hd.length .. acc.buf.length]);
+
+	assert(16384 == hd.length);
+	assert(FrameType.DATA == hd.type);
+	assert(FrameFlags.END_STREAM == hd.flags);
+
+	session.free();
+}
+
 private void check_http_recv_headers_fail(Session session, ref Deflater deflater, int stream_id, int stream_state, in HeaderField[] hfa) 
 {
 
@@ -6846,6 +6926,7 @@ unittest {
 	test_session_open_idle_stream();
 	test_session_cancel_reserved_remote();
 	test_session_reset_pending_headers();
+	test_session_send_data_callback();
 	test_http_mandatory_headers();
 	test_http_content_length();
 	test_http_content_length_mismatch();

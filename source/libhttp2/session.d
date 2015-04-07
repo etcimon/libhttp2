@@ -39,7 +39,8 @@ enum OptionsMask {
 
 enum OutboundState {
     POP_ITEM,
-    SEND_DATA
+    SEND_DATA,
+	SEND_NO_COPY
 }
 
 struct ActiveOutboundItem {
@@ -3458,9 +3459,7 @@ class Session {
 		
 		buf = &bufs.cur.buf;
 		
-		Stream stream;
-			
-		stream = getStream(frame.hd.stream_id);
+		Stream stream = getStream(frame.hd.stream_id);
 
 		if (!stream)
 			return ErrorCode.INVALID_ARGUMENT;
@@ -3473,9 +3472,8 @@ class Session {
 		
 		LOGF("send: read_length_callback after flow control=%d", payloadlen);
 		
-		if (payloadlen <= 0) {
+		if (payloadlen <= 0)
 			return ErrorCode.CALLBACK_FAILURE;
-		}
 		
 		if (payloadlen > buf.available) {
 			import core.exception : OutOfMemoryError;
@@ -3523,10 +3521,13 @@ class Session {
 		
 		if (data_flags & DataFlags.EOF) {
 			aux_data.eof = true;
-			if (aux_data.flags & FrameFlags.END_STREAM)
+			if (aux_data.flags & DataFlags.EOF)
 				frame.hd.flags |= FrameFlags.END_STREAM;
 		}
-		
+
+		if (data_flags & DataFlags.NO_COPY)
+			aux_data.no_copy = true;
+
 		frame.hd.length = payloadlen;
 		frame.data.padlen = 0;
 		
@@ -3542,7 +3543,7 @@ class Session {
 		
 		frame.hd.pack((*buf)[]);
 		
-		frame.hd.addPad(bufs, frame.data.padlen);
+		frame.hd.addPad(bufs, frame.data.padlen, aux_data.no_copy);
 		
 		return ErrorCode.OK;
 	}
@@ -4479,7 +4480,22 @@ class Session {
 		}
 		return rv;
 	}	
+
+	ErrorCode callWriteData(OutboundItem item, Buffers framebufs)
+	{
+		Buffer* buf = &framebufs.cur.buf;
+		Frame* frame = &item.frame;
+		uint length = frame.hd.length - frame.data.padlen;
+		FrameHeader hd;
+		hd.unpack(buf.pos[0 .. FRAME_HDLEN]);
+		ErrorCode rv = connector.writeData(*frame, buf.pos[0 .. FRAME_HDLEN], length);
+
+		if (rv == ErrorCode.OK || rv == ErrorCode.WOULDBLOCK || rv == ErrorCode.TEMPORAL_CALLBACK_FAILURE)
+			return rv;
+		return ErrorCode.CALLBACK_FAILURE;
 	
+	}
+
 	bool callOnFrameReady(in Frame frame)
 	{
 		try return connector.onFrameReady(frame);
@@ -4891,7 +4907,7 @@ class Session {
 		
 		LOGF("send: padding selected: payloadlen=%d, padlen=%d", padded_payloadlen, padlen);
 		
-		frame.hd.addPad(framebufs, padlen);
+		frame.hd.addPad(framebufs, padlen, false);
 			
 		frame.headers.padlen = padlen;
 		
@@ -5201,7 +5217,7 @@ class Session {
 				aob.reset();
 				return ErrorCode.DEFERRED;
 			}
-			
+
 			rv = packData(aob.framebufs, next_readmax, *frame, item.aux_data.data);
 			if (rv == ErrorCode.DEFERRED) {
 				stream.deferItem(StreamFlags.DEFERRED_USER, this);
@@ -5449,7 +5465,7 @@ class Session {
 
 		OutboundItem next_item;
 		Stream stream;
-		DataAuxData aux_data = item.aux_data.data;
+		DataAuxData* aux_data = &item.aux_data.data;
 
 		/* On EOF, we have already detached data.  Please note that
 	       application may issue submitData() in
@@ -5459,7 +5475,9 @@ class Session {
 			aob.reset();
 			return ErrorCode.OK;
 		}
-		
+
+		aux_data.no_copy = false;
+
 		stream = getStream(frame.hd.stream_id);
 		
 		/* If Session is closed or RST_STREAM was queued, we won't send further data. */
@@ -5514,11 +5532,12 @@ class Session {
 			}
 			
 			framebufs.reset();
-			
+
 			rv = packData(framebufs, next_readmax, *frame, item.aux_data.data);
 			if (isFatal(rv)) {
 				return rv;
 			}
+
 			if (rv == ErrorCode.DEFERRED) {
 				stream.deferItem(StreamFlags.DEFERRED_USER, this);
 				
@@ -5537,7 +5556,11 @@ class Session {
 			}
 			
 			assert(rv == 0);
-			
+
+			if (aux_data.no_copy)
+				aob.state = OutboundState.SEND_NO_COPY;
+			else
+				aob.state = OutboundState.SEND_DATA;
 			return ErrorCode.OK;
 		}
 		
@@ -5663,6 +5686,12 @@ class Session {
 						}
 					} else {
 						LOGF("send: next frame: DATA");
+
+						if (item.aux_data.data.no_copy)
+						{
+							aob.state = OutboundState.SEND_NO_COPY;
+							break;
+						}
 					}
 					
 					LOGF("send: start transmitting frame type=%u, length=%d",
@@ -5704,10 +5733,60 @@ class Session {
 					datalen = buf.length;
 					data_arr = buf.pos[0 .. datalen];
 					
-					/* We increment the offset here. If send_callback does not send everything, we will adjust it. */
+					/* We increment the offset here. If write() does not send everything, we will adjust it. */
 					buf.pos += datalen;
 					
 					return ErrorCode.OK;
+				}
+				case OutboundState.SEND_NO_COPY:
+				{
+					LOGF("send: no copy DATA\n");
+
+					Frame* frame = &aob.item.frame;
+					Stream stream = getStream(frame.hd.stream_id);
+
+
+					if (!stream) {
+						LOGF("send: no copy DATA cancelled because stream was closed\n");						
+						aob.reset();						
+						break;
+					}
+
+					rv = callWriteData(aob.item, framebufs);
+					if (isFatal(rv)) {
+						return rv;
+					}
+					
+					if (rv == ErrorCode.TEMPORAL_CALLBACK_FAILURE) {
+						stream.detachItem(this);
+
+						addRstStream(frame.hd.stream_id, FrameError.INTERNAL_ERROR);
+
+						aob.reset();
+						
+						break;
+					}
+					
+					if (rv == ErrorCode.WOULDBLOCK) {
+						return ErrorCode.OK;
+					}
+					
+					assert(rv == ErrorCode.OK);
+					
+					rv = afterFrameSent();
+					if (rv < 0) {
+						assert(isFatal(rv));
+						return rv;
+					}
+					rv = resetActiveOutboundItem();
+					if (rv < 0) {
+						assert(isFatal(rv));
+						return rv;
+					}
+					
+					/* We have already adjusted the next state */
+					
+					break;
 				}
 			}
 		}
@@ -6235,7 +6314,7 @@ ErrorCode submitData(Session session, FrameFlags flags, int stream_id, in DataPr
 	aux_data.data_prd = data_prd;
 	aux_data.eof = false;
 	aux_data.flags = nflags;
-	
+
 	/* flags are sent on transmission */
 	frame.data = Data(FrameFlags.NONE, stream_id);
 	scope(failure) frame.data.free();

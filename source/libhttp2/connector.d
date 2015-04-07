@@ -37,7 +37,39 @@ public:
      * this callback function is unnecessary.
      */
     int write(in ubyte[] data);
-    
+	/**
+	 * Callback function invoked when `DataFlags.NO_COPY` is
+	 * used in `DataProvider` to send complete DATA frame.
+	 *
+	 * The |frame| is a DATA frame to send.  The |framehd| is the
+	 * serialized frame header (9 bytes). The |length| is the length of
+	 * application data to send (this does not include padding).  The
+	 * |source| is the same pointer passed to `DataProvider`.
+	 *
+	 * The application first must send frame header |framehd| of length 9
+	 * bytes.  If `frame->padlen > 0`, send 1 byte of value
+	 * `frame->padlen - 1`.  Then send exactly |length| bytes of
+	 * application data.  Finally, if `frame->padlen > 0`, send
+	 * `frame->padlen - 1` bytes of zero (they are padding).
+	 *
+	 * The application has to send complete DATA frame in this callback.
+	 * If all data were written successfully, return 0.
+	 *
+	 * If it cannot send it all, just return
+	 * `ErrorCode.WOULDBLOCK`, the library will call this callback
+	 * with the same parameters later (It is recommended to send complete
+	 * DATA frame at once in this function to deal with error; if partial
+	 * frame data has already sent, it is impossible to send another data
+	 * in that state, and all we can do is tear down connection).  If
+	 * application decided to reset this stream, return
+	 * `ErrorCode.TEMPORAL_CALLBACK_FAILURE`, then the library
+	 * will send RST_STREAM with INTERNAL_ERROR as error code.  The
+	 * application can also return `ErrorCode.CALLBACK_FAILURE`,
+	 * which will result in connection closure.  Returning any other value
+	 * is treated as if `ErrorCode.CALLBACK_FAILURE` was returned.
+	 */
+	ErrorCode writeData(in Frame frame, ubyte[] frame_hd, uint length);
+
     /**
      * Callback function invoked when Session wants to receive data from
      * the remote peer.  The implementation of this function must read at
@@ -310,7 +342,13 @@ public:
      * data to transmit.
      */
 	int delegate(in ubyte[]) write_cb;
-	
+
+	/**
+     * Callback function invoked when $(D DataFlags.NO_COPY) is used in $(D DataProvider)
+     * to avoid data copy.
+     */
+	ErrorCode delegate(in Frame, ubyte[], uint) write_data_cb;
+
 	/**
      * Callback function invoked when the session wants to receive data
      * from the remote peer.  This callback is not necessary if the
@@ -396,6 +434,14 @@ override:
 			return true; 
 		return write_cb(data); 
 	}
+
+	ErrorCode writeData(in Frame frame, ubyte[] frame_hd, uint length)
+	{ 
+		if (!write_data_cb) 
+			return ErrorCode.OK; 
+		return write_data_cb(frame, frame_hd, length); 
+	}
+
 	
 	int read(ubyte[] data) 
 	{ 

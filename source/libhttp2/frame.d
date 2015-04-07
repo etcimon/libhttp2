@@ -129,7 +129,7 @@ struct FrameHeader
 	}
 
 
-	void addPad(Buffers bufs, int padlen) 
+	void addPad(Buffers bufs, int padlen, bool framehd_only) 
 	{
 		Buffer* buf;
 		
@@ -163,7 +163,7 @@ struct FrameHeader
 		
 		assert(buf.available >= cast(size_t)(padlen - 1));
 		
-		frameSetPad(buf, padlen);
+		frameSetPad(buf, padlen, framehd_only);
 		
 		length += padlen;
 		flags |= FrameFlags.PADDED;
@@ -975,6 +975,9 @@ struct DataAuxData {
 
 	/// The flag to indicate whether EOF was reached or not. Initially |eof| is 0. It becomes 1 after all data were read.
 	bool eof;
+
+	/// The flag to indicate that DataFlags.NO_COPY was used.
+	bool no_copy; 
 }
 
 enum GoAwayAuxFlags {
@@ -1117,7 +1120,7 @@ bool check(in Setting[] iva)
 	return true;
 }
 
-void frameSetPad(Buffer* buf, int padlen) 
+void frameSetPad(Buffer* buf, int padlen, bool framehd_only) 
 {
 	import std.c.string : memmove, memset;
 	int trail_padlen;
@@ -1133,7 +1136,10 @@ void frameSetPad(Buffer* buf, int padlen)
 	
 	newlen = (read!uint(buf.pos) >> 8) + padlen;
 	write!uint(buf.pos, cast(uint)((newlen << 8) + buf.pos[3]));
-	
+
+	if (framehd_only)
+		return;
+
 	trail_padlen = padlen - 1;
 	buf.pos[FRAME_HDLEN] = cast(ubyte) trail_padlen;
 	

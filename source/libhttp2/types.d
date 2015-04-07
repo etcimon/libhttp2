@@ -530,6 +530,14 @@ enum FrameError : uint
  * them in |buf| and return number of data stored in |buf|.  If EOF is
  * reached, set $(D DataFlags.EOF)
  *
+ * Sometime it is desirable to avoid copying data into |buf| and let
+ * application to send data directly.  To achieve this, set
+ * `DataFlags.NO_COPY` to |data_flags| (and possibly
+ * other flags, just like when we do copy), and return the number of
+ * bytes to send without copying data into |buf|.  The library, seeing
+ * `DataFlags.NO_COPY`, will invoke `Connector.writeData`.  
+ * The application must send complete DATA frame in that callback.
+ *
  * If the application wants to postpone DATA frames (e.g.,
  * asynchronous I/O, or reading data blocks for long time), it is
  * achieved by setting $(D pause) without reading
@@ -554,7 +562,15 @@ enum DataFlags : ubyte
 	NONE = 0,
 
 	/// Indicates EOF was sensed.
-	EOF = 0x01
+	EOF = 0x01,
+	/// Indicates that END_STREAM flag must not be set 
+	/// even if EOF is set. Usually this flag is used to send
+	/// trailer header fields with `submitRequest()` or `submitResponse()`
+	/// Note: unused at the moment
+	NO_END_STREAM = 0x02,
+	/// Indicates that application will send complete DATA frame
+	/// in `Connector.writeData`
+	NO_COPY = 0x04
 }
 
 /**
