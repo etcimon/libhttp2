@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Buffers
  * 
  * Copyright:
@@ -73,9 +73,20 @@ struct Buffer
 	void free()
 	{
 		if (!begin) return;
-		if (use_secure_mem) SecureMem.free(begin[0 .. end - begin]);
-		else 
+		static if (__VERSION__ >= 2067)
 		{
+			if (use_secure_mem) SecureMem.free(begin[0 .. end - begin]);
+			else 
+			{
+				if (zeroize_on_free)
+				{
+					import std.c.string : memset;
+					memset(begin, 0, end-begin);
+				}
+				Mem.free(begin[0 .. end - begin]);
+			}
+		}
+		else {
 			if (zeroize_on_free)
 			{
 				import std.c.string : memset;
@@ -106,11 +117,26 @@ struct Buffer
 		
 		new_cap = max(new_cap, cap * 2);
 
-		if (use_secure_mem) {
-			if (begin)
-				new_buf = SecureMem.realloc(begin[0 .. end - begin], new_cap);
-			else
-				new_buf = SecureMem.alloc!(ubyte[])(new_cap);
+		static if (__VERSION__ >= 2067)
+		{
+			if (use_secure_mem) {
+				if (begin)
+					new_buf = SecureMem.realloc(begin[0 .. end - begin], new_cap);
+				else
+					new_buf = SecureMem.alloc!(ubyte[])(new_cap);
+			}
+			else {
+				if (begin) {
+					new_buf = Mem.realloc(begin[0 .. end - begin], new_cap);
+					if (zeroize_on_free && (new_buf.ptr > end || new_buf.ptr + new_cap < begin))
+					{
+						import std.c.string : memset;
+						memset(begin, 0, end - begin);
+					}
+				}
+				else
+					new_buf = Mem.alloc!(ubyte[])(new_cap);
+			}
 		}
 		else {
 			if (begin) {
@@ -211,14 +237,14 @@ class Buffers {
 	bool zeroize_on_free;
 
 	/// This is the same as calling init2 with the given arguments and offset = 0.
-	this(size_t _chunk_length, size_t _max_chunk, bool use_secure_mem = false, bool zeroize_on_free = false) {
-		this(_chunk_length, _max_chunk, _max_chunk, 0, use_secure_mem, zeroize_on_free);
+	this(size_t _chunk_length, size_t _max_chunk, bool _use_secure_mem = false, bool _zeroize_on_free = false) {
+		this(_chunk_length, _max_chunk, _max_chunk, 0, _use_secure_mem, _zeroize_on_free);
 	}
 
 	/// This is the same as calling init3 with the given arguments and chunk_keep = max_chunk.
-	this(size_t _chunk_length, size_t _max_chunk, size_t _offset, bool use_secure_mem = false, bool zeroize_on_free = false)
+	this(size_t _chunk_length, size_t _max_chunk, size_t _offset, bool _use_secure_mem = false, bool _zeroize_on_free = false)
 	{
-		this(_chunk_length, _max_chunk, _max_chunk, _offset, use_secure_mem, zeroize_on_free);
+		this(_chunk_length, _max_chunk, _max_chunk, _offset, _use_secure_mem, _zeroize_on_free);
 	}
 
 	/**
@@ -231,11 +257,11 @@ class Buffers {
 	 * This function allocates first buffer.  bufs.head and bufs.cur
 	 * will point to the first buffer after this call.
 	 */
-	this(size_t _chunk_length, size_t _max_chunk, size_t _chunk_keep, size_t _offset, bool use_secure_mem = false, bool zeroize_on_free = false) 
+	this(size_t _chunk_length, size_t _max_chunk, size_t _chunk_keep, size_t _offset, bool _use_secure_mem = false, bool _zeroize_on_free = false) 
 	in { assert(!(_chunk_keep == 0 || _max_chunk < _chunk_keep || _chunk_length < _offset), "Invalid Arguments"); }
 	body
 	{
-		Chain chain = Chain(_chunk_length, use_secure_mem, zeroize_on_free);
+		Chain chain = Chain(_chunk_length, _use_secure_mem, _zeroize_on_free);
 
 		offset = _offset;
 		
@@ -314,7 +340,7 @@ class Buffers {
 	void realloc(size_t _chunk_length)
 	in { assert(_chunk_length >= offset, "Invalid Arguments"); }
 	body {
-		Chain chain = Chain(_chunk_length);
+		Chain chain = Chain(_chunk_length, use_secure_mem, zeroize_on_free);
 		
 		free();
 		
@@ -688,7 +714,7 @@ private:
 		if (max_chunk == chunk_used)
 			return ErrorCode.BUFFER_ERROR;
 
-		chain = Chain(chunk_length);
+		chain = Chain(chunk_length, use_secure_mem, zeroize_on_free);
 		
 		LOGF("new buffer %d bytes allocated for bufs %s, used %d", chunk_length, this, chunk_used);
 		
