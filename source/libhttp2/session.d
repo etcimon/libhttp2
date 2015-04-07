@@ -180,7 +180,7 @@ struct InboundFrame {
 		}
 		
 		if (_iv.id == Setting.HEADER_TABLE_SIZE && _iv.value < iva[INBOUND_NUM_IV - 1].value) 
-		{			
+		{
 			iva[INBOUND_NUM_IV - 1] = _iv;
 		}
 	}
@@ -468,7 +468,8 @@ class Session {
 				return rv;
 			else if (data.length == 0)
 				return ErrorCode.OK;
-			sentlen = connector.write(data);
+			try sentlen = connector.write(data);
+			catch (Exception e) return ErrorCode.CALLBACK_FAILURE;
 			
 			if (sentlen < 0) {
 				if (cast(ErrorCode) sentlen == ErrorCode.WOULDBLOCK) {
@@ -1519,7 +1520,9 @@ class Session {
 							FrameFlags flags = iframe.frame.hd.flags;
 							int stream_id = iframe.frame.hd.stream_id;
 							bool pause;
-							bool ok = connector.onDataChunk(flags, stream_id, data_nopad, pause);
+							bool ok;
+							try ok = connector.onDataChunk(flags, stream_id, data_nopad, pause);
+							catch (Exception e) return ErrorCode.CALLBACK_FAILURE;
 
 							if (pause) {
 								return cast(int)(pos - first);
@@ -1726,7 +1729,6 @@ class Session {
 		return ErrorCode.OK;
 	}
 
-package:
 	/**
 	 * Returns the number of frames in the outbound queue.  This does not
 	 * include the deferred DATA frames.
@@ -2555,8 +2557,10 @@ package:
 		     may be PROTOCOL_ERROR, but without notifying stream closure will
 		     hang the stream in a local endpoint.
 		*/    
-		if (!connector.onStreamExit(stream_id, error_code))
-			return ErrorCode.CALLBACK_FAILURE;
+		try 
+			if (!connector.onStreamExit(stream_id, error_code))
+				return ErrorCode.CALLBACK_FAILURE;
+		catch (Exception e) return ErrorCode.CALLBACK_FAILURE;
 		
 		/* pushed streams which is not opened yet is not counted toward max concurrent limits */
 		if ((stream.flags & StreamFlags.PUSH) == 0) {
@@ -3241,8 +3245,10 @@ package:
 			return ErrorCode.IGN_HEADER_BLOCK;
 		}
 		if (stream.shutFlags & ShutdownFlag.RD) {
-			if (!connector.onInvalidFrame(frame, FrameError.PROTOCOL_ERROR)) 
-				return ErrorCode.CALLBACK_FAILURE;
+			try 
+				if (!connector.onInvalidFrame(frame, FrameError.PROTOCOL_ERROR))
+					return ErrorCode.CALLBACK_FAILURE;
+			catch(Exception e) return ErrorCode.CALLBACK_FAILURE;
 
 			addRstStream(frame.push_promise.promised_stream_id, FrameError.PROTOCOL_ERROR);
 			return ErrorCode.IGN_HEADER_BLOCK;
@@ -3459,8 +3465,8 @@ package:
 		if (!stream)
 			return ErrorCode.INVALID_ARGUMENT;
 		
-		payloadlen = connector.maxFrameSize(frame.hd.type, stream.id, remote_window_size, stream.remoteWindowSize, remote_settings.max_frame_size);
-		
+		try payloadlen = connector.maxFrameSize(frame.hd.type, stream.id, remote_window_size, stream.remoteWindowSize, remote_settings.max_frame_size);
+		catch(Exception e) payloadlen = min(remote_window_size, stream.remoteWindowSize, remote_settings.max_frame_size);
 		LOGF("send: read_length_callback=%d", payloadlen);
 		
 		payloadlen = enforceFlowControlLimits(stream, payloadlen);
@@ -3672,7 +3678,7 @@ package:
 	 * Setting.MAX_HEADER_LIST_SIZE, inclusive.
 	 *
 	 * While updating individual stream's local window size, if the window
-	 * size becomes strictly larger than max_WINDOW_SIZE,
+	 * size becomes strictly larger than MAX_WINDOW_SIZE,
 	 * RST_STREAM is issued against such a stream.
 	 *
 	 * This function returns 0 if it succeeds, or one of the following
@@ -3841,8 +3847,7 @@ package:
 	
 	/*
 	 * Returns true if the number of incoming opened streams is larger
-	 * than or equal to
-	 * local_settings.max_concurrent_streams.
+	 * than or equal to local_settings.max_concurrent_streams.
 	 */
 	bool isIncomingConcurrentStreamsMax() 
 	{
@@ -4467,7 +4472,8 @@ package:
 		
 		int max_paddedlen = cast(int) min(frame.hd.length + MAX_PADLEN, max_payloadlen);
 		
-		rv = connector.selectPaddingLength(frame, max_paddedlen);
+		try rv = connector.selectPaddingLength(frame, max_paddedlen);
+		catch (Exception e) return cast(int) ErrorCode.CALLBACK_FAILURE;
 		if (rv < cast(int)frame.hd.length || rv > cast(int)max_paddedlen) {
 			return cast(int) ErrorCode.CALLBACK_FAILURE;
 		}
@@ -4476,34 +4482,40 @@ package:
 	
 	bool callOnFrameReady(in Frame frame)
 	{
-		return connector.onFrameReady(frame);
+		try return connector.onFrameReady(frame);
+		catch(Exception e) return false;
 	}
 
 	bool callOnFrameSent(in Frame frame)
 	{
-		return connector.onFrameSent(frame);
+		try return connector.onFrameSent(frame);
+		catch(Exception e) return false;
 	}
 
 	bool callOnFrameHeader(in FrameHeader hd) 
 	{
-		return connector.onFrameHeader(hd);
+		try return connector.onFrameHeader(hd);
+		catch(Exception e) return false;
 	}
 
 	bool callOnHeaders(in Frame frame) 
 	{
 		LOGF("recv: call onHeaders callback stream_id=%d", frame.hd.stream_id);
-		return connector.onHeaders(frame);
-
+		try return connector.onHeaders(frame);
+		catch(Exception e) return false;
 	}
 
 	bool callOnHeaderField(in Frame frame, in HeaderField hf, ref bool pause, ref bool close) 
 	{
-		return connector.onHeaderField(frame, hf, pause, close);
+		try return connector.onHeaderField(frame, hf, pause, close);
+		catch(Exception e) return false;
 	}
 
 	int callRead(ubyte[] buf)
 	{
-		int len = connector.read(buf);
+		int len;
+		try len = connector.read(buf);
+		catch(Exception e) return ErrorCode.CALLBACK_FAILURE;
 
 		if (len > 0) {
 			if (cast(size_t) len > buf.length)
@@ -4516,7 +4528,8 @@ package:
 
 	bool callOnFrame(in Frame frame) 
 	{
-		return connector.onFrame(frame);
+		try return connector.onFrame(frame);
+		catch(Exception e) return false;
 	}
 
 	/*
@@ -4816,8 +4829,10 @@ package:
 		
 		addRstStream(frame.hd.stream_id, error_code);
 		
-		if (!connector.onInvalidFrame(frame, error_code))
-			return ErrorCode.CALLBACK_FAILURE;
+		try 
+			if (!connector.onInvalidFrame(frame, error_code))
+				return ErrorCode.CALLBACK_FAILURE;
+		catch (Exception e) return ErrorCode.CALLBACK_FAILURE;
 		
 		return ErrorCode.OK;
 	}
@@ -4836,8 +4851,10 @@ package:
 	 */
 	ErrorCode handleInvalidConnection(Frame frame, FrameError error_code, string reason)
 	{
-		if (!connector.onInvalidFrame(frame, error_code))
-			return ErrorCode.CALLBACK_FAILURE;
+		try 
+			if (!connector.onInvalidFrame(frame, error_code))
+				return ErrorCode.CALLBACK_FAILURE;
+		catch (Exception e) return ErrorCode.CALLBACK_FAILURE;
 
 		return terminateSessionWithReason(error_code, reason);
 	}
@@ -5577,8 +5594,12 @@ package:
 						if (item.frame.hd.type != FrameType.DATA && !isFatal(rv)) {
 							Frame* frame = &item.frame;
 							/* The library is responsible for the transmission of WINDOW_UPDATE frame, so we don't call error callback for it. */
-							if (frame.hd.type != FrameType.WINDOW_UPDATE && !connector.onFrameFailure(*frame, rv))
+							try if (frame.hd.type != FrameType.WINDOW_UPDATE && !connector.onFrameFailure(*frame, rv))
 							{
+								item.free();
+								Mem.free(item);
+								return ErrorCode.CALLBACK_FAILURE;
+							} catch (Exception e) {
 								item.free();
 								Mem.free(item);
 								return ErrorCode.CALLBACK_FAILURE;
@@ -6059,9 +6080,7 @@ int submitRequest(Session session, in PrioritySpec pri_spec, in HeaderField[] hf
  * response HEADERS.  See the specification for more details.
  *
  * If |data_prd| is not `null`, it provides data which will be sent
- * in subsequent DATA frames.  This function does not take ownership
- * of the |data_prd|.  The function copies the members of the
- * |data_prd|.  If |data_prd| is `null`, HEADERS will have
+ * in subsequent DATA frames. If |data_prd| is `null`, HEADERS will have
  * END_STREAM flag set.
  *
  * This method can be used as normal HTTP response and push response.
@@ -6072,7 +6091,7 @@ int submitRequest(Session session, in PrioritySpec pri_spec, in HeaderField[] hf
  *
  * To send non-final response headers (e.g., HTTP status 101), don't
  * use this function because this function half-closes the outbound
- * stream.  Instead, use `submitHeaders()` for this purpose.
+ * stream. Instead, use `submitHeaders()` for this purpose.
  *
  * This function returns 0 if it succeeds, or one of the following
  * negative error codes:
@@ -6433,8 +6452,6 @@ int submitPushPromise(Session session, int stream_id, in HeaderField[] hfa, void
  * received PING frame.  The library automatically submits PING frame
  * in this case.
  *
- * The |flags| is currently ignored and should be
- * $(D FrameFlags.NONE).
  *
  * If the |opaque_data| is non `null`, then it should point to the 8
  * bytes array of memory to specify opaque data to send with PING
@@ -6767,7 +6784,7 @@ public:
  *     SSL_CTX_set_next_proto_select_cb(ssl_ctx, select_next_proto_cb, my_obj);
  *
  */
-int selectNextProtocol(ref ubyte[] output, in ubyte[] input)
+int selectNextProtocol(ref ubyte[] output, in ubyte[] input, ubyte[] other_proto = null)
 {
 	size_t i;
 	size_t len;
@@ -6777,6 +6794,12 @@ int selectNextProtocol(ref ubyte[] output, in ubyte[] input)
 		++i;
 		ubyte[] proto = cast(ubyte[]) input[i .. i+len];
 		i += len;
+		if (other_proto && other_proto == proto)
+		{
+			output = proto;
+			return 1;
+		}
+
 		if (proto == PROTOCOL_ALPN) {
 			output = proto;
 			return 1;
