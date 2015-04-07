@@ -180,7 +180,7 @@ struct InboundFrame {
 		}
 		
 		if (_iv.id == Setting.HEADER_TABLE_SIZE && _iv.value < iva[INBOUND_NUM_IV - 1].value) 
-		{			
+		{
 			iva[INBOUND_NUM_IV - 1] = _iv;
 		}
 	}
@@ -3679,7 +3679,7 @@ class Session {
 	 * Setting.MAX_HEADER_LIST_SIZE, inclusive.
 	 *
 	 * While updating individual stream's local window size, if the window
-	 * size becomes strictly larger than max_WINDOW_SIZE,
+	 * size becomes strictly larger than MAX_WINDOW_SIZE,
 	 * RST_STREAM is issued against such a stream.
 	 *
 	 * This function returns 0 if it succeeds, or one of the following
@@ -3848,8 +3848,7 @@ class Session {
 	
 	/*
 	 * Returns true if the number of incoming opened streams is larger
-	 * than or equal to
-	 * local_settings.max_concurrent_streams.
+	 * than or equal to local_settings.max_concurrent_streams.
 	 */
 	bool isIncomingConcurrentStreamsMax() 
 	{
@@ -6786,7 +6785,7 @@ public:
  *     SSL_CTX_set_next_proto_select_cb(ssl_ctx, select_next_proto_cb, my_obj);
  *
  */
-int selectNextProtocol(ref ubyte[] output, in ubyte[] input)
+int selectNextProtocol(ref ubyte[] output, in ubyte[] input, ubyte[] other_proto = null)
 {
 	size_t i;
 	size_t len;
@@ -6796,6 +6795,12 @@ int selectNextProtocol(ref ubyte[] output, in ubyte[] input)
 		++i;
 		ubyte[] proto = cast(ubyte[]) input[i .. i+len];
 		i += len;
+		if (other_proto && other_proto == proto)
+		{
+			output = proto;
+			return 1;
+		}
+
 		if (proto == PROTOCOL_ALPN) {
 			output = proto;
 			return 1;
