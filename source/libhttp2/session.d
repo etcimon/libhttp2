@@ -1970,9 +1970,10 @@ class Session {
 	/**
 	 * Tells the $(D Session) that |size| bytes for a stream denoted by
 	 * |stream_id| were consumed by application and are ready to
-	 * WINDOW_UPDATE.  This function is intended to be used without
-	 * automatic window update (see
-	 * $(D Options.setNoAutoWindowUpdate).
+	 * WINDOW_UPDATE. The consumed bytes are counted towards both connection and
+	 * stream level WINDOW_UPDATE (see `consumeConnection` and `consumeStream`).
+	 * This function is intended to be used without
+	 * automatic window update (see $(D Options.setNoAutoWindowUpdate).
 	 *
 	 * This function returns 0 if it succeeds, or one of the following
 	 * negative error codes:
@@ -2001,16 +2002,83 @@ class Session {
 		}
 		
 		stream = getStream(stream_id);
+
+		if (!stream)
+			return ErrorCode.OK;
+
+		rv = updateStreamConsumedSize(stream, size);
+
+		if (isFatal(rv)) {
+			return rv;
+		}
+				
+		return ErrorCode.OK;
+	}
+
+	/**
+	 * Like $(D consume), but this only tells library that
+	 * |size| bytes were consumed only for connection level.  Note that
+	 * HTTP/2 maintains connection and stream level flow control windows
+	 * independently.
+	 *
+	 * This function returns 0 if it succeeds, or one of the following
+	 * negative error codes:
+	 *
+	 * $(D ErrorCode.INVALID_STATE)
+	 *     Automatic WINDOW_UPDATE is not disabled.
+	 */
+	ErrorCode consumeConnection(size_t size)
+	{
+		ErrorCode rv;
+
+		if (!(opt_flags & OptionsMask.NO_AUTO_WINDOW_UPDATE))
+			return ErrorCode.INVALID_STATE;
+		rv = updateConnectionConsumedSize(size);
+		if (isFatal(rv))
+			return rv;
+		return ErrorCode.OK;
+	}
+
+	/**
+	 * @function
+	 *
+	 * Like $(D consume), but this only tells library that
+	 * |size| bytes were consumed only for stream denoted by |stream_id|.
+	 * Note that HTTP/2 maintains connection and stream level flow control
+	 * windows independently.
+	 *
+	 * This function returns 0 if it succeeds, or one of the following
+	 * negative error codes:
+	 *
+	 * $(D ErrorCode.INVALID_ARGUMENT)
+	 *     The |stream_id| is 0.
+	 * $(D ErrorCode.INVALID_STATE)
+	 *     Automatic WINDOW_UPDATE is not disabled.
+	 */
+	ErrorCode consumeStream(int stream_id, size_t size)
+	{
+		ErrorCode rv;
+		Stream stream;
 		
-		if (stream) {
-			rv = updateStreamConsumedSize(stream, size);
-			
-			if (isFatal(rv)) {
-				return rv;
-			}
+		if (stream_id == 0) 
+			return ErrorCode.INVALID_ARGUMENT;
+		
+		if (!(opt_flags & OptionsMask.NO_AUTO_WINDOW_UPDATE))
+			return ErrorCode.INVALID_STATE;
+
+		stream = getStream(stream_id);
+		
+		if (!stream)
+			return ErrorCode.OK;
+		
+		rv = updateStreamConsumedSize(stream, size);
+		
+		if (isFatal(rv)) {
+			return rv;
 		}
 		
 		return ErrorCode.OK;
+		
 	}
 
 	/**
@@ -6953,7 +7021,7 @@ public:
 	 * connection automatically.  If this option is set to nonzero, the
 	 * library won't send WINDOW_UPDATE for DATA until application calls
 	 * `consume()` to indicate the consumed amount of
-	 * data.  Don't use `http2_submit_window_update()` for this purpose.
+	 * data.  Don't use $(D submitWindowUpdate) for this purpose.
 	 * By default, this option is set to zero.
 	 */
 	@property void setNoAutoWindowUpdate(bool val)
