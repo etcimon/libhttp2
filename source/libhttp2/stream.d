@@ -1178,10 +1178,14 @@ package:
 			
 			m_content_length = -1;
 
-		} else if ((m_http_flags & HTTPFlags.REQ_HEADERS) != HTTPFlags.REQ_HEADERS ||
-			(m_http_flags & (HTTPFlags._AUTHORITY | HTTPFlags.HOST)) == 0) 
-		{
-			return false;
+		} else {
+			if ((m_http_flags & HTTPFlags.REQ_HEADERS) != HTTPFlags.REQ_HEADERS ||
+				(m_http_flags & (HTTPFlags._AUTHORITY | HTTPFlags.HOST)) == 0) 
+			{
+				return false;
+			}
+			if (!checkPath())
+				return false;
 		}
 		
 		if (frame.hd.type == FrameType.PUSH_PROMISE) {
@@ -1218,6 +1222,19 @@ package:
 			m_content_length = -1;
 		return true;
 	}
+
+	/* For "http" or "https" URIs, OPTIONS request may have "*" in :path
+	   header field to represent system-wide OPTIONS request.  Otherwise,
+	   :path header field value must start with "/".  This function must
+	   be called after ":method" header field was received.  This function
+	   returns nonzero if path is valid.*/
+	bool checkPath() {
+		return (httpFlags & HTTPFlags.SCHEME_HTTP) == 0 ||
+				((httpFlags & HTTPFlags.PATH_REGULAR)   ||
+				((httpFlags & HTTPFlags.METH_OPTIONS)   &&
+				(httpFlags & HTTPFlags.PATH_ASTERISK)));
+	}
+
 private:
 
 

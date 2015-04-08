@@ -26,7 +26,7 @@ void LOGF(ARGS...)(ARGS args) {
 
 void logDebug(ARGS...)(ARGS args) {
 	import std.stdio: writeln;
-	static if (DEBUG)
+	//static if (DEBUG)
 		writeln("D: ", args);
 }
 
@@ -37,6 +37,13 @@ enum ErrorCode : int {
 	ERROR = -1,
 	CREDENTIAL_PENDING = -101,
 	IGN_HEADER_BLOCK = -103,
+
+	/*
+     * Invalid HTTP header field was received but it can be treated as
+     * if it was not received because of compatibility reasons.
+    */
+	IGN_HTTP_HEADER = -105,
+
 	IGN_PAYLOAD = -104,
 	/// Invalid argument passed.
     INVALID_ARGUMENT = -501,
@@ -133,6 +140,9 @@ enum ErrorCode : int {
 
 	/// The current session is closing due to a connection error or http2_session_terminate_session() is called.
 	SESSION_CLOSING = -530,
+
+	/// Invalid HTTP header field was received and stream is going to be closed.
+	HTTP_HEADER = -531,
 
 	/**
     * The errors < FATAL mean that the library is under unexpected condition and processing was terminated (e.g.,
@@ -320,25 +330,48 @@ struct HeaderField
 		
 		with(Token) switch (token) {
 			case _AUTHORITY:
-				if (!validatePseudoHeader(stream, HTTPFlags._AUTHORITY)) {
+				if (!validatePseudoHeader(stream, HTTPFlags._AUTHORITY)) 
 					return false;
-				}
+
 				break;
 			case _METHOD:
-				if (!validatePseudoHeader(stream, HTTPFlags._METHOD)) {
+				if (!validatePseudoHeader(stream, HTTPFlags._METHOD)) 
 					return false;
-				}
-				if (value == "HEAD") {
-					stream.httpFlags = cast(HTTPFlags)(stream.httpFlags | HTTPFlags.METH_HEAD);
-				} else if (value == "CONNECT") {
-					if (stream.id % 2 == 0) {
-						/* we won't allow CONNECT for push */
-						return false;
-					}
-					stream.httpFlags = cast(HTTPFlags)(stream.httpFlags | HTTPFlags.METH_CONNECT);
-					if (stream.httpFlags & (HTTPFlags._PATH | HTTPFlags._SCHEME)) 
-						return false;
-					
+				
+				switch (value.length)
+				{
+					case 4:
+
+						if (value == "HEAD") {
+							stream.httpFlags = cast(HTTPFlags)(stream.httpFlags | HTTPFlags.METH_HEAD);
+						} 
+						break;
+					case 7:
+						switch (value[6])
+						{
+							case 'T':
+								if (value == "CONNECT") {
+									if (stream.id % 2 == 0) {
+										/* we won't allow CONNECT for push */
+										return false;
+									}
+									stream.httpFlags = cast(HTTPFlags)(stream.httpFlags | HTTPFlags.METH_CONNECT);
+									if (stream.httpFlags & (HTTPFlags._PATH | HTTPFlags._SCHEME)) 
+										return false;
+								}
+								break;
+
+							case 'S':
+								if (value == "OPTIONS") {
+									stream.httpFlags = cast(HTTPFlags)(stream.httpFlags | HTTPFlags.METH_OPTIONS);
+								}
+								break;
+							default:
+								break;
+						}
+						break;
+					default:
+						break;
 				}
 				break;
 			case _PATH:
@@ -348,6 +381,11 @@ struct HeaderField
 				if (!validatePseudoHeader(stream, HTTPFlags._PATH)) {
 					return false;
 				}
+				if (value[0] == '/') {
+					stream.httpFlags = cast(HTTPFlags)(stream.httpFlags | HTTPFlags.PATH_REGULAR);
+				} else if (value.length == 1 && value[0] == '*') {
+					stream.httpFlags = cast(HTTPFlags)(stream.httpFlags | HTTPFlags.PATH_ASTERISK);
+				}
 				break;
 			case _SCHEME:
 				if (stream.httpFlags & HTTPFlags.METH_CONNECT) {
@@ -355,6 +393,10 @@ struct HeaderField
 				}
 				if (!validatePseudoHeader(stream, HTTPFlags._SCHEME)) {
 					return false;
+				}
+				if ((value.length == 4 && memieq("http".ptr, value.ptr, 4)) ||
+					(value.length == 5 && memieq("https".ptr, value.ptr, 5))) {
+					stream.httpFlags = cast(HTTPFlags)(stream.httpFlags | HTTPFlags.SCHEME_HTTP);
 				}
 				break;
 			case HOST:
@@ -687,11 +729,19 @@ enum HTTPFlags {
 	/* HTTP method flags */
 	METH_CONNECT = 1 << 7,
 	METH_HEAD = 1 << 8,
-	METH_ALL =
-	METH_CONNECT | METH_HEAD,
-	
+	METH_OPTIONS = 1 << 9,
+	METH_ALL = METH_CONNECT | METH_HEAD | METH_OPTIONS,
+	/* :path category */
+	/* path starts with "/" */
+	PATH_REGULAR = 1 << 10,
+	/* path "*" */
+	PATH_ASTERISK = 1 << 11,
+	/* scheme */
+	/* "http" or "https" scheme */
+	SCHEME_HTTP = 1 << 12,
+
 	/* set if final response is expected */
-	EXPECT_FINAL_RESPONSE = 1 << 9,
+	EXPECT_FINAL_RESPONSE = 1 << 13,
 }
 
 enum StreamDPRI {

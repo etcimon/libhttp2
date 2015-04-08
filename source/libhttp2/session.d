@@ -822,6 +822,7 @@ class Session {
 							on_frame_header_called = true;
 							
 							rv = processHeadersFrame();
+
 							if (isFatal(rv)) {
 								return rv;
 							}
@@ -1655,16 +1656,12 @@ class Session {
 	 */
 	bool wantWrite()
 	{
-		size_t num_active_streams;
-		
 		/* If these flag is set, we don't want to write any data. The application should drop the connection. */
 		if (goaway_flags & GoAwayFlags.TERM_SENT)
 		{
 			return false;
 		}
-		
-		num_active_streams = getNumActiveStreams();
-		
+				
 		/*
 		 * Unless termination GOAWAY is sent or received, we want to write
 		 * frames if there is pending ones. If pending frame is request/push
@@ -1677,11 +1674,6 @@ class Session {
 			(ob_ss_pq.empty || isOutgoingConcurrentStreamsMax())) 
 		{
 			return false;
-		}
-		
-		if (num_active_streams > 0)
-		{
-			return true;
 		}
 		
 		/* If there is no active streams and GOAWAY has been sent or received, we are done with this session. */
@@ -2438,14 +2430,21 @@ class Session {
 		
 		addItem(item);
 		
-		/* Extract Setting.MAX_CONCURRENT_STREAMS here and use it to refuse the incoming streams with RST_STREAM. */
+		/* Extract Setting.MAX_CONCURRENT_STREAMS and ENABLE_PUSH here. We use it to refuse the 
+		 * incoming stream and PUSH_PROMISE with RST_STREAM. */
 		foreach_reverse(ref iv; iva)
 		{
 			if (iv.id == Setting.MAX_CONCURRENT_STREAMS) {
 				pending_local_max_concurrent_stream = iv.value;
 				break;
 			}
-			
+		}
+		foreach_reverse(ref iv; iva)
+		{
+			if (iv.id == Setting.ENABLE_PUSH) {
+				pending_enable_push = iv.value>0;
+				break;
+			}
 		}
 
 		return ErrorCode.OK;
@@ -3304,7 +3303,7 @@ class Session {
 		}
 		last_recv_stream_id = frame.push_promise.promised_stream_id;
 		stream = getStream(frame.hd.stream_id);
-		if (!stream || stream.state == StreamState.CLOSING) {
+		if (!stream || stream.state == StreamState.CLOSING || !pending_enable_push) {
 			if (!stream) {
 				if (idleStreamDetect(frame.hd.stream_id)) {
 					return handleInflateInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "PUSH_PROMISE: stream in idle");
@@ -3478,7 +3477,7 @@ class Session {
 		{
 			if (!stream.validateRemoteEndStream()) {
 				call_cb = false;
-				addRstStream(stream.id, FrameError.PROTOCOL_ERROR);
+				handleInvalidStream2(stream.id, frame, FrameError.PROTOCOL_ERROR);
 			}
 		}
 		
@@ -3618,18 +3617,65 @@ class Session {
 	/*
 	 * This function is called when HTTP header field |hf| in |frame| is
 	 * received for |stream|.  This function will validate |hf| against
-	 * the current state of stream.  This function returns true if it
-	 * succeeds, or false.
+	 * the current state of stream.  
+	 * 
+	 * This function returns 0 if it succeeds, or one of the following
+	 * negative error codes:
+	 *
+	 * ErrorCode.HTTP_HEADER
+	 *     Invalid HTTP header field was received.
+	 * ErrorCode.IGN_HTTP_HEADER
+	 *     Invalid HTTP header field was received but it can be treated as
+	 *     if it was not received because of compatibility reasons.
 	 */
-	bool validateHeaderField(Stream stream, in Frame frame, HeaderField hf, bool trailer)
+	ErrorCode validateHeaderField(Stream stream, in Frame frame, HeaderField hf, bool trailer)
 	{
-		if (!hf.validateName() || !hf.validateValue())
-			return false;
-		
-		if (is_server || frame.hd.type == FrameType.PUSH_PROMISE)
-			return hf.validateRequestHeader(stream, trailer);
+		/* We are strict for pseudo header field.  One bad character
+			   should lead to fail.  OTOH, we should be a bit forgiving for
+			   regular headers, since existing public internet has so much
+			   illegal headers floating around and if we kill the stream
+			   because of this, we may disrupt many web sites and/or
+			   libraries.  So we become conservative here, and just ignore
+			   those illegal regular headers. */
+		if (!hf.validateName())
+		{
+			size_t i;
+			if (hf.name.length > 0 && hf.name[0] == ':') {
+				return ErrorCode.HTTP_HEADER;
+			}
+			/* header field name must be lower-cased without exception */
+			for (i = 0; i < hf.name.length; ++i) {
+				char c = hf.name[i];
+				if ('A' <= c && c <= 'Z') {
+					return ErrorCode.HTTP_HEADER;
+				}
+			}
+			
+			/* When ignoring regular headers, we set this flag so that we
+			   still enforce header field ordering rule for pseudo header
+			   fields. */
+			stream.httpFlags = cast(HTTPFlags)(stream.httpFlags | HTTPFlags.PSEUDO_HEADER_DISALLOWED);
+			return ErrorCode.IGN_HTTP_HEADER;
+		}
 
-		return hf.validateResponseHeader(stream, trailer);
+		if (!hf.validateValue()) 
+		{
+			assert(hf.name.length > 0);
+			if (hf.name[0] == ':') {
+				return ErrorCode.HTTP_HEADER;
+			}
+
+			/* When ignoring regular headers, we set this flag so that we
+			   still enforce header field ordering rule for pseudo header
+			   fields. */
+			stream.httpFlags = cast(HTTPFlags)(stream.httpFlags | HTTPFlags.PSEUDO_HEADER_DISALLOWED);
+			return ErrorCode.IGN_HTTP_HEADER;
+		}
+
+		if (is_server || frame.hd.type == FrameType.PUSH_PROMISE)
+			return hf.validateRequestHeader(stream, trailer) ? ErrorCode.OK : ErrorCode.HTTP_HEADER;
+
+		return hf.validateResponseHeader(stream, trailer) ? ErrorCode.OK : ErrorCode.HTTP_HEADER;
 	}
 
 	/*
@@ -3811,7 +3857,8 @@ class Session {
 		}
 		
 		pending_local_max_concurrent_stream = INITIAL_MAX_CONCURRENT_STREAMS;
-		
+		pending_enable_push = true;
+
 		return ErrorCode.OK;
 	}
 
@@ -4755,7 +4802,7 @@ class Session {
 				
 				call_cb = false;
 				
-				addRstStream(stream_id, FrameError.PROTOCOL_ERROR);
+				handleInvalidStream2(stream_id, *frame, FrameError.PROTOCOL_ERROR);
 			}
 		}
 
@@ -4911,7 +4958,12 @@ class Session {
 
 	ErrorCode handleInvalidStream(Frame frame, FrameError error_code) {
 		
-		addRstStream(frame.hd.stream_id, error_code);
+		return handleInvalidStream2(frame.hd.stream_id, frame, error_code);
+	}
+
+	ErrorCode handleInvalidStream2(int stream_id, Frame frame, FrameError error_code) {
+		
+		addRstStream(stream_id, error_code);
 		
 		try 
 			if (!connector.onInvalidFrame(frame, error_code))
@@ -5046,7 +5098,7 @@ class Session {
 	 * reserved state.
 	 */
 	size_t getNumActiveStreams() {
-		return streams.length - num_closed_streams;
+		return streams.length - num_closed_streams - num_idle_streams;
 	}
 
 	/* Closes non-idle and non-closed streams whose stream ID > last_stream_id. 
@@ -5938,22 +5990,29 @@ class Session {
 			inptr += proclen;
 			inlen -= proclen;
 			readlen_ref += proclen;
-			
+
 			LOGF("recv: proclen=%d", proclen);
-			
+
 			if (call_header_cb && (inflate_flag & InflateFlag.EMIT)) {
+				rv = ErrorCode.OK;
 				if (subject_stream && isHTTPMessagingEnabled()) {
-					bool ok = validateHeaderField(subject_stream, frame, hf, trailer);
-					if (!ok) {
+					rv = validateHeaderField(subject_stream, frame, hf, trailer);
+					if (rv == ErrorCode.HTTP_HEADER) {
 						LOGF("recv: HTTP error: type=%d, id=%d, header %.*s: %.*s",
 								frame.hd.type, subject_stream.id, cast(int)hf.name.length,
 								hf.name, cast(int)hf.value.length, hf.value);
 						
-						addRstStream(subject_stream.id, FrameError.PROTOCOL_ERROR);
+						handleInvalidStream2(subject_stream.id, frame, FrameError.PROTOCOL_ERROR);
 						return ErrorCode.TEMPORAL_CALLBACK_FAILURE;
 					}
+					else if (rv == ErrorCode.IGN_HTTP_HEADER) {
+						/* header is ignored */
+						LOGF("recv: HTTP ignored: type=%d, id=%d, header %s: %s", frame.hd.type, subject_stream.id, hf.name, hf.value);
+					}
+
 				}
-				if (call_header_cb) {
+
+				if (rv == ErrorCode.OK) {
 					bool pause;
 					bool close;
 					bool ok = callOnHeaderField(frame, hf, pause, close);
@@ -5962,10 +6021,10 @@ class Session {
 					if (close)
 						return ErrorCode.TEMPORAL_CALLBACK_FAILURE;
 					if (pause)
-						return ErrorCode.PAUSE;
-					
+						return ErrorCode.PAUSE;				
 				}
 			}
+
 			if (inflate_flag & InflateFlag.FINAL) {
 				hd_inflater.endHeaders();
 				break;
@@ -6107,7 +6166,10 @@ package:
 	
 	/// Unacked local Setting.MAX_CONCURRENT_STREAMS value. We use this to refuse the incoming stream if it exceeds this value. 
 	uint pending_local_max_concurrent_stream = INITIAL_MAX_CONCURRENT_STREAMS;
-	
+
+	/// Unacked local ENABLE_PUSH value.  We use this to refuse PUSH_PROMISE before SETTINGS ACK is received. 
+	bool pending_enable_push = true;
+
 	/// true if the session is server side. 
 	bool is_server;
 	

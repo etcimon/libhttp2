@@ -110,7 +110,7 @@ void free(ref HeaderField[] hfa)
 Token parseToken(in string name) {
 	with(Token) switch (name.length) {
 		case 2:
-			switch (name[$ - 1]) {
+			switch (name[1]) {
 				case 'e':
 					if (name[0] == 't') {
 						return TE;
@@ -120,7 +120,7 @@ Token parseToken(in string name) {
 			}
 			break;
 		case 4:
-			switch (name[$ - 1]) {
+			switch (name[3]) {
 				case 't':
 					if (name.ptr[0 .. 3] == "hos") {
 						return HOST;
@@ -130,7 +130,7 @@ Token parseToken(in string name) {
 			}
 			break;
 		case 5:
-			switch (name[$ - 1]) {
+			switch (name[4]) {
 				case 'h':
 					if (name.ptr[0 .. 4] == ":pat") {
 						return _PATH;
@@ -140,7 +140,7 @@ Token parseToken(in string name) {
 			}
 			break;
 		case 7:
-			switch (name[$ - 1]) {
+			switch (name[6]) {
 				case 'd':
 					if (name.ptr[0 .. 6] == ":metho") {
 						return _METHOD;
@@ -163,7 +163,7 @@ Token parseToken(in string name) {
 			}
 			break;
 		case 10:
-			switch (name[$ - 1]) {
+			switch (name[9]) {
 				case 'e':
 					if (name.ptr[0 .. 9] == "keep-aliv") {
 						return KEEP_ALIVE;
@@ -183,7 +183,7 @@ Token parseToken(in string name) {
 			}
 			break;
 		case 14:
-			switch (name[$ - 1]) {
+			switch (name[13]) {
 				case 'h':
 					if (name.ptr[0 .. 13] == "content-lengt") {
 						return CONTENT_LENGTH;
@@ -193,7 +193,7 @@ Token parseToken(in string name) {
 			}
 			break;
 		case 16:
-			switch (name[$ - 1]) {
+			switch (name[15]) {
 				case 'n':
 					if (name.ptr[0 .. 15] == "proxy-connectio") {
 						return PROXY_CONNECTION;
@@ -203,7 +203,7 @@ Token parseToken(in string name) {
 			}
 			break;
 		case 17:
-			switch (name[$ - 1]) {
+			switch (name[16]) {
 				case 'g':
 					if (name.ptr[0 .. 16] == "transfer-encodin") {
 						return TRANSFER_ENCODING;
@@ -392,3 +392,21 @@ immutable char[] DOWNCASE_TBL = [
 	248 /* 0xf8 */, 249 /* 0xf9 */, 250 /* 0xfa */, 251 /* 0xfb */,
 	252 /* 0xfc */, 253 /* 0xfd */, 254 /* 0xfe */, 255 /* 0xff */
 ];
+
+
+char downcase(char c) {
+	return cast(char)('A' <= c && c <= 'Z' ? (c - 'A' + 'a') : c);
+}
+
+bool memieq(const void *a, const void *b, size_t n) {
+	size_t i;
+	const ubyte* aa = cast(const ubyte*) a;
+	const ubyte* bb =  cast(const ubyte*) b;
+	
+	for (i = 0; i < n; ++i) {
+		if (downcase(aa[i]) != downcase(bb[i])) {
+			return false;
+		}
+	}
+	return true;
+}

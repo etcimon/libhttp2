@@ -588,7 +588,7 @@ void test_session_read_data() {
 	Callbacks callbacks;
 	MyUserData user_data = MyUserData(&session);
 	ubyte[8092] data;
-	size_t rv;
+	int rv;
 	OutboundItem item;
 	Stream stream;
 	FrameHeader hd;
@@ -837,7 +837,7 @@ void test_session_read_headers_with_priority() {
 	Frame frame;
 	Buffers bufs = framePackBuffers();
 	Buffer* buf;
-	size_t rv;
+	int rv;
 	MyUserData user_data = MyUserData(&session);
 	Deflater deflater;
 	OutboundItem item;
@@ -976,7 +976,7 @@ void test_session_read_premature_headers() {
 	Frame frame;
 	Buffers bufs = framePackBuffers();
 	Buffer* buf;
-	size_t rv;
+	int rv;
 	MyUserData user_data = MyUserData(&session);
 	Deflater deflater;
 	OutboundItem item;
@@ -1022,7 +1022,7 @@ void test_session_read_unknown_frame() {
 	ubyte[16384] data;
 	size_t datalen;
 	FrameHeader hd;
-	size_t rv;
+	int rv;
 	
 	hd = FrameHeader(16000, cast(FrameType)99, FrameFlags.NONE, 0);
 
@@ -1039,7 +1039,7 @@ void test_session_read_unknown_frame() {
 	/* Unknown frame must be ignored */
 	rv = session.memRecv(data[0 .. datalen]);
 	
-	assert(rv == cast(size_t)datalen);
+	assert(rv == datalen);
 	assert(0 == user_data.frame_recv_cb_called);
 	assert(!session.getNextOutboundItem());
 	
@@ -1053,7 +1053,7 @@ void test_session_read_unexpected_continuation() {
 	ubyte[16384] data;
 	size_t datalen;
 	FrameHeader hd;
-	size_t rv;
+	int rv;
 	OutboundItem item;
 	
 	hd = FrameHeader(16000, FrameType.CONTINUATION,	FrameFlags.END_HEADERS, 1);
@@ -1089,7 +1089,7 @@ void test_session_read_settings_header_table_size() {
 	Frame frame;
 	Buffers bufs = framePackBuffers();
 	Buffer* buf;
-	size_t rv;
+	int rv;
 	MyUserData user_data = MyUserData(&session);
 	Setting[3] iva;
 	HeaderField hf = HeaderField(":authority", "example.org");
@@ -1277,7 +1277,7 @@ void test_session_continue() {
 	Buffers bufs = framePackBuffers();
 	Buffer* buf;
 	size_t framelen1, framelen2;
-	size_t rv;
+	int rv;
 	ubyte[4096] buffer;
 	Buffer databuf;
 	Frame frame;
@@ -1995,6 +1995,7 @@ void test_session_on_push_promise_received() {
 	OutboundItem item;
 	HeaderField[] malformed_hfa = [HeaderField(":path", "\x01")];
 	HeaderField[] hfa;
+	Setting iv = Setting(Setting.ENABLE_PUSH, 0);
 
 	
 	callbacks.write_cb = toDelegate(&MyCallbacks.writeNull);
@@ -2151,6 +2152,21 @@ void test_session_on_push_promise_received() {
 	
 	frame.push_promise.free();
 	session.free();
+
+	// If local_settings.enable_push = 0 is pending, but not acked from peer, incoming
+	// PUSH_PROMISE is rejected
+
+	session = new Session(CLIENT, *callbacks);
+	
+	stream = session.openStream(1, StreamFlags.NONE, pri_spec_default, StreamState.OPENING, null);
+	// Submit settings with ENABLE_PUSH = 0 (thus disabling push)
+	submitSettings(session, (&iv)[0 .. 1]);
+	frame.push_promise = PushPromise(FrameFlags.END_HEADERS, 1, 2, null);
+	assert(ErrorCode.IGN_HEADER_BLOCK == session.onPushPromise(frame));
+
+	frame.push_promise.free();
+	session.free();
+
 }
 
 void test_session_on_ping_received() {
@@ -2233,6 +2249,7 @@ void test_session_on_goaway_received() {
 	
 	frame.goaway.free();
 	session.free();
+
 }
 
 void test_session_on_window_update_received() {
@@ -5853,7 +5870,7 @@ void test_session_on_header_temporal_failure() {
 	HeaderField[] hfa = [HeaderField("alpha", "bravo"), HeaderField("charlie", "delta")];
 	HeaderField[] hfa_copy;
 	size_t hdpos;
-	size_t rv;
+	int rv;
 	Frame frame;
 	FrameHeader hd;
 	OutboundItem item;
@@ -5904,7 +5921,7 @@ void test_session_read_client_preface() {
 	Session session;
 	Callbacks callbacks;
 	Options options;
-	size_t rv;
+	int rv;
 	Frame ping_frame;
 	ubyte[16] buf;
 
@@ -6020,7 +6037,7 @@ void test_session_cancel_reserved_remote() {
 	Deflater deflater;
 
 	Buffers bufs = framePackBuffers();
-	size_t rv;	
+	int rv;	
 	
 	callbacks.write_cb = toDelegate(&MyCallbacks.writeNull);
 	
@@ -6177,18 +6194,19 @@ void test_session_send_data_callback() {
 	session.free();
 }
 
-private void check_http_recv_headers_fail(Session session, ref Deflater deflater, int stream_id, int stream_state, in HeaderField[] hfa) 
+private void check_http_recv_headers_fail(Session session, ref MyUserData user_data, ref Deflater deflater, int stream_id, int stream_state, in HeaderField[] hfa) 
 {
-
-	size_t rv;
+	
+	int rv;
 	OutboundItem item;
 	Buffers bufs = framePackBuffers();
-	
 	if (stream_state != -1) 
 		session.openStream(stream_id, StreamFlags.NONE, pri_spec_default, cast(StreamState)stream_state, null);
 	
 	packHeaders(bufs, deflater, stream_id, FrameFlags.END_HEADERS, hfa);
-
+	
+	user_data.invalid_frame_recv_cb_called = 0;
+	
 	rv = session.memRecv(bufs.head.buf[]);
 	
 	assert(bufs.head.buf.length == rv);
@@ -6196,8 +6214,33 @@ private void check_http_recv_headers_fail(Session session, ref Deflater deflater
 	item = session.getNextOutboundItem();
 	
 	assert(FrameType.RST_STREAM == item.frame.hd.type);
-	
+	assert(1 == user_data.invalid_frame_recv_cb_called, user_data.invalid_frame_recv_cb_called.to!string);
 	assert(0 == session.send());
+	
+	bufs.free();
+}
+
+
+private void check_http_recv_headers_ok(Session session, ref MyUserData user_data, ref Deflater deflater, int stream_id, int stream_state, in HeaderField[] hfa) 
+{
+	
+	int rv;
+	Buffers bufs = framePackBuffers();
+
+	if (stream_state != -1) 
+		session.openStream(stream_id, StreamFlags.NONE, pri_spec_default, cast(StreamState)stream_state, null);
+	
+	packHeaders(bufs, deflater, stream_id, FrameFlags.END_HEADERS, hfa);
+	
+	user_data.frame_recv_cb_called = 0;
+	
+	rv = session.memRecv(bufs.head.buf[]);
+	
+	assert(bufs.head.buf.length == rv);	
+
+	assert(!session.getNextOutboundItem());
+
+	assert(1 == user_data.frame_recv_cb_called);
 	
 	bufs.free();
 }
@@ -6206,6 +6249,10 @@ void test_http_mandatory_headers()
 {
 	Session session;
 	Callbacks callbacks;
+	MyUserData user_data = MyUserData(&session);
+	callbacks.on_invalid_frame_cb = &user_data.cb_handlers.onInvalidFrame;
+	callbacks.on_frame_cb = &user_data.cb_handlers.onFrame;
+	callbacks.write_cb = toDelegate(&MyCallbacks.writeNull);
 	Deflater deflater;
 
 	/* test case for response */
@@ -6217,7 +6264,7 @@ void test_http_mandatory_headers()
 	const HeaderField[] badcl_reshf = [HeaderField(":status", "200"), HeaderField("content-length", "-1")];
 	const HeaderField[] dupcl_reshf = [HeaderField(":status", "200"), HeaderField("content-length", "0"), HeaderField("content-length", "0")];
 	const HeaderField[] badhd_reshf = [HeaderField(":status", "200"), HeaderField("connection", "close")];
-	
+
 	/* test case for request */
 	const HeaderField[] nopath_reqhf = [
 		HeaderField(":scheme", "https"), 		HeaderField(":method", "GET"), 
@@ -6245,36 +6292,53 @@ void test_http_mandatory_headers()
 		HeaderField(":scheme", "https"), 		HeaderField(":method", "GET"), 
 		HeaderField(":authority", "localhost"), HeaderField(":path", "/"),
 		HeaderField("connection", "close")];
-
-	callbacks.write_cb = toDelegate(&MyCallbacks.writeNull);
-	
+	const HeaderField[] badauthority_reqhf = [
+		HeaderField(":scheme", "https"), 		HeaderField(":method", "POST"),
+		HeaderField(":authority", "\x0d\x0alocalhost"), HeaderField(":path", "/")];
+	const HeaderField[] badhdbtw_reqhf = [
+		HeaderField(":scheme", "https"), 		HeaderField(":method", "GET"), 
+		HeaderField("foo", "\x0d\x0a"), HeaderField(":authority", "localhost"),
+		HeaderField(":path", "/")];
+	const HeaderField[] asteriskget1_reqhf = [
+		HeaderField(":path", "*"), HeaderField(":scheme", "https"),
+		HeaderField(":authority", "localhost"), HeaderField(":method", "GET")];
+	const HeaderField[] asteriskget2_reqhf = [
+		HeaderField(":scheme", "https"), HeaderField(":authority", "localhost"),
+		HeaderField(":method", "GET"), HeaderField(":path", "*")];
+	const HeaderField[] asteriskoptions1_reqhf = [
+		HeaderField(":path", "*"), HeaderField(":scheme", "https"),
+		HeaderField(":authority", "localhost"), HeaderField(":method", "OPTIONS")];
+	const HeaderField[] asteriskoptions2_reqhf = [
+		HeaderField(":scheme", "https"), HeaderField(":authority", "localhost"),
+		HeaderField(":method", "OPTIONS"), HeaderField(":path", "*")];
+		
 	session = new Session(CLIENT, *callbacks);
 	
 	deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
 	
 	/* response header lacks :status */
-	check_http_recv_headers_fail(session, deflater, 1, StreamState.OPENING, nostatus_reshf);
+	check_http_recv_headers_fail(session, user_data, deflater, 1, StreamState.OPENING, nostatus_reshf);
 	
 	/* response header has 2 :status */
-	check_http_recv_headers_fail(session, deflater, 3, StreamState.OPENING, dupstatus_reshf);
+	check_http_recv_headers_fail(session, user_data, deflater, 3, StreamState.OPENING, dupstatus_reshf);
 	
 	/* response header has bad pseudo header :scheme */
-	check_http_recv_headers_fail(session, deflater, 5, StreamState.OPENING, badpseudo_reshf);
+	check_http_recv_headers_fail(session, user_data, deflater, 5, StreamState.OPENING, badpseudo_reshf);
 	
 	/* response header has :status after regular header field */
-	check_http_recv_headers_fail(session, deflater, 7, StreamState.OPENING, latepseudo_reshf);
+	check_http_recv_headers_fail(session, user_data, deflater, 7, StreamState.OPENING, latepseudo_reshf);
 	
 	/* response header has bad status code */
-	check_http_recv_headers_fail(session, deflater, 9, StreamState.OPENING, badstatus_reshf);
+	check_http_recv_headers_fail(session, user_data, deflater, 9, StreamState.OPENING, badstatus_reshf);
 	
 	/* response header has bad content-length */
-	check_http_recv_headers_fail(session, deflater, 11, StreamState.OPENING, badcl_reshf);
+	check_http_recv_headers_fail(session, user_data, deflater, 11, StreamState.OPENING, badcl_reshf);
 	
 	/* response header has multiple content-length */
-	check_http_recv_headers_fail(session, deflater, 13, StreamState.OPENING, dupcl_reshf);
+	check_http_recv_headers_fail(session, user_data, deflater, 13, StreamState.OPENING, dupcl_reshf);
 	
 	/* response header has disallowed header field */
-	check_http_recv_headers_fail(session, deflater, 15, StreamState.OPENING, badhd_reshf);
+	check_http_recv_headers_fail(session, user_data, deflater, 15, StreamState.OPENING, badhd_reshf);
 	
 	deflater.free();
 	
@@ -6286,26 +6350,49 @@ void test_http_mandatory_headers()
 	deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
 	
 	/* request header has no :path */
-	check_http_recv_headers_fail(session, deflater, 1, -1, nopath_reqhf);
+	check_http_recv_headers_fail(session, user_data, deflater, 1, -1, nopath_reqhf);
 	
 	/* request header has CONNECT method, but followed by :path */
-	check_http_recv_headers_fail(session, deflater, 3, -1, earlyconnect_reqhf);
+	check_http_recv_headers_fail(session, user_data, deflater, 3, -1, earlyconnect_reqhf);
 	
 	/* request header has CONNECT method following :path */
-	check_http_recv_headers_fail(session, deflater, 5, -1, lateconnect_reqhf);
+	check_http_recv_headers_fail(session, user_data, deflater, 5, -1, lateconnect_reqhf);
 	
 	/* request header has multiple :path */
-	check_http_recv_headers_fail(session, deflater, 7, -1, duppath_reqhf);
+	check_http_recv_headers_fail(session, user_data, deflater, 7, -1, duppath_reqhf);
 	
 	/* request header has bad content-length */
-	check_http_recv_headers_fail(session, deflater, 9, -1, badcl_reqhf);
+	check_http_recv_headers_fail(session, user_data, deflater, 9, -1, badcl_reqhf);
 	
 	/* request header has multiple content-length */
-	check_http_recv_headers_fail(session, deflater, 11, -1, dupcl_reqhf);
-	
+	check_http_recv_headers_fail(session, user_data, deflater, 11, -1, dupcl_reqhf);
+
 	/* request header has disallowed header field */
-	check_http_recv_headers_fail(session, deflater, 13, -1, badhd_reqhf);
+	check_http_recv_headers_fail(session, user_data, deflater, 13, -1, badhd_reqhf);
+
+	/* request header has :authority header field containing illegal characters */
+	check_http_recv_headers_fail(session, user_data, deflater, 15, -1, badauthority_reqhf);
+
+	/*  request header has regular header field containing illegal 
+	 * character before all mandatory header fields are seen. */
+	check_http_recv_headers_fail(session, user_data, deflater, 17, -1, badhdbtw_reqhf);
+
+	/* request header has "*" in :path header field while method is GET.
+     :path is received before :method */
+	check_http_recv_headers_fail(session, user_data, deflater, 19, -1, asteriskget1_reqhf);
 	
+	/* request header has "*" in :path header field while method is GET.
+     :method is received before :path */
+	check_http_recv_headers_fail(session, user_data, deflater, 21, -1, asteriskget2_reqhf);
+	
+	/* OPTIONS method can include "*" in :path header field.  :path is
+     received before :method. */
+	check_http_recv_headers_ok(session, user_data, deflater, 23, -1, asteriskoptions1_reqhf);
+	
+	/* OPTIONS method can include "*" in :path header field.  :method is
+     received before :path. */
+	check_http_recv_headers_ok(session, user_data, deflater, 25, -1, asteriskoptions2_reqhf);
+
 	deflater.free();
 	
 	session.free();
@@ -6317,7 +6404,7 @@ void test_http_content_length() {
 	Deflater deflater;
 
 	Buffers bufs = framePackBuffers();
-	size_t rv;
+	int rv;
 	Stream stream;
 	const HeaderField[] cl_reshf = [HeaderField(":status", "200"),
 		HeaderField("te", "trailers"),
@@ -6380,7 +6467,7 @@ void test_http_content_length_mismatch() {
 	Deflater deflater;
 
 	Buffers bufs = framePackBuffers();
-	size_t rv;
+	int rv;
 	const HeaderField[] cl_reqhf = [
 		HeaderField(":path", "/"), HeaderField(":method", "PUT"),
 		HeaderField(":authority", "localhost"), HeaderField(":scheme", "https"),
@@ -6457,7 +6544,7 @@ void test_http_non_final_response() {
 	Deflater deflater;
 
 	Buffers bufs = framePackBuffers();
-	size_t rv;
+	int rv;
 	const HeaderField[] nonfinal_reshf = [HeaderField(":status", "100")];
 	OutboundItem item;
 	FrameHeader hd;
@@ -6580,7 +6667,7 @@ void test_http_trailer_headers() {
 	Deflater deflater;
 
 	Buffers bufs = framePackBuffers();
-	size_t rv;
+	int rv;
 	const HeaderField[] trailer_reqhf = [
 		HeaderField("foo", "bar"),
 	];
@@ -6669,7 +6756,7 @@ void test_http_ignore_content_length() {
 	Deflater deflater;
 
 	Buffers bufs = framePackBuffers();
-	size_t rv;
+	int rv;
 	const HeaderField[] cl_reshf = [HeaderField(":status", "304"), HeaderField("content-length", "20")];
 	const HeaderField[] conn_reqhf = [HeaderField(":authority", "localhost"), HeaderField(":method", "CONNECT"), HeaderField("content-length", "999999")];
 	Stream stream;
@@ -6720,13 +6807,67 @@ void test_http_ignore_content_length() {
 	bufs.free();
 }
 
+void test_http_ignore_regular_header() {
+	Session session;
+	Callbacks callbacks;
+	MyUserData user_data = MyUserData(&session);
+
+	const HeaderField[] bad_reqhf = [
+		HeaderField(":authority", "localhost"), HeaderField(":scheme", "https"),
+		HeaderField(":path", "/"),              HeaderField(":method", "GET"),
+		HeaderField("foo", "\x00"),           HeaderField("bar", "buzz")
+	];
+	const HeaderField[] bad_reshf = [
+		HeaderField(":authority", "localhost"), HeaderField(":scheme", "https"),
+		HeaderField(":path", "/"), HeaderField(":method", "GET"), HeaderField("bar", "buzz")
+	];
+	
+	callbacks.write_cb = toDelegate(&MyCallbacks.writeNull);
+	callbacks.on_header_field_cb = &user_data.cb_handlers.onHeaderFieldPause;
+
+	int rv;
+	Buffers bufs = framePackBuffers();
+	Deflater deflater;
+
+	int proclen;
+	size_t i;
+
+	session = new Session(SERVER, *callbacks);
+
+	deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
+
+	packHeaders(bufs, deflater, 1, cast(FrameFlags)(FrameFlags.END_HEADERS | FrameFlags.END_STREAM), bad_reqhf);
+
+	for(i = 0; i < 4; ++i) {
+		rv = session.memRecv(bufs.head.buf.pos[proclen .. bufs.head.buf.length]);
+		assert(rv > 0);
+		proclen += rv;
+		assert(bad_reshf[i] == user_data.hf);
+	}
+
+	rv = session.memRecv(bufs.head.buf.pos[proclen .. bufs.head.buf.length]);
+
+	assert(rv > 0);
+	/* header field "foo" must be ignored because it has illegal value.
+	 * So we have "bar" header field for 5th header. */
+	assert(bad_reshf[4] == user_data.hf);
+
+	proclen += rv;
+
+	assert(bufs.head.buf.length == proclen);
+
+	deflater.free();
+	session.free();
+	bufs.free();
+}
+
 void test_http_record_request_method() {
 	Session session;
 	Callbacks callbacks;
 	const HeaderField[] conn_reqhf = [HeaderField(":method", "CONNECT"), HeaderField(":authority", "localhost")];
 	const HeaderField[] conn_reshf = [HeaderField(":status", "200"), HeaderField("content-length", "9999")];
 	Stream stream;
-	size_t rv;
+	int rv;
 	Buffers bufs = framePackBuffers();
 	Deflater deflater;
 	
@@ -6765,7 +6906,7 @@ void test_http_push_promise() {
 	Deflater deflater;
 
 	Buffers bufs = framePackBuffers();
-	size_t rv;
+	int rv;
 	Stream stream;
 	const HeaderField[] bad_reqhf = [HeaderField(":method", "GET")];
 	OutboundItem item;
@@ -6933,6 +7074,7 @@ unittest {
 	test_http_non_final_response();
 	test_http_trailer_headers();
 	test_http_ignore_content_length();
+	test_http_ignore_regular_header();
 	test_http_record_request_method();
 	test_http_push_promise();
 	getAllocator!Debugger().printMap();
