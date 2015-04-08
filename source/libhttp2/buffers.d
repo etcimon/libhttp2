@@ -87,7 +87,7 @@ struct Buffer
 			}
 		}
 		else {
-			if (zeroize_on_free)
+			if (zeroize_on_free || use_secure_mem)
 			{
 				import std.c.string : memset;
 				memset(begin, 0, end-begin);
@@ -141,7 +141,7 @@ struct Buffer
 		else {
 			if (begin) {
 				new_buf = Mem.realloc(begin[0 .. end - begin], new_cap);
-				if (zeroize_on_free && (new_buf.ptr > end || new_buf.ptr + new_cap < begin))
+				if ((zeroize_on_free || use_secure_mem) && (new_buf.ptr > end || new_buf.ptr + new_cap < begin))
 				{
 					import std.c.string : memset;
 					memset(begin, 0, end - begin);
