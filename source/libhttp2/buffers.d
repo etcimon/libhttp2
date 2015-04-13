@@ -574,6 +574,25 @@ class Buffers {
 		return dst[0 .. data.length];
 	}
 
+	// The head buffer was already read, just remove it
+	void removeOne()
+	in { 
+		assert(chunk_keep <= 1, "Cannot use removeOne with a custom keep amount set"); 
+	}
+	body {
+		Chain chain = head;
+
+		if (chain.next) {
+			head = chain.next;
+			chain.free();
+			chunk_used--;
+		} else {
+			chain.buf.reset();
+			chain.buf.shiftRight(offset);
+			cur = head = chain;
+		}
+	}
+
 	/*
 	 * Resets Buffers and makes the buffers empty.
 	 */

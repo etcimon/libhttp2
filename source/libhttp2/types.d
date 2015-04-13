@@ -264,7 +264,7 @@ struct HeaderField
 		return name == other.name && value == other.value;
 	}
 
-	package void free() {
+	void free() {
 		if (name.length > 0)
 			Mem.free(name);
 		if (value.length > 0)

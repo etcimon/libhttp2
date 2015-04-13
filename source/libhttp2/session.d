@@ -3802,7 +3802,7 @@ class Session {
 	 * ErrorCode.HEADER_COMP
 	 *     The header table size is out of range
 	 */
-	ErrorCode updateLocalSettings(Setting[] iva) 
+	ErrorCode updateLocalSettings(in Setting[] iva) 
 	{
 		ErrorCode rv;
 		size_t i;
