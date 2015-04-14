@@ -7,6 +7,16 @@
 	"targetType": "staticLibrary",
 	"targetPath": "build",
 	"workingDirectory": "build",
-	"dependencies": { "memutils": { "version": "~>0.3.1" } },
-	"versions": ["SkipMemutilsTests"]
+	"dependencies": { "memutils": { "version": "~>0.3.2" } },
+	"versions": ["SkipMemutilsTests"],
+	"configurations": [
+		{
+			"name": "regular"
+		},
+		{
+			"name": "32mscoff",
+  		  	"dflags-windows-x86": ["-m32mscoff"],
+			"subConfigurations": { "memutils": "32mscoff" }
+		}
+	],
 }
