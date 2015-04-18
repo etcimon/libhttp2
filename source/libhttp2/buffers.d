@@ -553,11 +553,11 @@ class Buffers {
 	}
 	body {
 		Chain chain = head;
+		size_t len = min(chain.buf.length, dst.length);
+		ubyte[] data = chain.buf.pos[0 .. len];
+		memcpy(dst.ptr, data.ptr, len);
 
-		ubyte[] data = chain.buf.pos[0 .. chain.buf.length];
-		dst[0 .. $] = data[0 .. dst.length];
-
-		chain.buf.pos += dst.length;
+		chain.buf.pos += len;
 
 		if (chain.buf.length > 0)
 			return dst;
@@ -571,7 +571,7 @@ class Buffers {
 			chain.buf.shiftRight(offset);
 			cur = head = chain;
 		}
-		return dst[0 .. data.length];
+		return dst[0 .. len];
 	}
 
 	// The head buffer was already read, just remove it
