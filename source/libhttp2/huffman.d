@@ -183,10 +183,9 @@ class HDTable
 	{
 		while (hd_table_bufsize + room > hd_table_bufsize_max && hd_table.length > 0) {
 			// TODO: Debugging printf
-			size_t idx = hd_table.length - 1;
-			HDEntry ent = hd_table[idx];
+			HDEntry ent = hd_table[0];
 			hd_table_bufsize -= entryRoom(ent.hf.name.length, ent.hf.value.length);
-			hd_table.popBack();
+			hd_table.popFront();
 			if (--ent.refcnt == 0) Mem.free(ent);
 		}
 	}
@@ -222,9 +221,9 @@ class HDTable
 	HDEntry get(size_t idx) {
 		assert(idx < hd_table.length + static_table.length);
 
-		if (idx >= static_table.length) 
-			return hd_table[idx - static_table.length];
-
+		if (idx >= static_table.length) { 
+			return hd_table[$ - (idx - static_table.length) - 1];
+		}
 		return static_table[static_table_index[idx]].ent;
 
 	}
@@ -232,21 +231,19 @@ class HDTable
 	int search(const ref HeaderField hf, uint name_hash, uint value_hash, ref bool found) {
 		int left = -1;
 		int right = cast(int) static_table.length;
-		size_t i;
 		int res = -1;
 
 		int use_index = (hf.flag & HeaderFlag.NO_INDEX) == 0;
 		
 		// Search dynamic table first, so that we can find recently used entry first
 		if (use_index) {
-			for (i = 0; i < hd_table.length; ++i) {
-				HDEntry ent = hd_table[i];
-
+			foreach (size_t i; 0 .. hd_table.length) {
+				HDEntry ent = hd_table[$ - i - 1]; 
 				if (ent.name_hash != name_hash || ent.hf.name != hf.name)
 					continue;
 
 				if (res == -1)
-					res =  cast(int) (i + static_table.length);
+					res = cast(int) (i + static_table.length);
 
 				if (ent.value_hash == value_hash && ent.hf.value == hf.value) {
 					found = true;
@@ -264,7 +261,7 @@ class HDTable
 				right = cast(int) mid;
 		}
 		
-		for (i = right; i < static_table.length; ++i) {
+		for (size_t i = right; i < static_table.length; ++i) {
 			HDEntry ent = static_table[i].ent;
 			if (ent.name_hash != name_hash)
 				break;
