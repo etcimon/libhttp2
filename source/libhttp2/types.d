@@ -26,7 +26,7 @@ void LOGF(ARGS...)(ARGS args) {
 
 void logDebug(ARGS...)(ARGS args) {
 	import std.stdio: writeln;
-	//static if (DEBUG)
+	static if (DEBUG)
 		writeln("D: ", args);
 }
 
