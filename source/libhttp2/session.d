@@ -6452,18 +6452,8 @@ ErrorCode submitData(Session session, FrameFlags flags, int stream_id, in DataPr
 	frame.data = Data(FrameFlags.NONE, stream_id);
 	scope(failure) frame.data.free();
 	ErrorCode rv = session.addItem(item);
-	if (rv == ErrorCode.DATA_EXIST) {
-		import std.stdio : writeln;
-		writeln("DATA EXIST");
-		frame.data.free();
-		Mem.free(item);
-	}
-	if (rv == ErrorCode.STREAM_CLOSED) {
-		frame.data.free();
-		Mem.free(item);
-		return rv;
-	}
-	return ErrorCode.OK;
+
+	return rv;
 }
 
 /**
