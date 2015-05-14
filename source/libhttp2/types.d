@@ -18,13 +18,13 @@ import memutils.refcounted;
 import memutils.utils;
 
 alias Mem = ThreadMem;
-void LOGF(ARGS...)(ARGS args) {
+void LOGF(ARGS...)(lazy ARGS args) {
 	import std.stdio: writefln;
 	static if (DEBUG)
 		writefln(args);
 }
 
-void logDebug(ARGS...)(ARGS args) {
+void logDebug(ARGS...)(lazy ARGS args) {
 	import std.stdio: writeln;
 	static if (DEBUG)
 		writeln("D: ", args);

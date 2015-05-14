@@ -72,29 +72,32 @@ struct Buffer
 
 	void free()
 	{
-		if (!begin) return;
+		if (!end || !begin) return;
+		assert(end >= begin);
+		size_t memlen = cast(size_t)((cast(void*)end) - (cast(void*)begin));
 		static if (__VERSION__ >= 2067)
 		{
-			if (use_secure_mem) SecureMem.free(begin[0 .. end - begin]);
+			if (use_secure_mem) SecureMem.free(begin[0 .. memlen]);
 			else 
 			{
 				if (zeroize_on_free)
 				{
 					import std.c.string : memset;
-					memset(begin, 0, end-begin);
+					memset(begin, 0, memlen);
 				}
-				Mem.free(begin[0 .. end - begin]);
+				Mem.free(begin[0 .. memlen]);
 			}
 		}
 		else {
 			if (zeroize_on_free || use_secure_mem)
 			{
 				import std.c.string : memset;
-				memset(begin, 0, end-begin);
+				memset(begin, 0, memlen);
 			}
-			Mem.free(begin[0 .. end - begin]);
+			Mem.free(begin[0 .. memlen]);
 		}
 		begin = null;
+		end = null;
 	}
 	
 	/*
@@ -128,11 +131,6 @@ struct Buffer
 			else {
 				if (begin) {
 					new_buf = Mem.realloc(begin[0 .. end - begin], new_cap);
-					if (zeroize_on_free && (new_buf.ptr > end || new_buf.ptr + new_cap < begin))
-					{
-						import std.c.string : memset;
-						memset(begin, 0, end - begin);
-					}
 				}
 				else
 					new_buf = Mem.alloc!(ubyte[])(new_cap);
@@ -141,11 +139,6 @@ struct Buffer
 		else {
 			if (begin) {
 				new_buf = Mem.realloc(begin[0 .. end - begin], new_cap);
-				if ((zeroize_on_free || use_secure_mem) && (new_buf.ptr > end || new_buf.ptr + new_cap < begin))
-				{
-					import std.c.string : memset;
-					memset(begin, 0, end - begin);
-				}
 			}
 			else
 				new_buf = Mem.alloc!(ubyte[])(new_cap);
@@ -180,7 +173,9 @@ struct Buffer
 	 * Initializes the |buf| and allocates at least |initial| bytes of
 	 * memory.
 	 */
-	this(size_t initial = 0) {
+	this(size_t initial = 0, bool _use_secure_mem = false, bool _zeroise_on_free = false) {
+		use_secure_mem = _use_secure_mem;
+		zeroize_on_free = _zeroise_on_free;
 		begin = null;
 		end = null;
 		pos = null;
@@ -196,21 +191,20 @@ class Buffers {
 	class Chain {
 		Buffer buf;
 		Chain next;
-		static Chain opCall(size_t chunk_length = 0, bool use_secure_mem = false, bool zeroize_on_free = false)
+		static Chain opCall(size_t chunk_length = 0, bool _use_secure_mem = false, bool _zeroize_on_free = false)
 		{
 			Chain chain;
 			chain = Mem.alloc!(Buffers.Chain)();
 			scope(failure) Mem.free(chain);
 			chain.next = null;
-			chain.buf = Buffer(chunk_length);
-			chain.buf.use_secure_mem = use_secure_mem;
-			chain.buf.zeroize_on_free = zeroize_on_free;
+			chain.buf = Buffer(chunk_length, _use_secure_mem, _zeroize_on_free);
 			return chain;
 		}
 
 		void free() 
 		{
 			buf.free();
+			buf.destroy();
 		}
 	}
 
@@ -392,7 +386,7 @@ class Buffers {
 			}
 			memcpy(buf.last, p, nwrite);
 			buf.last += nwrite;
-			p += len;
+			p += nwrite;
 			len -= nwrite;
 		}
 		
@@ -699,12 +693,12 @@ class Buffers {
 		return len;
 	}
 
-private:
 	@property int available() {
 		return cast(int)(cur.buf.available + (chunk_length - offset) * (max_chunk - chunk_used));
 
 	}
 
+private:
 	ErrorCode ensureAddByte()
 	{
 		ErrorCode rv;

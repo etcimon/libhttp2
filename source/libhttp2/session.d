@@ -2128,11 +2128,14 @@ class Session {
 		} else {
 			rv = submitSettings(this, iva);
 		}
-		
+
+		if (rv != 0)
+			return rv;
+
 		if (iva) Mem.free(iva);
 		
-		stream = openStream(1, StreamFlags.NONE, pri_spec, StreamState.OPENING, is_server ? null : stream_user_data);
-		
+		stream = openStream(1, StreamFlags.NONE, pri_spec, StreamState.OPENING, stream_user_data);
+
 		if (is_server)
 		{
 			stream.shutdown(ShutdownFlag.RD);
@@ -5712,16 +5715,17 @@ class Session {
 					if (!item) {
 						return ErrorCode.OK;
 					}
-					
+
 					if (item.frame.hd.type == FrameType.DATA || item.frame.hd.type == FrameType.HEADERS) {
 						Frame* frame = &item.frame;
 						Stream stream = getStream(frame.hd.stream_id);
 
 						if (stream && item == stream.item && stream.dpri != StreamDPRI.TOP) {
-							/* We have DATA with higher priority in queue within the same dependency tree. */
+							// We have DATA with higher priority in queue within the same dependency tree.
 							break;
 						}
 					}
+
 					rv = prepareFrame(item);
 					if (rv == ErrorCode.DEFERRED) {
 						LOGF("send: frame transmission deferred");
@@ -6448,7 +6452,12 @@ ErrorCode submitData(Session session, FrameFlags flags, int stream_id, in DataPr
 	/* flags are sent on transmission */
 	frame.data = Data(FrameFlags.NONE, stream_id);
 	scope(failure) frame.data.free();
-	session.addItem(item);
+	ErrorCode rv = session.addItem(item);
+	if (rv != 0) {
+		frame.data.free();
+		Mem.free(item);
+		return rv;
+	}
 	return ErrorCode.OK;
 }
 
