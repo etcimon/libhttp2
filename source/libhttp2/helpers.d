@@ -54,6 +54,7 @@ HeaderField[] copy()(auto const ref HeaderField[] hfa) {
 		ret[i].name = cast(string) copy;
 		if (hf.value.length > 0)
 			ret[i].value = Mem.copy(hf.value);
+		else ret[i].value = null;
 	}
 	return ret;
 }
