@@ -2229,6 +2229,7 @@ class Session {
 		}
 		
 		if (stream.item) {
+			ob_da_pq.push(stream.item);
 			return ErrorCode.DATA_EXIST;
 		}
 		
@@ -2236,6 +2237,7 @@ class Session {
 		item.cycle = last_cycle;
 		
 		stream.attachItem(item, this);
+		ob_da_pq.push(item);
 
 		return ErrorCode.OK;
 	}
@@ -4600,9 +4602,9 @@ class Session {
 	{
 		Buffer* buf = &framebufs.cur.buf;
 		Frame* frame = &item.frame;
-		uint length = frame.hd.length - frame.data.padlen;
 		FrameHeader hd;
 		hd.unpack(buf.pos[0 .. FRAME_HDLEN]);
+		uint length = hd.length - frame.data.padlen;
 		ErrorCode rv = connector.writeData(*frame, buf.pos[0 .. FRAME_HDLEN], length);
 
 		if (rv == ErrorCode.OK || rv == ErrorCode.WOULDBLOCK || rv == ErrorCode.TEMPORAL_CALLBACK_FAILURE)
@@ -5712,16 +5714,17 @@ class Session {
 					if (!item) {
 						return ErrorCode.OK;
 					}
-					
+					/* We can't use this priority adjustment because it causes us to ignore data
 					if (item.frame.hd.type == FrameType.DATA || item.frame.hd.type == FrameType.HEADERS) {
 						Frame* frame = &item.frame;
 						Stream stream = getStream(frame.hd.stream_id);
 
 						if (stream && item == stream.item && stream.dpri != StreamDPRI.TOP) {
-							/* We have DATA with higher priority in queue within the same dependency tree. */
+							writeln("NOT HIGHEST PRIORITY");
+							// We have DATA with higher priority in queue within the same dependency tree.
 							break;
 						}
-					}
+					}*/
 					rv = prepareFrame(item);
 					if (rv == ErrorCode.DEFERRED) {
 						LOGF("send: frame transmission deferred");
@@ -6448,7 +6451,18 @@ ErrorCode submitData(Session session, FrameFlags flags, int stream_id, in DataPr
 	/* flags are sent on transmission */
 	frame.data = Data(FrameFlags.NONE, stream_id);
 	scope(failure) frame.data.free();
-	session.addItem(item);
+	ErrorCode rv = session.addItem(item);
+	if (rv == ErrorCode.DATA_EXIST) {
+		import std.stdio : writeln;
+		writeln("DATA EXIST");
+		frame.data.free();
+		Mem.free(item);
+	}
+	if (rv == ErrorCode.STREAM_CLOSED) {
+		frame.data.free();
+		Mem.free(item);
+		return rv;
+	}
 	return ErrorCode.OK;
 }
 

@@ -392,7 +392,7 @@ class Buffers {
 			}
 			memcpy(buf.last, p, nwrite);
 			buf.last += nwrite;
-			p += len;
+			p += nwrite;
 			len -= nwrite;
 		}
 		
@@ -699,12 +699,12 @@ class Buffers {
 		return len;
 	}
 
-private:
 	@property int available() {
 		return cast(int)(cur.buf.available + (chunk_length - offset) * (max_chunk - chunk_used));
 
 	}
 
+private:
 	ErrorCode ensureAddByte()
 	{
 		ErrorCode rv;
