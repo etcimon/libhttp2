@@ -90,7 +90,7 @@ class Stream {
 		initialize(stream_id, flags, initial_state, weight, roots, remote_initial_window_size, local_initial_window_size, stream_user_data);
 	}
 
-	void free() { } // We don't free stream.item. It is deleted in ActiveOutboundItem.reset(), Sessioin.free() or PriorityQueue
+	void free() { userData = null; } // We don't free stream.item. It is deleted in ActiveOutboundItem.reset(), Sessioin.free() or PriorityQueue
 
     package void initialize(int stream_id,
 							StreamFlags flags,
