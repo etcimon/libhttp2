@@ -2350,7 +2350,7 @@ class Session {
 			return ErrorCode.INVALID_ARGUMENT;
 		}
 		
-		if (opaque_data) {
+		if (opaque_data.length > 0) {
 			if (opaque_data.length + 8 > MAX_PAYLOADLEN) {
 				return ErrorCode.INVALID_ARGUMENT;
 			}
