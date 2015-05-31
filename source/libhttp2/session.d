@@ -324,6 +324,9 @@ enum {
 }
 
 class Session {
+	~this() {
+		if (!streams.empty) free();
+	}
 
 	this(bool server, Connector callbacks, in Options options = Options.init)
 	{

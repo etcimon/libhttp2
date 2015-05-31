@@ -255,6 +255,8 @@ class Buffers {
 	in { assert(!(_chunk_keep == 0 || _max_chunk < _chunk_keep || _chunk_length < _offset), "Invalid Arguments"); }
 	body
 	{
+		use_secure_mem = _use_secure_mem;
+		zeroize_on_free = _zeroize_on_free;
 		Chain chain = Chain(_chunk_length, _use_secure_mem, _zeroize_on_free);
 
 		offset = _offset;
