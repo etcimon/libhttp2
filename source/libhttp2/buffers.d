@@ -282,13 +282,13 @@ class Buffers {
 	{
 		Chain chain = Chain();
 
-		chain.next = null;		
+		chain.next = null;
 		chain.buf = Buffer(buf);
 
 		dont_free = true;
-		offset = 0;		
+		offset = 0;
 		head = chain;
-		cur = head;		
+		cur = head;
 		chunk_length = buf.length;
 		chunk_used = 1;
 		max_chunk = 1;
@@ -310,7 +310,7 @@ class Buffers {
 		}
 		
 		for (chain = head; chain;) {
-			next_chain = chain.next;			
+			next_chain = chain.next;
 			chain.free();
 			Mem.free(chain);
 			chain = next_chain;
@@ -561,6 +561,7 @@ class Buffers {
 		if (chain.next) {
 			head = chain.next;
 			chain.free();
+			Mem.free(chain);
 			chunk_used--;
 		} else {
 			chain.buf.reset();
@@ -581,6 +582,7 @@ class Buffers {
 		if (chain.next) {
 			head = chain.next;
 			chain.free();
+			Mem.free(chain);
 			chunk_used--;
 		} else {
 			chain.buf.reset();
