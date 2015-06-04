@@ -418,7 +418,6 @@ class Session {
 		if (aob.framebufs)
 			Mem.free(aob.framebufs);
 		destroy(streams);
-		connector.destroy();
 		connector = null;
 	}
 
