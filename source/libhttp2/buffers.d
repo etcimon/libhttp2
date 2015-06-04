@@ -295,6 +295,8 @@ class Buffers {
 		chunk_keep = 1;
 	}
 
+	~this() { if (head) free(); }
+
 	/// Frees any related resources
 	void free()
 	{

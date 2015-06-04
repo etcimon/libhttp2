@@ -325,7 +325,7 @@ enum {
 
 class Session {
 	~this() {
-		if (!streams.empty) free();
+		if (connector !is null) free();
 	}
 
 	this(bool server, Connector callbacks, in Options options = Options.init)
@@ -418,6 +418,8 @@ class Session {
 		if (aob.framebufs)
 			Mem.free(aob.framebufs);
 		destroy(streams);
+		connector.destroy();
+		connector = null;
 	}
 
 	/**
