@@ -115,8 +115,7 @@ class HDEntry
 	{
 		if (refcnt != 0)
 		{
-			LOGF("hdentry: Freed HDEntry refcnt must be 0, was: %s", refcnt);
-			assert(false);
+			assert(false, "hdentry: Freed HDEntry refcnt must be 0");
 		}
 		if (hf.name && flags & HDFlags.NAME_ALLOC)
 			Mem.free(hf.name);		
