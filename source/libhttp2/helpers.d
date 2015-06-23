@@ -312,7 +312,7 @@ ErrorCode adjustLocalWindowSize(ref int local_window_size_ptr, ref int recv_wind
 }
 
 bool shouldSendWindowUpdate(int local_window_size, int recv_window_size) {
-	return recv_window_size >= local_window_size / 2;
+	return recv_window_size >= local_window_size / 5;
 }
 
 char[] copyToLower(string str) {
