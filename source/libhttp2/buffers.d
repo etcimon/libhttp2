@@ -557,19 +557,22 @@ class Buffers {
 
 		chain.buf.pos += len;
 
-		if (chain.buf.length > 0)
-			return dst;
-
-		if (chain.next) {
-			head = chain.next;
-			chain.free();
-			Mem.free(chain);
-			chunk_used--;
-		} else {
-			chain.buf.reset();
-			chain.buf.shiftRight(offset);
-			cur = head = chain;
+		if (chain.buf.available == 0 && chain.buf.length == 0) 
+		{
+			if (chain.next) {
+				head = chain.next;
+				chain.free();
+				Mem.free(chain);
+				chunk_used--;
+			} else {
+				chain.buf.reset();
+				chain.buf.shiftRight(offset);
+				cur = head = chain;
+			}
 		}
+
+		if (dst.length == len) 
+			return dst;
 		return dst[0 .. len];
 	}
 
