@@ -77,7 +77,13 @@ struct Buffer
 		size_t memlen = cast(size_t)((cast(void*)end) - (cast(void*)begin));
 		static if (__VERSION__ >= 2067)
 		{
-			if (use_secure_mem) SecureMem.free(begin[0 .. memlen]);
+			if (use_secure_mem) { 
+				import std.c.string : memset;
+				// optimization, skips freeing the entire buffer in memutils for light buffer uses
+				if (capacity > 1024 && offset < capacity - capacity/128)
+					memset(begin, 0, offset);
+				SecureMem.free(begin[0 .. memlen]);
+			}
 			else 
 			{
 				if (zeroize_on_free)

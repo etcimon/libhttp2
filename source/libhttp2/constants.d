@@ -18,11 +18,11 @@ else
 const DEBUG = false;
 
 /// Version of this library
-const VERSION = "0.2.4";
+const VERSION = "0.2.5";
 
 /// The protocol version identification string of this library supports. 
 /// This identifier is used if HTTP/2 is used over TLS.
-const PROTOCOL_VERSION_ID = "h2-14";
+const PROTOCOL_VERSION_ID = "h2";
 
 /**
  * Use this to verify compatibility if dynamic linking is involved.

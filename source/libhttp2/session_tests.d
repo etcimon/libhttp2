@@ -725,7 +725,6 @@ void test_session_read_continuation() {
 	callbacks.on_frame_header_cb = &user_data.cb_handlers.onFrameHeader;
 	
 	session = new Session(SERVER, *callbacks);
-	
 	deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
 	
 	/* Make 1 HEADERS and insert CONTINUATION header */	
