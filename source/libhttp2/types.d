@@ -414,12 +414,13 @@ struct HeaderField
 				break;
 			}
 				/* disallowed header fields */
-			case CONNECTION:
+/* Ignore because this can cause issues with reverse proxies
+ * case CONNECTION:
 			case KEEP_ALIVE:
 			case PROXY_CONNECTION:
 			case TRANSFER_ENCODING:
 			case UPGRADE:
-				return false;
+				return false;*/
 			case TE:
 				import std.string : icmp;
 				if (icmp(value, "trailers") != 0)

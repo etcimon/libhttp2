@@ -57,7 +57,7 @@ struct Inflater
 	/// true if deflater requires that current entry must not be indexed
 	bool no_index;
 	
-	this(bool dummy = false) {
+	this(bool initialize) {
 		ctx = Mem.alloc!HDTable();
 		scope(failure) Mem.free(ctx);
 		hfbufs = Mem.alloc!Buffers(MAX_HF_LEN / 8, 8, 1, 0);

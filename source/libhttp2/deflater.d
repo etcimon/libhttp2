@@ -21,7 +21,7 @@ struct Deflater
     HDTable ctx;
 
     /// The upper limit of the header table size the deflater accepts.
-    size_t deflate_hd_table_bufsize_max;
+	size_t deflate_hd_table_bufsize_max = DEFAULT_MAX_DEFLATE_BUFFER_SIZE;
 
     /// Minimum header table size notified in the next context update
     size_t min_hd_table_bufsize_max;
@@ -35,7 +35,7 @@ struct Deflater
 	 * The encoder only uses up to DEFAULT_MAX_DEFLATE_BUFFER_SIZE bytes
 	 * for header table even if the larger value is specified later in changeTableSize().
 	 */
-	this(size_t _deflate_hd_table_bufsize_max = DEFAULT_MAX_DEFLATE_BUFFER_SIZE)
+	this(size_t _deflate_hd_table_bufsize_max)
 	{
 		ctx = Mem.alloc!HDTable();
 		

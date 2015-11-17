@@ -28,7 +28,7 @@ private:
 
 public:
 
-	this(size_t capacity = 128)
+	this(size_t capacity) // default=128
 	{
 		m_capacity = capacity;
 		m_queue = Mem.alloc!(OutboundItem[])(capacity);
