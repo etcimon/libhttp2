@@ -2,7 +2,7 @@ language: d
 
 d:
   - dmd-2.069.0
-  - dmd-2.068.1
+  - dmd-2.068.2
   - dmd-2.067.1
   - dmd-2.067.0
   - dmd-2.066.1
@@ -10,8 +10,10 @@ d:
 
 matrix:
   allow_failures:
-    - d: ldc-0.15.1
+    - d: dmd-2.067.1
+    - d: dmd-2.067.0
     - d: dmd-2.066.1
+    - d: ldc-0.15.1
 script:
   - dub test --compiler=$DC
 
