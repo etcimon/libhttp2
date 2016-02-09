@@ -1057,7 +1057,7 @@ class OutboundItem {
 }
 
 int bytes_compar(const ubyte* a, size_t alen, const ubyte* b, size_t blen) {
-	import std.c.string : memcmp;
+	import core.stdc.string : memcmp;
 	int rv;
 	
 	if (alen == blen) {
@@ -1122,7 +1122,7 @@ bool check(in Setting[] iva)
 
 void frameSetPad(Buffer* buf, int padlen, bool framehd_only) 
 {
-	import std.c.string : memmove, memset;
+	import core.stdc.string : memmove, memset;
 	int trail_padlen;
 	int newlen;
 	

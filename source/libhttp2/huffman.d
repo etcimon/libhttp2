@@ -174,7 +174,7 @@ class HDTable
 	~this() {
 		foreach (HDEntry ent; hd_table) {
 			ent.refcnt--;
-			Mem.free(ent);	
+			Mem.free(ent);
 		}
 	}
 

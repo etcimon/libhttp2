@@ -14,7 +14,7 @@ module libhttp2.buffers;
 import libhttp2.types;
 import std.algorithm : max, min;
 import core.exception : onOutOfMemoryError;
-import std.c.string : memcpy;
+import core.stdc.string : memcpy;
 import memutils.utils;
 
 struct Buffer
@@ -78,7 +78,7 @@ struct Buffer
 		static if (__VERSION__ >= 2067)
 		{
 			if (use_secure_mem) { 
-				import std.c.string : memset;
+				import core.stdc.string : memset;
 				// optimization, skips freeing the entire buffer in memutils for light buffer uses
 				if (capacity > 1024 && offset < capacity - capacity/128)
 					memset(begin, 0, offset);
@@ -88,7 +88,7 @@ struct Buffer
 			{
 				if (zeroize_on_free)
 				{
-					import std.c.string : memset;
+					import core.stdc.string : memset;
 					memset(begin, 0, memlen);
 				}
 				Mem.free(begin[0 .. memlen]);
@@ -97,7 +97,7 @@ struct Buffer
 		else {
 			if (zeroize_on_free || use_secure_mem)
 			{
-				import std.c.string : memset;
+				import core.stdc.string : memset;
 				memset(begin, 0, memlen);
 			}
 			Mem.free(begin[0 .. memlen]);

@@ -14,7 +14,7 @@ module libhttp2.helpers;
 import libhttp2.constants;
 import std.bitmanip : bigEndianToNative, nativeToBigEndian;
 import libhttp2.types;
-import std.c.string : memcpy;
+import core.stdc.string : memcpy;
 import std.string : toLowerInPlace;
 import core.exception : onRangeError;
 import std.algorithm : max, min;

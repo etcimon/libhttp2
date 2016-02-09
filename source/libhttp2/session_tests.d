@@ -2412,7 +2412,7 @@ void test_session_write_headers_reply() {
 }
 
 void test_session_write_headers_frame_size_error() {
-	import std.c.string : memset;
+	import core.stdc.string : memset;
 
 	Session session;
 	Callbacks callbacks;

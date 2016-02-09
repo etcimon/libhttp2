@@ -11,8 +11,8 @@
  */
 module libhttp2.tests;
 
-import std.c.stdlib;
-import std.c.string;
+import core.stdc.stdlib;
+import core.stdc.string;
 import libhttp2.constants;
 import libhttp2.types;
 import libhttp2.helpers;

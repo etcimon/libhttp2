@@ -133,7 +133,7 @@ struct InboundFrame {
 	
 	size_t read(in ubyte* input, in ubyte* last) 
 	{
-		import std.c.string : memcpy;
+		import core.stdc.string : memcpy;
 
 		size_t readlen;
 		
