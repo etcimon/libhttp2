@@ -1002,6 +1002,7 @@ union AuxData {
 }
 
 class OutboundItem {
+	enum NOGC = true;
 	import libhttp2.session : Session;
 	Frame frame;
 	AuxData aux_data;

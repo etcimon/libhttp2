@@ -63,6 +63,7 @@ enum HDFlags
 
 class HDEntry
 {
+	enum NOGC = true;
 	HeaderField hf;
 	uint name_hash;
 	uint value_hash;

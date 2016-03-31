@@ -6009,7 +6009,7 @@ class Session {
 						LOGF("recv: HTTP error: type=%d, id=%d, header %.*s: %.*s",
 								frame.hd.type, subject_stream.id, cast(int)hf.name.length,
 								hf.name, cast(int)hf.value.length, hf.value);
-						
+
 						handleInvalidStream2(subject_stream.id, frame, FrameError.PROTOCOL_ERROR);
 						return ErrorCode.TEMPORAL_CALLBACK_FAILURE;
 					}

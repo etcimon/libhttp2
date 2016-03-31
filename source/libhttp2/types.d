@@ -255,6 +255,7 @@ enum HeaderFlag : ubyte
 /// The header field, which mainly used to represent HTTP headers.
 struct HeaderField 
 {
+	enum NOGC = true;
 	immutable(char)[] name;
 	immutable(char)[] value;
 
