@@ -17,6 +17,7 @@ import libhttp2.constants;
 import memutils.circularbuffer;
 import memutils.utils;
 import core.exception;
+import std.conv : to;
 
 const HD_DEFAULT_MAX_BUFFER_SIZE = DEFAULT_HEADER_TABLE_SIZE;
 

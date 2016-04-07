@@ -23,6 +23,7 @@ import libhttp2.stream;
 import libhttp2.frame;
 import libhttp2.huffman;
 import libhttp2.buffers;
+import std.algorithm : min;
 
 struct HeaderFields
 {

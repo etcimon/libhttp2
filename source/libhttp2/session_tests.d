@@ -25,6 +25,8 @@ import libhttp2.stream;
 import libhttp2.tests;
 import libhttp2.huffman;
 import libhttp2.helpers;
+import core.stdc.string : memcpy;
+import std.conv : to;
 
 import memutils.refcounted;
 

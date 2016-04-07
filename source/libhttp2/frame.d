@@ -17,6 +17,9 @@ import libhttp2.buffers;
 import libhttp2.huffman;
 import libhttp2.helpers;
 import libhttp2.deflater;
+import std.algorithm : min, max;
+import std.conv : to;
+import core.stdc.string : memcpy;
 
 struct FrameHeader 
 {

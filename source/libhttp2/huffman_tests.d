@@ -22,7 +22,8 @@ import libhttp2.types;
 import libhttp2.frame;
 import libhttp2.helpers;
 import libhttp2.tests;
-import core.stdc.string : memcmp, memset;
+import core.stdc.string : memcmp, memset, memcpy;
+import std.conv : to;
 
 void test_hd_deflate() {
 	Deflater deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
