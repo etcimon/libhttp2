@@ -16,6 +16,7 @@ import std.algorithm : max, min;
 import core.exception : onOutOfMemoryError;
 import core.stdc.string : memcpy;
 import memutils.utils;
+import std.algorithm : min;
 
 struct Buffer
 {
