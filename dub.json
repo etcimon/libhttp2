@@ -7,7 +7,7 @@
 	"targetType": "staticLibrary",
 	"targetPath": "build",
 	"workingDirectory": "build",
-	"dependencies": { "memutils": { "version": "~>0.4.4" } },
+	"dependencies": { "memutils": { "version": "~>0.4.5" } },
 	"versions": ["SkipMemutilsTests"],
 	"configurations": [
 		{
