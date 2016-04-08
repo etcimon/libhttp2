@@ -12,11 +12,10 @@
 module libhttp2.buffers;
 
 import libhttp2.types;
-import std.algorithm : max, min;
 import core.exception : onOutOfMemoryError;
 import core.stdc.string : memcpy;
 import memutils.utils;
-import std.algorithm : min;
+import std.algorithm : min,max;
 
 struct Buffer
 {
