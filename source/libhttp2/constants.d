@@ -18,7 +18,7 @@ else
 const DEBUG = false;
 
 /// Version of this library
-const VERSION = "0.2.5";
+const VERSION = "0.2.8";
 
 /// The protocol version identification string of this library supports. 
 /// This identifier is used if HTTP/2 is used over TLS.

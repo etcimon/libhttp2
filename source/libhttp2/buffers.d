@@ -12,11 +12,9 @@
 module libhttp2.buffers;
 
 import libhttp2.types;
-import std.algorithm : max, min;
 import core.exception : onOutOfMemoryError;
 import core.stdc.string : memcpy;
 import memutils.utils;
-import std.algorithm : min;
 
 struct Buffer
 {
@@ -124,7 +122,7 @@ struct Buffer
 		if (cap >= new_cap) {
 			return;
 		}
-		
+		import std.algorithm : max;
 		new_cap = max(new_cap, cap * 2);
 
 		static if (__VERSION__ >= 2067)
@@ -386,7 +384,8 @@ class Buffers {
 		
 		while (len > 0) {
 			buf = &cur.buf;
-			
+
+			import std.algorithm : min;
 			nwrite = cast(size_t) min(buf.available, len);
 			if (nwrite == 0) {
 				rv = allocChain();
@@ -558,6 +557,7 @@ class Buffers {
 	}
 	body {
 		Chain chain = head;
+		import std.algorithm : min;
 		size_t len = min(chain.buf.length, dst.length);
 		ubyte[] data = chain.buf.pos[0 .. len];
 		memcpy(dst.ptr, data.ptr, len);
