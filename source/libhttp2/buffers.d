@@ -15,6 +15,7 @@ import libhttp2.types;
 import core.exception : onOutOfMemoryError;
 import core.stdc.string : memcpy;
 import memutils.utils;
+import std.algorithm : min,max;
 
 struct Buffer
 {
