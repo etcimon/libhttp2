@@ -16,7 +16,7 @@ import libhttp2.frame;
 import libhttp2.session;
 
 
-package:
+public:
 abstract class Connector
 {
 public:

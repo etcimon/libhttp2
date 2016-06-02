@@ -69,13 +69,13 @@ const MIN_WEIGHT = 1;
 const MAX_WINDOW_SIZE = int.max;
 
 /// The initial window size for stream level flow control.
-const INITIAL_WINDOW_SIZE = ushort.max;
+public const INITIAL_WINDOW_SIZE = ushort.max;
 
 /// The initial window size for connection level flow control.
-const INITIAL_CONNECTION_WINDOW_SIZE = ushort.max;
+public const INITIAL_CONNECTION_WINDOW_SIZE = ushort.max;
 
 /// Default maximum concurrent streams.
-const INITIAL_MAX_CONCURRENT_STREAMS = ((1u << 31) - 1);
+public const INITIAL_MAX_CONCURRENT_STREAMS = ((1u << 31) - 1);
 
 /// The default header table size.
 const DEFAULT_HEADER_TABLE_SIZE = (1 << 12);
