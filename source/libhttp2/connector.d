@@ -326,6 +326,7 @@ public:
      */
     int maxFrameSize(FrameType frame_type, int stream_id, int session_remote_window_size, int stream_remote_window_size, uint remote_max_frame_size)
 	{
+          import std.algorithm : min;
 		return min(session_remote_window_size, stream_remote_window_size, remote_max_frame_size);
 	}
 

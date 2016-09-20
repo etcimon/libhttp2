@@ -179,7 +179,7 @@ struct Buffer
 	 * Initializes the |buf| and allocates at least |initial| bytes of
 	 * memory.
 	 */
-	this(size_t initial = 0, bool _use_secure_mem = false, bool _zeroise_on_free = false) {
+	this(size_t initial, bool _use_secure_mem = false, bool _zeroise_on_free = false) {
 		use_secure_mem = _use_secure_mem;
 		zeroize_on_free = _zeroise_on_free;
 		begin = null;
