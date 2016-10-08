@@ -598,7 +598,8 @@ struct Inflater
 			if (buflen - hf.name.length > 0) {
 				hf.value = cast(string)Mem.copy((buf.ptr + hf.name.length)[0 .. buflen - hf.name.length]);
 			}
-			Mem.free(buf);
+			if (buf.ptr !is null)
+				Mem.free(buf);
 
 			return hf;
 		}
