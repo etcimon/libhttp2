@@ -254,7 +254,7 @@ public:
      * $(D Session.recv) and $(D Session.send) functions
      * immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-    bool onInvalidFrame(in Frame frame, FrameError error_code);
+    bool onInvalidFrame(in Frame frame, FrameError error_code, string reason = "");
 
 /////////////////// Sending /////////////////////////
 
@@ -493,7 +493,7 @@ override:
 		return on_data_chunk_cb(flags, stream_id, data, pause);
 	}
 	
-	bool onInvalidFrame(in Frame frame, FrameError error_code)
+	bool onInvalidFrame(in Frame frame, FrameError error_code, string reason)
 	{
 		if (!on_invalid_frame_cb)
 			return true;

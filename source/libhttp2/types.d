@@ -16,18 +16,30 @@ import libhttp2.helpers;
 import std.conv : to;
 import memutils.refcounted;
 import memutils.utils;
-
+import std.datetime;
 alias Mem = ThreadMem;
 void LOGF(ARGS...)(lazy ARGS args) {
 	import std.stdio: writefln;
-	static if (DEBUG)
-		writefln(args);
+	import std.stdio : File;
+	static if (DEBUG) {
+		File f = File();
+		f.open("runtime.log", "a+");
+		try f.write(Clock.currTime().to!string); catch {}
+		try f.write(" "); catch {}
+		try f.writefln(args); catch {}
+	}
 }
 
 void logDebug(ARGS...)(lazy ARGS args) {
 	import std.stdio: writeln;
-	static if (DEBUG)
-		writeln("D: ", args);
+	import std.stdio : File;
+	static if (DEBUG) {
+		File f = File();
+		f.open("runtime.log", "a+");
+		try f.write(Clock.currTime().to!string); catch {}
+		try f.write(" "); catch {}
+		try f.writefln(args); catch {}
+	}
 }
 
 /// Return values used in this library.  The code range is [-999, -500], inclusive.

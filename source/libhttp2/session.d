@@ -4995,7 +4995,7 @@ class Session {
 	ErrorCode handleInvalidConnection(Frame frame, FrameError error_code, string reason)
 	{
 		try 
-			if (!connector.onInvalidFrame(frame, error_code))
+			if (!connector.onInvalidFrame(frame, error_code, reason))
 				return ErrorCode.CALLBACK_FAILURE;
 		catch (Exception e) return ErrorCode.CALLBACK_FAILURE;
 
