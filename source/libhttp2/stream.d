@@ -19,7 +19,8 @@ import std.algorithm : max;
 
 const MAX_DEP_TREE_LENGTH = 100;
 
-class StreamRoots
+align(8)
+final class StreamRoots
 {
 	void free() { }
 
@@ -76,7 +77,8 @@ class StreamRoots
     int num_streams;
 }
 
-class Stream {
+align(8)
+final class Stream {
 
 	this(int stream_id,
 		StreamFlags flags,

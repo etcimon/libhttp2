@@ -323,7 +323,8 @@ enum {
 	SERVER = true
 }
 
-class Session {
+align(8)
+final class Session {
 	~this() {
 		if (connector !is null) free();
 	}
