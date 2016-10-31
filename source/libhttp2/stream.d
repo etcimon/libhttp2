@@ -750,9 +750,7 @@ private:
 	{
 		Stream si;
 		
-		LOGF("stream: update_dep_effective_weight "
-				"stream(%s=%d, weight=%d, sum_norest_weight=%d, "
-				"sum_top_weight=%d",
+		LOGF("stream: update_dep_effective_weight stream(%s=%d, weight=%d, sum_norest_weight=%d, sum_top_weight=%d",
 				this, m_id, m_weight,
 				m_sum_norest_weight, m_sum_top_weight);
 		

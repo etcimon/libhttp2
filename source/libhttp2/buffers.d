@@ -194,13 +194,13 @@ struct Buffer
 
 class Buffers {
 
-	class Chain {
+	static class Chain {
 		Buffer buf;
 		Chain next;
 		static Chain opCall(size_t chunk_length = 0, bool _use_secure_mem = false, bool _zeroize_on_free = false)
 		{
 			Chain chain;
-			chain = Mem.alloc!(Buffers.Chain)();
+			chain = Mem.alloc!(typeof(this))();
 			scope(failure) Mem.free(chain);
 			chain.next = null;
 			chain.buf = Buffer(chunk_length, _use_secure_mem, _zeroize_on_free);
