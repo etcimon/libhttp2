@@ -3430,8 +3430,8 @@ final class Session {
 			Stream stream = getStream(frame.hd.stream_id);
 			
 			if (!stream) {
-				if (idleStreamDetect(frame.hd.stream_id))
-					return handleInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "WINDOW_UPDATE to idle stream");
+				//if (idleStreamDetect(frame.hd.stream_id))
+				//	return handleInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "WINDOW_UPDATE to idle stream");
 				return ErrorCode.OK;
 			}
 			
