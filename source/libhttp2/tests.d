@@ -137,8 +137,8 @@ int compareBytes(in string a, in string b) {
 	return rv;
 }
 
-extern(C)
-int compareHeaderFields(in void *lhs, in void *rhs) {
+extern(C) @system
+int compareHeaderFields(scope const(void *) lhs, scope const(void *) rhs) {
 	const HeaderField a = *cast(HeaderField*)lhs;
 	const HeaderField b = *cast(HeaderField*)rhs;
 	int rv;
@@ -153,7 +153,7 @@ int compareHeaderFields(in void *lhs, in void *rhs) {
 }
 
 void sort(HeaderField[] hfa) {
-	qsort(hfa.ptr, hfa.length, HeaderField.sizeof, &compareHeaderFields);
+	qsort(cast(void*)hfa.ptr, hfa.length, HeaderField.sizeof, &compareHeaderFields);
 }
 
 void packHeaders(Buffers bufs, ref Deflater deflater, int stream_id, FrameFlags flags, in HeaderField[] hfa)
