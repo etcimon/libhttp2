@@ -3149,10 +3149,7 @@ final class Session {
 	{
 		ErrorCode rv;
 		size_t i;
-		
-		if (frame.hd.stream_id != 0) {
-			return handleInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "SETTINGS: stream_id != 0");
-		}
+
 		if (frame.hd.flags & FrameFlags.ACK) {
 			if (frame.settings.iva.length != 0) {
 				return handleInvalidConnection(frame, FrameError.FRAME_SIZE_ERROR, "SETTINGS: ACK and payload != 0");
@@ -3178,7 +3175,11 @@ final class Session {
 				return ErrorCode.CALLBACK_FAILURE;
 			return ErrorCode.OK;
 		}
-		
+
+		if (frame.settings.iva.length > 0 && frame.hd.stream_id != 0) {
+			return handleInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "SETTINGS: stream_id != 0");
+		}
+
 		for (i = 0; i < frame.settings.iva.length; ++i) {
 			Setting entry = frame.settings.iva[i];
 			

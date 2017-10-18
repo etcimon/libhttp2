@@ -8,15 +8,5 @@
 	"targetPath": "build",
 	"workingDirectory": "build",
 	"dependencies": { "memutils": { "version": "~>0.4.6" } },
-	"versions": ["SkipMemutilsTests"],
-	"configurations": [
-		{
-			"name": "regular"
-		},
-		{
-			"name": "32mscoff",
-  		  	"dflags-windows-x86": ["-m32mscoff"],
-			"subConfigurations": { "memutils": "32mscoff" }
-		}
-	]
+	"versions": ["SkipMemutilsTests"]
 }
