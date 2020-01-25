@@ -3577,7 +3577,7 @@ final class Session {
 		if (payloadlen == ErrorCode.DEFERRED ||
 			payloadlen == ErrorCode.TEMPORAL_CALLBACK_FAILURE)
 		{
-			import libhttp2.helpers : toString;
+			import libhttp2.types : toString;
 			LOGF("send: DATA postponed due to %s", toString(cast(ErrorCode)payloadlen));
 			
 			return cast(ErrorCode)payloadlen;
@@ -5741,7 +5741,7 @@ final class Session {
 					if (rv < 0) {
 						int opened_stream_id;
 						FrameError error_code = FrameError.INTERNAL_ERROR;
-						import libhttp2.helpers : toString;
+						import libhttp2.types : toString;
 						LOGF("send: frame preparation failed with %s", toString(cast(ErrorCode)rv));
 						/* TODO: If the error comes from compressor, the connection must be closed. */
 						if (item.frame.hd.type != FrameType.DATA && !isFatal(rv)) {

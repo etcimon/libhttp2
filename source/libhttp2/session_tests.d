@@ -26,7 +26,7 @@ import libhttp2.tests;
 import libhttp2.huffman;
 import libhttp2.helpers;
 import core.stdc.string : memcpy;
-import std.conv : to;
+import std.conv : to, asOriginalType;
 
 import memutils.refcounted;
 
@@ -2795,7 +2795,7 @@ void test_submit_data() {
 	assert(FrameFlags.NONE == hd.flags);
 	assert(FrameFlags.NONE == frame.hd.flags);
 	/* aux_data.data.flags has these flags */
-	assert(FrameFlags.END_STREAM == aob.item.aux_data.data.flags);
+	assert(FrameFlags.END_STREAM.asOriginalType == aob.item.aux_data.data.flags.asOriginalType);
 	
 	session.free();
 }
@@ -2836,7 +2836,7 @@ void test_submit_data_read_length_too_large() {
 	assert(FrameFlags.NONE == frame.hd.flags);
 	assert(16384 == hd.length);
 	/* aux_data.data.flags has these flags */
-	assert(FrameFlags.END_STREAM == aob.item.aux_data.data.flags);
+	assert(FrameFlags.END_STREAM.asOriginalType == aob.item.aux_data.data.flags.asOriginalType);
 	
 	session.free();
 	
@@ -2869,7 +2869,7 @@ void test_submit_data_read_length_too_large() {
 	assert(FrameFlags.NONE == frame.hd.flags);
 	assert(payloadlen == hd.length);
 	/* aux_data.data.flags has these flags */
-	assert(FrameFlags.END_STREAM == aob.item.aux_data.data.flags);
+	assert(FrameFlags.END_STREAM.asOriginalType == aob.item.aux_data.data.flags.asOriginalType);
 	
 	session.free();
 }
@@ -2908,7 +2908,7 @@ void test_submit_data_read_length_smallest() {
 	assert(FrameFlags.NONE == frame.hd.flags);
 	assert(1 == hd.length);
 	/* aux_data.data.flags has these flags */
-	assert(FrameFlags.END_STREAM == aob.item.aux_data.data.flags);
+	assert(FrameFlags.END_STREAM.asOriginalType == aob.item.aux_data.data.flags.asOriginalType);
 	
 	session.free();
 }
