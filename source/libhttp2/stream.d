@@ -177,7 +177,7 @@ final class Stream {
         LOGF("stream: stream=%d detach item=%s", m_id, m_item);
         
         m_item = null;
-        m_flags &= ~StreamFlags.DEFERRED_ALL;
+        m_flags &= ~cast(int)StreamFlags.DEFERRED_ALL;
         
 		updateDepOnDetachItem(session);
     }
@@ -214,7 +214,7 @@ final class Stream {
         
         LOGF("stream: stream=%d resume item=%s flags=%02x", m_id, m_item, flags);
         
-        m_flags &= ~flags;
+        m_flags &= ~cast(int)flags;
         
         if (m_flags & StreamFlags.DEFERRED_ALL) {
             return;
@@ -273,7 +273,7 @@ final class Stream {
      */
     void promiseFulfilled() {
 		m_state = StreamState.OPENED;
-        m_flags &= ~StreamFlags.PUSH;
+        m_flags &= ~cast(int)StreamFlags.PUSH;
     }
     
     /*

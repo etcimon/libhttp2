@@ -94,7 +94,7 @@ struct FrameHeader
 	       CONTINUATION frame is involved. Remove END_HEADERS flag from the
 	       first frame. */
 		if (bufs.head != bufs.cur) {
-			flags &= ~FrameFlags.END_HEADERS;
+			flags &= ~cast(int)FrameFlags.END_HEADERS;
 		}
 		
 		buf.pos -= FRAME_HDLEN;

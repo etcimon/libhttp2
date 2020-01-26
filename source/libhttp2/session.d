@@ -5431,7 +5431,7 @@ final class Session {
 							break;
 						}
 						case HeadersCategory.PUSH_RESPONSE:
-							stream.flags = cast(StreamFlags)(stream.flags & ~StreamFlags.PUSH);
+							stream.flags = cast(StreamFlags)(stream.flags & ~cast(int)StreamFlags.PUSH);
 							++num_outgoing_streams;
 							goto case HeadersCategory.RESPONSE;
 						case HeadersCategory.RESPONSE:

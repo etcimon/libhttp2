@@ -986,7 +986,7 @@ void test_hd_public_api() {
 private size_t encodeLength(ubyte *buf, ulong n, size_t prefix) {
 	size_t k = (1 << prefix) - 1;
 	size_t len;
-	*buf &= ~(cast(ubyte)k);
+	*buf &= ~cast(int)(cast(ubyte)k);
 	if (n >= k) {
 		*buf++ |= cast(ubyte) k;
 		n -= k;
