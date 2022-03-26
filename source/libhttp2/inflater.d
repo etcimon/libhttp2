@@ -14,20 +14,23 @@ module libhttp2.inflater;
 import libhttp2.types;
 import libhttp2.buffers;
 import libhttp2.huffman;
-import std.algorithm : min;
+import libhttp2.helpers;
+
+@trusted nothrow:
 
 struct Inflater
 {
-	HDTable ctx;
+@trusted nothrow:
+	HDTable* ctx;
 	
 	/// header buffer
-	Buffers hfbufs;
+	Buffers* hfbufs;
 	
 	/// Stores current state of huffman decoding
 	Decoder huff_decoder;
 	
 	/// Pointer to the entry which is used current header emission, for reference counting purposes.
-	HDEntry ent_keep;
+	HDEntry* ent_keep;
 	
 	/// The number of bytes to read
 	size_t left;
@@ -59,8 +62,10 @@ struct Inflater
 	
 	this(bool initialize) {
 		ctx = Mem.alloc!HDTable();
-		scope(failure) Mem.free(ctx);
-		hfbufs = Mem.alloc!Buffers(MAX_HF_LEN / 8, 8, 1, 0);
+		(*ctx).init();
+		//scope(failure) Mem.free(ctx);
+		hfbufs = Mem.alloc!Buffers();
+		hfbufs.init2(MAX_HF_LEN / 8, 8, 1, 0);
 	}
 
 	void free() {
@@ -157,7 +162,7 @@ struct Inflater
 		ubyte* last = input.ptr + input.length;
 		bool rfin; // read finished
 		if (ctx.bad) return ErrorCode.HEADER_COMP;
-		scope(failure) ctx.bad = 1;
+		//scope(failure) ctx.bad = 1;
 		
 		LOGF("inflatehd: start state=%s pos=%s last=%s", state, pos, last);
 		if (state == InflateState.READ_VALUE && pos is last)
@@ -536,7 +541,7 @@ struct Inflater
 	 * ErrorCode.BUFFER_ERROR
 	 *     Out of buffer space.
 	 */
-	int readHuffman(Buffers bufs, ubyte* input, ubyte* last) {
+	int readHuffman(Buffers* bufs, ubyte* input, ubyte* last) {
 		int readlen;
 		bool rfin;
 
@@ -566,7 +571,7 @@ struct Inflater
 	 * ErrorCode.BUFFER_ERROR
 	 *     Out of buffer space.
 	 */
-	int read(Buffers bufs, ubyte* input, ubyte* last) 
+	int read(Buffers* bufs, ubyte* input, ubyte* last) 
 	{
 		ErrorCode rv;
 		size_t len = min(cast(size_t)(last - input), left);
@@ -635,7 +640,7 @@ package:
 			hf.flag = HeaderFlag.NONE;
 		
 		if (index_required) {
-			HDEntry new_ent;
+			HDEntry* new_ent;
 			HDFlags ent_flags;
 			
 			ent_flags = HDFlags.NAME_ALLOC | HDFlags.NAME_GIFT | HDFlags.VALUE_ALLOC | HDFlags.VALUE_GIFT;
@@ -664,7 +669,7 @@ package:
 	/// Finalize literal header representation - indexed name reception. If header is emitted, the HeaderField is returned
 	HeaderField commitIndexedName() {
 		HeaderField ret;
-		HDEntry ent_name;
+		HDEntry* ent_name;
 
 		HeaderField hf = removeBufs(true /* value only */);
 		
@@ -677,7 +682,7 @@ package:
 		hf.name = ent_name.hf.name;
 		
 		if (index_required) {
-			HDEntry new_ent;
+			HDEntry* new_ent;
 			HDFlags ent_flags;
 			bool static_name;
 			
@@ -716,12 +721,12 @@ package:
 	 * emitted, returns it
 	 */
 	HeaderField commitIndexed() {
-		HDEntry ent = ctx.get(index);		
+		HDEntry* ent = ctx.get(index);		
 		return emitIndexedHeader(ent);
 	}
 
 	// for debugging
-	HeaderField emitIndexedHeader(ref HDEntry ent) {
+	HeaderField emitIndexedHeader(ref HDEntry* ent) {
 		LOGF("inflatehd: indexed header emission: %s: %s", ent?ent.hf.name:"null", ent?ent.hf.value:"null");
 		
 		return ent?ent.hf : HeaderField.init;

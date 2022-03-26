@@ -14,10 +14,11 @@ module libhttp2.huffman;
 import libhttp2.types;
 import libhttp2.buffers;
 import libhttp2.constants;
+import libhttp2.helpers;
 import memutils.circularbuffer;
 import memutils.utils;
-import core.exception;
-import std.conv : to;
+
+@trusted nothrow:
 
 const HD_DEFAULT_MAX_BUFFER_SIZE = DEFAULT_HEADER_TABLE_SIZE;
 
@@ -62,8 +63,9 @@ enum HDFlags
 	VALUE_GIFT = 1 << 3
 }
 
-class HDEntry
+struct HDEntry
 {
+@trusted nothrow:
 	enum NOGC = true;
 	HeaderField hf;
 	uint name_hash;
@@ -95,10 +97,10 @@ class HDEntry
 		} else
 			hf.name = cast(string)name;
 		
-		scope(failure)
+		/*scope(failure)
 		if (flags & HDFlags.NAME_ALLOC) {
 			Mem.free(hf.name);
-		}
+		}*/
 		
 		if ((flags & HDFlags.VALUE_ALLOC) && (flags & HDFlags.VALUE_GIFT) == 0) {
 			if (value.length == 0)
@@ -120,7 +122,7 @@ class HDEntry
 			assert(false, "hdentry: Freed HDEntry refcnt must be 0");
 		}
 		if (hf.name && flags & HDFlags.NAME_ALLOC)
-			Mem.free(hf.name);		
+			Mem.free(hf.name);
 		if (hf.value && flags & HDFlags.VALUE_ALLOC)
 			Mem.free(hf.value);
 	}
@@ -154,10 +156,11 @@ enum InflateState
 	READ_VALUE
 }
 
-class HDTable
+struct HDTable
 {
+	@trusted nothrow:
 	/// dynamic header table
-	CircularBuffer!HDEntry hd_table;
+	CircularBuffer!(HDEntry*, 0, ThreadMem) hd_table;
 	
 	/// Abstract buffer size of hd_table as described in the spec. This is the sum of length of name/value in hd_table +
 	/// ENTRY_OVERHEAD bytes overhead per each entry.
@@ -169,12 +172,12 @@ class HDTable
 	/// If inflate/deflate error occurred, this value is set to 1 and further invocation of inflate/deflate will fail with ErrorCode.HEADER_COMP.
 	bool bad;
 	
-	this() {
-		hd_table = CircularBuffer!HDEntry(hd_table_bufsize_max);
+	void init() {
+		hd_table = CircularBuffer!(HDEntry*, 0, ThreadMem)(hd_table_bufsize_max);		
 	}
 
 	~this() {
-		foreach (HDEntry ent; hd_table) {
+		foreach (HDEntry* ent; hd_table) {
 			ent.refcnt--;
 			Mem.free(ent);
 		}
@@ -184,22 +187,22 @@ class HDTable
 	{
 		while (hd_table_bufsize + room > hd_table_bufsize_max && hd_table.length > 0) {
 			// TODO: Debugging printf
-			HDEntry ent = hd_table[0];
+			HDEntry* ent = hd_table[0];
 			hd_table_bufsize -= entryRoom(ent.hf.name.length, ent.hf.value.length);
 			hd_table.popFront();
 			if (--ent.refcnt == 0) Mem.free(ent);
 		}
 	}
 	
-	HDEntry add(const ref HeaderField hf, uint name_hash, uint value_hash, HDFlags entry_flags) {
+	HDEntry* add(const ref HeaderField hf, uint name_hash, uint value_hash, HDFlags entry_flags) {
 		int rv;
-		HDEntry new_ent;
+		HDEntry* new_ent;
 		size_t room = entryRoom(hf.name.length, hf.value.length);		
 		shrink(room);
 		new_ent = Mem.alloc!HDEntry(entry_flags, hf.name, hf.value, name_hash, value_hash);
 
 		if (room <= hd_table_bufsize_max) {
-			scope(failure) {
+			/*scope(failure) {
 				new_ent.refcnt--;
 				if (entry_flags & HDFlags.NAME_ALLOC && entry_flags & HDFlags.NAME_GIFT)
 					new_ent.hf.name = null; // managed by caller
@@ -207,7 +210,7 @@ class HDTable
 					new_ent.hf.value = null; // managed by caller
 
 				Mem.free(new_ent);
-			}
+			}*/
 			if (hd_table.freeSpace == 0)
 				hd_table.capacity = hd_table.capacity * 3 / 2;
 			hd_table.put(new_ent);
@@ -219,13 +222,13 @@ class HDTable
 		return new_ent;
 	}
 
-	HDEntry get(size_t idx) {
+	HDEntry* get(size_t idx) {
 		assert(idx < hd_table.length + static_table.length);
 
 		if (idx >= static_table.length) { 
 			return hd_table[$ - (idx - static_table.length) - 1];
 		}
-		return static_table[static_table_index[idx]].ent;
+		return &static_table[static_table_index[idx]].ent;
 
 	}
 
@@ -239,7 +242,7 @@ class HDTable
 		// Search dynamic table first, so that we can find recently used entry first
 		if (use_index) {
 			foreach (size_t i; 0 .. hd_table.length) {
-				HDEntry ent = hd_table[$ - i - 1]; 
+				HDEntry* ent = hd_table[$ - i - 1]; 
 				if (ent.name_hash != name_hash || ent.hf.name != hf.name)
 					continue;
 
@@ -255,7 +258,7 @@ class HDTable
 		
 		while (right - left > 1) {
 			size_t mid = (left + right) / 2;
-			HDEntry ent = static_table[mid].ent;
+			HDEntry* ent = &static_table[mid].ent;
 			if (ent.name_hash < name_hash)
 				left = cast(int) mid;
 			else
@@ -263,7 +266,7 @@ class HDTable
 		}
 		
 		for (size_t i = right; i < static_table.length; ++i) {
-			HDEntry ent = static_table[i].ent;
+			HDEntry* ent = &static_table[i].ent;
 			if (ent.name_hash != name_hash)
 				break;
 			
@@ -311,6 +314,7 @@ alias DecodeTable = Decode[16];
 
 struct Decoder
 {
+@trusted nothrow:
 	/* Current huffman decoding state. We stripped leaf nodes, so the value range is [0..255], inclusive. */
 	ubyte state;
 
@@ -340,7 +344,7 @@ struct Decoder
 	 * ErrorCode.HEADER_COMP
 	 *     Decoding process has failed.
 	 */
-	int decode(Buffers bufs, in ubyte[] src, bool is_final)
+	int decode(Buffers* bufs, in ubyte[] src, bool is_final)
 	{
 		size_t i, j;
 		ErrorCode rv;
@@ -459,6 +463,7 @@ int decodeLength(ref uint res, ref size_t shift_ptr, ref bool is_final, // <-- o
 
 struct Symbol
 {
+@trusted nothrow:
 	/// The number of bits in this code
 	uint nbits;
 	/// Huffman code aligned to LSB
@@ -471,7 +476,7 @@ struct Symbol
 	 * and points where next output should be placed. The number of
 	 * unfilled bits in the pointed location is returned.
 	 */
-	int encode(Buffers bufs, ref size_t avail, size_t rembits)
+	int encode(Buffers* bufs, ref size_t avail, size_t rembits)
 	{
 		int rv;
 		size_t _nbits = nbits;
@@ -561,86 +566,69 @@ uint hash(in string str) {
 }
 
 /// Sorted by hash(name) and its table index
-__gshared StaticEntry[] static_table;
-
-
-static this() { 
-	if (static_table) return;
-
-	/* Make scalar initialization form of HeaderField */
-	string MAKE_STATIC_ENT(int I, string N, string V, long NH, long VH) {
-		return `StaticEntry( 
-					new HDEntry(HDFlags.NONE, "` ~ N ~ `", "` ~ V ~ `", ` ~ NH.to!string ~ `u, ` ~ VH.to!string ~ `u), 
-				` ~ I.to!string ~ 
-			`)`;
-	}
-
-	mixin(`static_table = [` ~ 
-		MAKE_STATIC_ENT(20, "age", "", 96511, 0) ~ `,` ~
-		MAKE_STATIC_ENT(59, "via", "", 116750, 0) ~ `,` ~
-		MAKE_STATIC_ENT(32, "date", "", 3076014, 0) ~ `,` ~
-		MAKE_STATIC_ENT(33, "etag", "", 3123477, 0) ~ `,` ~
-		MAKE_STATIC_ENT(36, "from", "", 3151786, 0) ~ `,` ~
-		MAKE_STATIC_ENT(37, "host", "", 3208616, 0) ~ `,` ~
-		MAKE_STATIC_ENT(44, "link", "", 3321850, 0) ~ `,` ~
-		MAKE_STATIC_ENT(58, "vary", "", 3612210, 0) ~ `,` ~
-		MAKE_STATIC_ENT(38, "if-match", "", 34533653, 0) ~ `,` ~
-		MAKE_STATIC_ENT(41, "if-range", "", 39145613, 0) ~ `,` ~
-		MAKE_STATIC_ENT(3, ":path", "/", 56997727, 47) ~ `,` ~
-		MAKE_STATIC_ENT(4, ":path", "/index.html", 56997727, 2144181430) ~ `,` ~
-		MAKE_STATIC_ENT(21, "allow", "", 92906313, 0) ~ `,` ~
-		MAKE_STATIC_ENT(49, "range", "", 108280125, 0) ~ `,` ~
-		MAKE_STATIC_ENT(14, "accept-charset", "", 124285319, 0) ~ `,` ~
-		MAKE_STATIC_ENT(43, "last-modified", "", 150043680, 0) ~ `,` ~
-		MAKE_STATIC_ENT(48, "proxy-authorization", "", 329532250, 0) ~ `,` ~
-		MAKE_STATIC_ENT(57, "user-agent", "", 486342275, 0) ~ `,` ~
-		MAKE_STATIC_ENT(40, "if-none-match", "", 646073760, 0) ~ `,` ~
-		MAKE_STATIC_ENT(30, "content-type", "", 785670158, 0) ~ `,` ~
-		MAKE_STATIC_ENT(16, "accept-language", "", 802785917, 0) ~ `,` ~
-		MAKE_STATIC_ENT(50, "referer", "", 1085069613, 0) ~ `,` ~
-		MAKE_STATIC_ENT(51, "refresh", "", 1085444827, 0) ~ `,` ~
-		MAKE_STATIC_ENT(55, "strict-transport-security", "", 1153852136, 0) ~ `,` ~
-		MAKE_STATIC_ENT(54, "set-cookie", "", 1237214767, 0) ~ `,` ~
-		MAKE_STATIC_ENT(56, "transfer-encoding", "", 1274458357, 0) ~ `,` ~
-		MAKE_STATIC_ENT(17, "accept-ranges", "", 1397189435, 0) ~ `,` ~
-		MAKE_STATIC_ENT(42, "if-unmodified-since", "", 1454068927, 0) ~ `,` ~
-		MAKE_STATIC_ENT(46, "max-forwards", "", 1619948695, 0) ~ `,` ~
-		MAKE_STATIC_ENT(45, "location", "", 1901043637, 0) ~ `,` ~
-		MAKE_STATIC_ENT(52, "retry-after", "", 1933352567, 0) ~ `,` ~
-		MAKE_STATIC_ENT(25, "content-encoding", "", 2095084583, 0) ~ `,` ~
-		MAKE_STATIC_ENT(28, "content-location", "", 2284906121, 0) ~ `,` ~
-		MAKE_STATIC_ENT(39, "if-modified-since", "", 2302095846, 0) ~ `,` ~
-		MAKE_STATIC_ENT(18, "accept", "", 2871506184, 0) ~ `,` ~
-		MAKE_STATIC_ENT(29, "content-range", "", 2878374633, 0) ~ `,` ~
-		MAKE_STATIC_ENT(22, "authorization", "", 2909397113, 0) ~ `,` ~
-		MAKE_STATIC_ENT(31, "cookie", "", 2940209764, 0) ~ `,` ~
-		MAKE_STATIC_ENT(0, ":authority", "", 2962729033, 0) ~ `,` ~
-		MAKE_STATIC_ENT(35, "expires", "", 2985731892, 0) ~ `,` ~
-		MAKE_STATIC_ENT(34, "expect", "", 3005803609, 0) ~ `,` ~
-		MAKE_STATIC_ENT(24, "content-disposition", "", 3027699811, 0) ~ `,` ~
-		MAKE_STATIC_ENT(26, "content-language", "", 3065240108, 0) ~ `,` ~
-		MAKE_STATIC_ENT(1, ":method", "GET", 3153018267, 70454) ~ `,` ~
-		MAKE_STATIC_ENT(2, ":method", "POST", 3153018267, 2461856) ~ `,` ~
-		MAKE_STATIC_ENT(27, "content-length", "", 3162187450, 0) ~ `,` ~
-		MAKE_STATIC_ENT(19, "access-control-allow-origin", "", 3297999203, 0) ~ `,` ~
-		MAKE_STATIC_ENT(5, ":scheme", "http", 3322585695, 3213448) ~ `,` ~
-		MAKE_STATIC_ENT(6, ":scheme", "https", 3322585695, 99617003) ~ `,` ~
-		MAKE_STATIC_ENT(7, ":status", "200", 3338091692, 49586) ~ `,` ~
-		MAKE_STATIC_ENT(8, ":status", "204", 3338091692, 49590) ~ `,` ~
-		MAKE_STATIC_ENT(9, ":status", "206", 3338091692, 49592) ~ `,` ~
-		MAKE_STATIC_ENT(10, ":status", "304", 3338091692, 50551) ~ `,` ~
-		MAKE_STATIC_ENT(11, ":status", "400", 3338091692, 51508) ~ `,` ~
-		MAKE_STATIC_ENT(12, ":status", "404", 3338091692, 51512) ~ `,` ~
-		MAKE_STATIC_ENT(13, ":status", "500", 3338091692, 52469) ~ `,` ~
-		MAKE_STATIC_ENT(53, "server", "", 3389140803, 0) ~ `,` ~
-		MAKE_STATIC_ENT(47, "proxy-authenticate", "", 3993199572, 0) ~ `,` ~
-		MAKE_STATIC_ENT(60, "www-authenticate", "", 4051929931, 0) ~ `,` ~
-		MAKE_STATIC_ENT(23, "cache-control", "", 4086191634, 0) ~ `,` ~
-		MAKE_STATIC_ENT(15, "accept-encoding", "gzip, deflate", 4127597688, 1733326877) 
-		~ `];`);
+__gshared StaticEntry[61] static_table = [StaticEntry(HDEntry(HDFlags.NONE, "age", "", 96511u, 0u),20),
+StaticEntry(HDEntry(HDFlags.NONE, "via", "", 116750u, 0u),59),
+StaticEntry(HDEntry(HDFlags.NONE, "date", "", 3076014u, 0u),32),
+StaticEntry(HDEntry(HDFlags.NONE, "etag", "", 3123477u, 0u),33),
+StaticEntry(HDEntry(HDFlags.NONE, "from", "", 3151786u, 0u),36),
+StaticEntry(HDEntry(HDFlags.NONE, "host", "", 3208616u, 0u),37),
+StaticEntry(HDEntry(HDFlags.NONE, "link", "", 3321850u, 0u),44),
+StaticEntry(HDEntry(HDFlags.NONE, "vary", "", 3612210u, 0u),58),
+StaticEntry(HDEntry(HDFlags.NONE, "if-match", "", 34533653u, 0u),38),
+StaticEntry(HDEntry(HDFlags.NONE, "if-range", "", 39145613u, 0u),41),
+StaticEntry(HDEntry(HDFlags.NONE, ":path", "/", 56997727u, 47u),3),
+StaticEntry(HDEntry(HDFlags.NONE, ":path", "/index.html", 56997727u, 2144181430u),4),
+StaticEntry(HDEntry(HDFlags.NONE, "allow", "", 92906313u, 0u),21),
+StaticEntry(HDEntry(HDFlags.NONE, "range", "", 108280125u, 0u),49),
+StaticEntry(HDEntry(HDFlags.NONE, "accept-charset", "", 124285319u, 0u),14),
+StaticEntry(HDEntry(HDFlags.NONE, "last-modified", "", 150043680u, 0u),43),
+StaticEntry(HDEntry(HDFlags.NONE, "proxy-authorization", "", 329532250u, 0u),48),
+StaticEntry(HDEntry(HDFlags.NONE, "user-agent", "", 486342275u, 0u),57),
+StaticEntry(HDEntry(HDFlags.NONE, "if-none-match", "", 646073760u, 0u),40),
+StaticEntry(HDEntry(HDFlags.NONE, "content-type", "", 785670158u, 0u),30),
+StaticEntry(HDEntry(HDFlags.NONE, "accept-language", "", 802785917u, 0u),16),
+StaticEntry(HDEntry(HDFlags.NONE, "referer", "", 1085069613u, 0u),50),
+StaticEntry(HDEntry(HDFlags.NONE, "refresh", "", 1085444827u, 0u),51),
+StaticEntry(HDEntry(HDFlags.NONE, "strict-transport-security", "", 1153852136u, 0u),55),
+StaticEntry(HDEntry(HDFlags.NONE, "set-cookie", "", 1237214767u, 0u),54),
+StaticEntry(HDEntry(HDFlags.NONE, "transfer-encoding", "", 1274458357u, 0u),56),
+StaticEntry(HDEntry(HDFlags.NONE, "accept-ranges", "", 1397189435u, 0u),17),
+StaticEntry(HDEntry(HDFlags.NONE, "if-unmodified-since", "", 1454068927u, 0u),42),
+StaticEntry(HDEntry(HDFlags.NONE, "max-forwards", "", 1619948695u, 0u),46),
+StaticEntry(HDEntry(HDFlags.NONE, "location", "", 1901043637u, 0u),45),
+StaticEntry(HDEntry(HDFlags.NONE, "retry-after", "", 1933352567u, 0u),52),
+StaticEntry(HDEntry(HDFlags.NONE, "content-encoding", "", 2095084583u, 0u),25),
+StaticEntry(HDEntry(HDFlags.NONE, "content-location", "", 2284906121u, 0u),28),
+StaticEntry(HDEntry(HDFlags.NONE, "if-modified-since", "", 2302095846u, 0u),39),
+StaticEntry(HDEntry(HDFlags.NONE, "accept", "", 2871506184u, 0u),18),
+StaticEntry(HDEntry(HDFlags.NONE, "content-range", "", 2878374633u, 0u),29),
+StaticEntry(HDEntry(HDFlags.NONE, "authorization", "", 2909397113u, 0u),22),
+StaticEntry(HDEntry(HDFlags.NONE, "cookie", "", 2940209764u, 0u),31),
+StaticEntry(HDEntry(HDFlags.NONE, ":authority", "", 2962729033u, 0u),0),
+StaticEntry(HDEntry(HDFlags.NONE, "expires", "", 2985731892u, 0u),35),
+StaticEntry(HDEntry(HDFlags.NONE, "expect", "", 3005803609u, 0u),34),
+StaticEntry(HDEntry(HDFlags.NONE, "content-disposition", "", 3027699811u, 0u),24),
+StaticEntry(HDEntry(HDFlags.NONE, "content-language", "", 3065240108u, 0u),26),
+StaticEntry(HDEntry(HDFlags.NONE, ":method", "GET", 3153018267u, 70454u),1),
+StaticEntry(HDEntry(HDFlags.NONE, ":method", "POST", 3153018267u, 2461856u),2),
+StaticEntry(HDEntry(HDFlags.NONE, "content-length", "", 3162187450u, 0u),27),
+StaticEntry(HDEntry(HDFlags.NONE, "access-control-allow-origin", "", 3297999203u, 0u),19),
+StaticEntry(HDEntry(HDFlags.NONE, ":scheme", "http", 3322585695u, 3213448u),5),
+StaticEntry(HDEntry(HDFlags.NONE, ":scheme", "https", 3322585695u, 99617003u),6),
+StaticEntry(HDEntry(HDFlags.NONE, ":status", "200", 3338091692u, 49586u),7),
+StaticEntry(HDEntry(HDFlags.NONE, ":status", "204", 3338091692u, 49590u),8),
+StaticEntry(HDEntry(HDFlags.NONE, ":status", "206", 3338091692u, 49592u),9),
+StaticEntry(HDEntry(HDFlags.NONE, ":status", "304", 3338091692u, 50551u),10),
+StaticEntry(HDEntry(HDFlags.NONE, ":status", "400", 3338091692u, 51508u),11),
+StaticEntry(HDEntry(HDFlags.NONE, ":status", "404", 3338091692u, 51512u),12),
+StaticEntry(HDEntry(HDFlags.NONE, ":status", "500", 3338091692u, 52469u),13),
+StaticEntry(HDEntry(HDFlags.NONE, "server", "", 3389140803u, 0u),53),
+StaticEntry(HDEntry(HDFlags.NONE, "proxy-authenticate", "", 3993199572u, 0u),47),
+StaticEntry(HDEntry(HDFlags.NONE, "www-authenticate", "", 4051929931u, 0u),60),
+StaticEntry(HDEntry(HDFlags.NONE, "cache-control", "", 4086191634u, 0u),23),
+StaticEntry(HDEntry(HDFlags.NONE, "accept-encoding", "gzip, deflate", 4127597688u, 1733326877u),15)];
 	
-	assert(static_table.length == 61, "Invalid static table length");
-};
+
 
 /* Index to the position in static_table */
 __gshared immutable size_t[61] static_table_index = [38, 43, 44, 10, 11, 47, 48, 49, 50, 51, 52, 53, 54, 55, 14, 60, 20, 26, 34, 46, 0, 12, 36, 59, 41, 31, 42, 45, 32, 35, 19, 37, 2, 3, 40, 39, 4, 5, 8, 33, 18, 9, 27, 15, 6, 29, 28, 57, 16, 13, 21, 22, 30, 56, 24, 23, 25, 17, 7, 1, 58];

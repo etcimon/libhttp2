@@ -15,12 +15,15 @@ import libhttp2.types;
 import libhttp2.frame : OutboundItem;
 import memutils.utils;
 
+@trusted nothrow:
+
 /// Implementation of priority queue
 struct PriorityQueue
 {
+@trusted nothrow:
 private:
 	/// The pointer to the pointer to the item stored 
-	OutboundItem[] m_queue;
+	OutboundItem*[] m_queue;
 
 	/* The maximum number of items this pq can store. This is
      automatically extended when length is reached to this value. */
@@ -31,7 +34,7 @@ public:
 	this(size_t capacity) // default=128
 	{
 		m_capacity = capacity;
-		m_queue = Mem.alloc!(OutboundItem[])(capacity);
+		m_queue = Mem.alloc!(OutboundItem*[])(capacity);
 		m_queue = m_queue.ptr[0 .. 0];
 	}
 
@@ -40,7 +43,7 @@ public:
 	{
 		while (!empty) 
 		{
-			OutboundItem item = top;
+			OutboundItem* item = top;
 			item.free();
 			Mem.free(item);
 			pop();
@@ -53,7 +56,7 @@ public:
 
 
 	/// Adds |item| to the priority queue
-	void push(OutboundItem item)
+	void push(OutboundItem* item)
 	{
 		if (m_capacity <= m_queue.length)
 		{
@@ -86,7 +89,7 @@ public:
 	 * Returns item at the top of the queue |pq|. If the queue is empty,
 	 * this function returns NULL.
 	 */
-	@property OutboundItem top()
+	@property OutboundItem* top()
 	{
 		if (length == 0) {
 			return null;
@@ -111,7 +114,7 @@ public:
 	}
 
 	/// Iterates over each item in the PriorityQueue and reorders it
-	int opApply(scope int delegate(OutboundItem ob) del) {
+	int opApply(scope int delegate(OutboundItem* ob) nothrow del) {
 		
 		if (m_queue.length == 0)
 			return 0;
@@ -132,7 +135,7 @@ public:
 	}
 
 	/// Iterates over each item in the PriorityQueue
-	int opApply(scope int delegate(const OutboundItem ob) del) const {
+	int opApply(scope int delegate(const OutboundItem* ob) nothrow del) const {
 		foreach (const ob; m_queue) {
 			if (auto ret = del(ob))
 				return ret;
@@ -142,7 +145,7 @@ public:
 
 private:
 	void swap(size_t i, size_t j) {
-		OutboundItem t = m_queue[i];
+		OutboundItem* t = m_queue[i];
 		m_queue[i] = m_queue[j];
 		m_queue[j] = t;
 	}
@@ -178,7 +181,7 @@ private:
 		}
 	}
 package:
-	static int compare(in OutboundItem lhs, in OutboundItem rhs) 
+	static int compare(in OutboundItem* lhs, in OutboundItem* rhs) 
 	{
 		if (lhs.cycle == rhs.cycle) {
 			if (lhs.weight == rhs.weight) {

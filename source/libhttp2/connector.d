@@ -15,12 +15,12 @@ import libhttp2.types;
 import libhttp2.frame;
 import libhttp2.session;
 
+@trusted nothrow:
 
-public:
-abstract class Connector
+struct CallbackConnector
 {
+@trusted nothrow:
 public:
-////////////////// Protocol ////////////////////////
 
     /**
      * Callback function invoked when Session wants to send data to the
@@ -36,7 +36,8 @@ public:
      * the application uses solely $(D Session.memSend) instead,
      * this callback function is unnecessary.
      */
-    int write(in ubyte[] data);
+	int delegate(in ubyte[]) write_cb;
+
 	/**
 	 * Callback function invoked when `DataFlags.NO_COPY` is
 	 * used in `DataProvider` to send complete DATA frame.
@@ -68,7 +69,7 @@ public:
 	 * which will result in connection closure.  Returning any other value
 	 * is treated as if `ErrorCode.CALLBACK_FAILURE` was returned.
 	 */
-	ErrorCode writeData(in Frame frame, ubyte[] frame_hd, uint length);
+	ErrorCode delegate(in Frame, ubyte[], uint) write_data_cb;
 
     /**
      * Callback function invoked when Session wants to receive data from
@@ -88,8 +89,7 @@ public:
      * If the application uses solely `http2_session_mem_recv()`
      * instead, this callback function is unnecessary.
      */
-    int read(ubyte[] data);
-
+	int delegate(ubyte[]) read_cb;
 	/**
      * Callback function invoked when the stream |stream_id| is closed.
      * The reason of closure is indicated by the |error_code|.  The
@@ -102,9 +102,7 @@ public:
      * $(D Session.recv) and $(D Session.send) functions
      * immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-	bool onStreamExit(int stream_id, FrameError error_code);
-
-/////////////////// Receiving ////////////////////////
+	bool delegate(int, FrameError) on_stream_exit_cb;
 
     /**
      * Callback function invoked by $(D Session.recv) when a frame
@@ -131,8 +129,7 @@ public:
      * $(D Session.recv) and $(D Session.memRecv) functions
      * immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-    bool onFrame(in Frame frame);
-
+	bool delegate(in Frame) on_frame_cb;
 	/**
      * Callback function invoked when a frame header is received.  The
      * |hd| points to received frame header.
@@ -150,7 +147,7 @@ public:
      * $(D Session.recv) and `http2_session_mem_recv()` functions
      * immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-	bool onFrameHeader(in FrameHeader hd);
+	bool delegate(in FrameHeader) on_frame_header_cb;
 
 	/**
      * Callback function invoked when the reception of header block in
@@ -165,8 +162,7 @@ public:
      *
      * If this callback returns false, stream fails with `ErrorCode.CALLBACK_FAILURE`
      */
-	bool onHeaders(in Frame frame);
-
+	bool delegate(in Frame) on_headers_cb;
 
 	/**
      * Callback function invoked when a header header field is received
@@ -214,7 +210,8 @@ public:
      * in this case, $(D Session.recv) or $(D Session.memRecv) functions immediately 
      * return $(D ErrorCode.CALLBACK_FAILURE).
      */
-	bool onHeaderField(in Frame frame, HeaderField hf, ref bool pause, ref bool rst_stream);
+	bool delegate(in Frame, in HeaderField, ref bool, ref bool) on_header_field_cb;
+
 
 	/**
      * Callback function invoked when a chunk of data in DATA frame is
@@ -237,7 +234,7 @@ public:
      * If the function returns false, $(D Session.memRecv) or $(D Session.recv)
      * would return with $(D ErrorCode.CALLBACK_FAILURE).
      */
-	bool onDataChunk(FrameFlags flags, int stream_id, in ubyte[] data, ref bool pause);
+	bool delegate(FrameFlags, int, in ubyte[], ref bool) on_data_chunk_cb;
 
     /**
      * Callback function invoked by $(D Session.recv) when an
@@ -254,7 +251,8 @@ public:
      * $(D Session.recv) and $(D Session.send) functions
      * immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-    bool onInvalidFrame(in Frame frame, FrameError error_code, string reason = "");
+	bool delegate(in Frame, FrameError, string) on_invalid_frame_cb;
+
 
 /////////////////// Sending /////////////////////////
 
@@ -268,7 +266,7 @@ public:
      * $(D Session.recv) and $(D Session.send) functions
      * immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-	bool onFrameFailure(in Frame frame, ErrorCode error_code);
+	bool delegate(in Frame, ErrorCode) on_frame_failure_cb;
 
     /**
      * Callback function invoked just before the non-DATA frame |frame| is
@@ -279,7 +277,8 @@ public:
      * $(D Session.recv) and $(D Session.send) functions
      * immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-    bool onFrameReady(in Frame frame);
+	bool delegate(in Frame) on_frame_ready_cb;
+
 
     /**
      * Callback function invoked after the frame |frame| is sent.  
@@ -288,7 +287,7 @@ public:
      * $(D Session.recv) and $(D Session.send) functions
      * immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-    bool onFrameSent(in Frame frame);
+	bool delegate(in Frame) on_frame_sent_cb;
 
     /**
      * Callback function invoked when the library asks application how
@@ -300,10 +299,7 @@ public:
      * means no padding is added.  Returning $(D ErrorCode.CALLBACK_FAILURE) will make
      * $(D Session.send()) function immediately return $(D ErrorCode.CALLBACK_FAILURE).
      */
-    int selectPaddingLength(in Frame frame, int max_payloadlen)
-	{
-		return frame.hd.length;
-	}
+	int delegate(in Frame, int) select_padding_length_cb;
 
     /**
      * Callback function invoked when library wants to get max length of
@@ -324,111 +320,9 @@ public:
      * $(D ErrorCode.CALLBACK_FAILURE) will signal the entire session
      * failure..
      */
-    int maxFrameSize(FrameType frame_type, int stream_id, int session_remote_window_size, int stream_remote_window_size, uint remote_max_frame_size)
-	{
-          import std.algorithm : min;
-		return min(session_remote_window_size, stream_remote_window_size, remote_max_frame_size);
-	}
-
-
-}
-
-class CallbackConnector : Connector
-{
-public:
-	/**
-     * Callback function invoked when the session wants to send data to
-     * the remote peer.  This callback is not necessary if the
-     * application uses solely $(D Session.memSend) to serialize
-     * data to transmit.
-     */
-	int delegate(in ubyte[]) write_cb;
-
-	/**
-     * Callback function invoked when $(D DataFlags.NO_COPY) is used in $(D DataProvider)
-     * to avoid data copy.
-     */
-	ErrorCode delegate(in Frame, ubyte[], uint) write_data_cb;
-
-	/**
-     * Callback function invoked when the session wants to receive data
-     * from the remote peer.  This callback is not necessary if the
-     * application uses solely `nghttp2_session_mem_recv()` to process
-     * received data.
-     */
-	int delegate(ubyte[]) read_cb;
-	
-	/**
-     * Callback function invoked when the stream is closed.
-     */
-	bool delegate(int, FrameError) on_stream_exit_cb;
-
-	/**
-     * Callback function invoked by $(D Session.recv) when a
-     * frame is received.
-     */
-	bool delegate(in Frame) on_frame_cb;
-
-	/**
-     * Sets callback function invoked when a frame header is received.
-     */
-	bool delegate(in FrameHeader) on_frame_header_cb;
-
-	/**
-     * Callback function invoked when the reception of header block in
-     * HEADERS or PUSH_PROMISE is started.
-     */
-	bool delegate(in Frame) on_headers_cb;
-
-	/**
-     * Callback function invoked when a header name/value pair is
-     * received.
-     */
-	bool delegate(in Frame, in HeaderField, ref bool, ref bool) on_header_field_cb;
-
-	/**
-     * Callback function invoked when a chunk of data in DATA frame is
-     * received.
-     */
-	bool delegate(FrameFlags, int, in ubyte[], ref bool) on_data_chunk_cb;
-
-	/**
-     * Callback function invoked by $(D Session.recv) when an
-     * invalid non-DATA frame is received.
-     */
-	bool delegate(in Frame, FrameError) on_invalid_frame_cb;
-
-	/**
-     * The callback function invoked when a non-DATA frame is not sent
-     * because of an error.
-     */
-	bool delegate(in Frame, ErrorCode) on_frame_failure_cb;
-
-	/**
-     * Callback function invoked before a non-DATA frame is sent.
-     */
-	bool delegate(in Frame) on_frame_ready_cb;
-
-	/**
-     * Callback function invoked after a frame is sent.
-     */
-	bool delegate(in Frame) on_frame_sent_cb;
-
-	/**
-     * Callback function invoked when the library asks application how
-     * many padding bytes are required for the transmission of the given
-     * frame.
-     */
-	int delegate(in Frame, int) select_padding_length_cb;
-
-	/**
-     * The callback function used to determine the length allowed in
-     * $(D DataProvider)
-     */
 	int delegate(FrameType, int, int, int, uint) max_frame_size_cb;
 
 ///////////////// Derived //////////////////
-override:
 	int write(in ubyte[] data) 
 	{ 
 		if (!write_cb) 
@@ -497,7 +391,7 @@ override:
 	{
 		if (!on_invalid_frame_cb)
 			return true;
-		return on_invalid_frame_cb(frame, error_code);
+		return on_invalid_frame_cb(frame, error_code, reason);
 	}
 	
 	bool onFrameFailure(in Frame frame, ErrorCode error_code)
@@ -523,15 +417,15 @@ override:
 	
 	int selectPaddingLength(in Frame frame, int max_payloadlen)
 	{
-		if (!select_padding_length_cb)
-			return super.selectPaddingLength(frame, max_payloadlen);
+          if (!select_padding_length_cb) return frame.hd.length;
 		return select_padding_length_cb(frame, max_payloadlen);
 	}
 	
 	int maxFrameSize(FrameType frame_type, int stream_id, int session_remote_window_size, int stream_remote_window_size, uint remote_max_frame_size)
 	{
-		if (!max_frame_size_cb)
-			return super.maxFrameSize(frame_type, stream_id, session_remote_window_size, stream_remote_window_size, remote_max_frame_size);
+          import memutils.helpers : min;
+          if (!max_frame_size_cb)
+               return min(min(session_remote_window_size, stream_remote_window_size), remote_max_frame_size);
 		return max_frame_size_cb(frame_type, stream_id, session_remote_window_size, stream_remote_window_size, remote_max_frame_size);
 	}
 	

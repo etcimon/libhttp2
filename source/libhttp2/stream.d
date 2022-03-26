@@ -15,16 +15,19 @@ import libhttp2.constants;
 import libhttp2.types;
 import libhttp2.frame;
 import libhttp2.session;
-import std.algorithm : max;
+import libhttp2.helpers;
 
 const MAX_DEP_TREE_LENGTH = 100;
 
+@trusted nothrow:
+
 align(8)
-final class StreamRoots
+struct StreamRoots
 {
+@trusted nothrow:
 	void free() { }
 
-    void add(Stream stream) {
+    void add(Stream* stream) {
         if (head) {
             stream.m_root_next = head;
             head.m_root_prev = stream;
@@ -33,9 +36,9 @@ final class StreamRoots
         head = stream;
     }
     
-	void remove(Stream stream) 
+	void remove(Stream* stream) 
     {
-        Stream root_prev, root_next;
+        Stream* root_prev, root_next;
         
         root_prev = stream.m_root_prev;
         root_next = stream.m_root_next;
@@ -59,7 +62,7 @@ final class StreamRoots
     }
     
     void removeAll() {
-        Stream si, next;
+        Stream* si, next;
         
         for (si = head; si;) {
             next = si.m_root_next;
@@ -73,18 +76,19 @@ final class StreamRoots
         head = null;
     }
 
-    Stream head;
+    Stream* head;
     int num_streams;
 }
 
 align(8)
-final class Stream {
+struct Stream {
 
+@trusted nothrow:
 	this(int stream_id,
 		StreamFlags flags,
 		StreamState initial_state,
 		int weight,
-		StreamRoots roots,
+		StreamRoots* roots,
 		int remote_initial_window_size,
 		int local_initial_window_size,
 		void *stream_user_data)
@@ -98,7 +102,7 @@ final class Stream {
 							StreamFlags flags,
 							StreamState initial_state,
 							int weight,
-							StreamRoots roots,
+							StreamRoots* roots,
 							int remote_initial_window_size,
 					        int local_initial_window_size,
 					        void *stream_user_data) 
@@ -155,7 +159,7 @@ final class Stream {
 	 * Attaches |item| to $(D Stream).  Updates dpri members in this
 	 * dependency tree.
 	 */
-    void attachItem(OutboundItem item, Session session) 
+    void attachItem(OutboundItem* item, Session* session) 
 	{
         assert((m_flags & StreamFlags.DEFERRED_ALL) == 0);
         assert(!m_item);
@@ -172,7 +176,7 @@ final class Stream {
 	 * tree.  This function does not free |m_item|.  The caller must
 	 * free it.
 	 */
-    void detachItem(Session session) 
+    void detachItem(Session* session) 
 	{
         LOGF("stream: stream=%d detach item=%s", m_id, m_item);
         
@@ -189,7 +193,7 @@ final class Stream {
 	 * StreamFlags.DEFERRED_FLOW_CONTROL.  The |flags| indicates
 	 * the reason of this action.
 	 */
-    void deferItem(StreamFlags flags, Session session) 
+    void deferItem(StreamFlags flags, Session* session) 
 	{
         assert(m_item);
         
@@ -208,7 +212,7 @@ final class Stream {
 	 * cleared if they are set.  So even if this function is called, if
 	 * one of flag is still set, data does not become active.
 	 */
-    void resumeDeferredItem(StreamFlags flag, Session session)
+    void resumeDeferredItem(StreamFlags flag, Session* session)
 	{
         assert(m_item);
         
@@ -280,8 +284,8 @@ final class Stream {
      * Returns the stream positioned in root of the dependency tree the
      * $(D Stream) belongs to.
      */
-    Stream getRoot() {
-		Stream stream = this;
+    Stream* getRoot() {
+		Stream* stream = &this;
         for (;;) {
             if (stream.m_sib_prev) {
                 stream = stream.m_sib_prev;
@@ -304,9 +308,9 @@ final class Stream {
     /*
      * Returns true if |target| is found in subtree of $(D Stream).
      */
-    bool subtreeContains(Stream target) {
+    bool subtreeContains(Stream* target) {
         
-        if (this is target)
+        if (&this is target)
             return true;
         
 		if (m_sib_next && m_sib_next.subtreeContains(target))
@@ -322,13 +326,13 @@ final class Stream {
      * |m_data| is null and no dpri members are changed in this
      * dependency tree.
      */
-    void insert(Stream stream) {
-        Stream si;
-        Stream root_stream;
+    void insert(Stream* stream) {
+        Stream* si;
+        Stream* root_stream;
         
         assert(!m_item);
         
-		LOGF("stream: dep_insert dep_stream(%s)=%d, stream(%s)=%d", this, m_id, stream, stream.m_id);
+		LOGF("stream: dep_insert dep_stream(%s)=%d, stream(%s)=%d", &this, m_id, stream, stream.m_id);
         
 		stream.m_sum_dep_weight = m_sum_dep_weight;
 		m_sum_dep_weight = stream.m_weight;
@@ -343,7 +347,7 @@ final class Stream {
         }
         
 		m_dep_next = stream;
-        stream.m_dep_prev = this;
+        stream.m_dep_prev = &this;
         
 		root_stream = updateLength(1);
         
@@ -358,12 +362,12 @@ final class Stream {
      * not exclusive.  This function assumes |m_data| is null and no
      * dpri members are changed in this dependency tree.
      */
-    void add(Stream stream) {
-        Stream root_stream;
+    void add(Stream* stream) {
+        Stream* root_stream;
         
         assert(!stream.m_item);
         
-        LOGF("stream: dep_add dep_stream(%s=%d, stream(%s)=%d", this, m_id, stream, stream.m_id);
+        LOGF("stream: dep_add dep_stream(%s=%d, stream(%s)=%d", &this, m_id, stream, stream.m_id);
         
         root_stream = updateLength(1);
         
@@ -386,10 +390,10 @@ final class Stream {
      * function assumes |m_data| is null.
      */
 	void remove() {
-        Stream prev, next, dep_prev, si, root_stream;
+        Stream* prev, next, dep_prev, si, root_stream;
         int sum_dep_weight_delta;
         
-        LOGF("stream: dep_remove stream(%s=%d", this, m_id);
+        LOGF("stream: dep_remove stream(%s=%d", &this, m_id);
         
         /* Distribute weight of $(D Stream) to direct descendants */
         sum_dep_weight_delta = -m_weight;
@@ -415,7 +419,7 @@ final class Stream {
         } else if (m_dep_prev) {
             unlinkDependency();
         } else {
-            m_roots.remove(this);
+            m_roots.remove(&this);
             
             /* stream is a root of tree.  Removing stream makes its
                 descendants a root of its own subtree. */
@@ -456,13 +460,13 @@ final class Stream {
      * Makes the $(D Stream) depend on the |dep_stream|.  This dependency is
      * exclusive.  Updates dpri members in this dependency tree.
      */
-    void insertSubtree(Stream stream, Session session) {
-        Stream last_sib;
-        Stream dep_next;
-        Stream root_stream;
+    void insertSubtree(Stream* stream, Session* session) {
+        Stream* last_sib;
+        Stream* dep_next;
+        Stream* root_stream;
         size_t delta_substreams;
         
-        LOGF("stream: dep_insert_subtree dep_stream(%s=%d stream(%s)=%d", this, m_id, stream, stream.m_id);
+        LOGF("stream: dep_insert_subtree dep_stream(%s=%d stream(%s)=%d", &this, m_id, stream, stream.m_id);
         
 		delta_substreams = stream.m_num_substreams;
         
@@ -512,11 +516,11 @@ final class Stream {
      * Makes the $(D Stream) depend on the |dep_stream|.  This dependency is
      * not exclusive.  Updates dpri members in this dependency tree.
      */
-    void addSubtree(Stream stream, Session session) 
+    void addSubtree(Stream* stream, Session* session) 
 	{
-        Stream root_stream;
+        Stream* root_stream;
         
-        LOGF("stream: dep_add_subtree dep_stream(%s=%d stream(%s)=%d", this, m_id, stream, stream.m_id);
+        LOGF("stream: dep_add_subtree dep_stream(%s=%d stream(%s)=%d", &this, m_id, stream, stream.m_id);
         
         stream.updateSetRest();
         
@@ -548,9 +552,9 @@ final class Stream {
      */
     void removeSubtree() 
 	{
-        Stream prev, next, dep_prev, root_stream;
+        Stream* prev, next, dep_prev, root_stream;
         
-        LOGF("stream: dep_remove_subtree stream(%s=%d", this, m_id);
+        LOGF("stream: dep_remove_subtree stream(%s=%d", &this, m_id);
         
         if (m_sib_prev) {
             prev = m_sib_prev;
@@ -577,7 +581,7 @@ final class Stream {
             }
             
         } else {
-			m_roots.remove(this);
+			m_roots.remove(&this);
             
             dep_prev = null;
         }
@@ -600,11 +604,11 @@ final class Stream {
      * Makes the $(D Stream) as root.  Updates dpri members in this
      * dependency tree.
      */
-    void makeRoot(Session session)
+    void makeRoot(Session* session)
 	{
-        LOGF("stream: dep_make_root stream(%s=%d", this, m_id);
+        LOGF("stream: dep_make_root stream(%s=%d", &this, m_id);
         
-		m_roots.add(this);
+		m_roots.add(&this);
         
         updateSetRest();
         
@@ -622,19 +626,19 @@ final class Stream {
      * Makes the $(D Stream) as root and all existing root streams become
      * direct children of $(D Stream).
      */
-	void makeTopmostRoot(Session session)
+	void makeTopmostRoot(Session* session)
     {
-        Stream first, si;
+        Stream* first, si;
         
-        LOGF("stream: ALL YOUR STREAM ARE BELONG TO US stream(%s=%d", this, m_id);
+        LOGF("stream: ALL YOUR STREAM ARE BELONG TO US stream(%s=%d", &this, m_id);
         
         first = m_roots.head;
         
         /* stream must not be include in m_roots.head list */
-        assert(first !is this);
+        assert(first !is &this);
         
         if (first) {
-            Stream prev;
+            Stream* prev;
             
             prev = first;
             
@@ -645,7 +649,7 @@ final class Stream {
             
             for (si = first.m_root_next; si; si = si.m_root_next) {
                 
-                assert(si !is this);
+                assert(si !is &this);
                 
                 LOGF("stream: root stream(%s=%d", si, si.m_id);
                 
@@ -658,7 +662,7 @@ final class Stream {
             }
             
             if (m_dep_next) {
-                Stream sib_next;
+                Stream* sib_next;
                 
                 sib_next = m_dep_next;
                 
@@ -682,7 +686,7 @@ final class Stream {
     bool inDepTree() {
         return m_dep_prev || m_dep_next || m_sib_prev ||
                m_sib_next || m_root_next || m_root_prev ||
-               m_roots.head is this;
+               m_roots.head is &this;
     }
 
 private:
@@ -700,9 +704,9 @@ private:
 		return true;
 	}
 
-	void pushItem(Session session) 
+	void pushItem(Session* session) 
 	{
-		OutboundItem item;
+		OutboundItem* item;
 		
 		assert(m_item);
 		assert(m_item.queued == 0);
@@ -748,10 +752,10 @@ private:
 	/* Updates effective_weight of descendant streams in subtree of $(D Stream).  We assume that m_effective_weight is already set right. */
 	void updateEffectiveWeight()
 	{
-		Stream si;
+		Stream* si;
 		
 		LOGF("stream: update_dep_effective_weight stream(%s=%d, weight=%d, sum_norest_weight=%d, sum_top_weight=%d",
-				this, m_id, m_weight,
+				&this, m_id, m_weight,
 				m_sum_norest_weight, m_sum_top_weight);
 		
 		/* m_sum_norest_weight == 0 means there is no StreamDPRI.TOP under stream */
@@ -826,7 +830,7 @@ private:
 	 */
 	void updateSetTop() 
 	{
-		Stream si;
+		Stream* si;
 		
 		if (m_dpri == StreamDPRI.TOP)
 			return;
@@ -849,9 +853,9 @@ private:
 	 * Performs dfs starting $(D Stream), and queue stream whose dpri is
 	 * StreamDPRI.TOP and has not been queued yet.
 	 */
-	void updateQueueTop(Session session)
+	void updateQueueTop(Session* session)
 	{
-		Stream si;
+		Stream* si;
 		
 		if (m_dpri == StreamDPRI.REST) 
 			return;
@@ -878,7 +882,7 @@ private:
 	 * have to go deeper and check that any of its descendants has dpri
 	 * value of StreamDPRI.TOP.  If so, we have to add weight of
 	 * its direct descendants to m_sum_norest_weight.  To make this
-	 * work, this function returns true if any of its descendants has dpri
+	 * work, &this function returns true if any of its descendants has dpri
 	 * value of StreamDPRI.TOP, otherwise false.
 	 *
 	 * Calculating m_sum_top-weight is very simple compared to
@@ -887,7 +891,7 @@ private:
 	 */
 	bool updateSumNorestWeight() 
 	{
-		Stream si;
+		Stream* si;
 		bool ret;
 		
 		m_sum_norest_weight = 0;
@@ -915,9 +919,9 @@ private:
 		return ret;
 	}
 	
-	void updateOnAttachItem(Session session) 
+	void updateOnAttachItem(Session* session) 
 	{
-		Stream root_stream;
+		Stream* root_stream;
 		
 		m_dpri = StreamDPRI.REST;
 		
@@ -925,7 +929,7 @@ private:
 		
 		root_stream = getRoot();
 		
-		LOGF("root=%s, stream=%s", root_stream, this);
+		LOGF("root=%s, stream=%s", root_stream, &this);
 		
 		root_stream.updateSetTop();
 		
@@ -935,8 +939,8 @@ private:
 		root_stream.updateQueueTop(session);
 	}
 	
-	void updateDepOnDetachItem(Session session) {
-		Stream root_stream;
+	void updateDepOnDetachItem(Session* session) {
+		Stream* root_stream;
 		
 		m_dpri = StreamDPRI.NO_ITEM;
 
@@ -950,20 +954,20 @@ private:
 		root_stream.updateQueueTop(session);
 	}
 
-	void linkDependency(Stream stream) {
+	void linkDependency(Stream* stream) {
 		m_dep_next = stream;
-		stream.m_dep_prev = this;
+		stream.m_dep_prev = &this;
 	}
 	
-	void linkSibling(Stream stream) 
+	void linkSibling(Stream* stream) 
 	{
 		m_sib_next = stream;
-		stream.m_sib_prev = this;
+		stream.m_sib_prev = &this;
 	}
 	
-	void insertLinkDependency(Stream stream)
+	void insertLinkDependency(Stream* stream)
 	{
-		Stream sib_next;
+		Stream* sib_next;
 		
 		assert(!stream.m_sib_prev);
 		
@@ -976,29 +980,29 @@ private:
 		linkDependency(stream);
 	}
 
-	Stream firstSibling() 
+	Stream* firstSibling() 
 	{
-		Stream stream = this;
+		Stream* stream = &this;
 		for (; stream.m_sib_prev; stream = stream.m_sib_prev)
 			continue;
 		
 		return stream;
 	}
 	
-	Stream lastSibling()
+	Stream* lastSibling()
 	{
-		Stream stream = this;
+		Stream* stream = &this;
 		for (; stream.m_sib_next; stream = stream.m_sib_next)
 			continue;
 
 		return stream;
 	}
 	
-	Stream updateLength(size_t delta) 
+	Stream* updateLength(size_t delta) 
 	{
 		m_num_substreams += delta;
 
-		Stream stream = firstSibling();
+		Stream* stream = firstSibling();
 		
 		if (stream.m_dep_prev)
 			return stream.m_dep_prev.updateLength(delta);
@@ -1007,7 +1011,7 @@ private:
 	}
 
 	void unlinkSibling() {
-		Stream prev, next, dep_next;
+		Stream* prev, next, dep_next;
 		
 		prev = m_sib_prev;
 		dep_next = m_dep_next;
@@ -1042,7 +1046,7 @@ private:
 	}
 	
 	void unlinkDependency() {
-		Stream prev, next, dep_next;
+		Stream* prev, next, dep_next;
 		
 		prev = m_dep_prev;
 		dep_next = m_dep_next;
@@ -1128,7 +1132,7 @@ package:
 	/*
 	 * This function inspects header field in |frame| and records its
 	 * method in stream.http_flags.  If frame.hd.type is neither
-	 * FrameType.HEADERS nor FrameType.PUSH_PROMISE, this function does
+	 * FrameType.HEADERS nor FrameType.PUSH_PROMISE, &this function does
 	 * nothing.
 	 */
 	void setRequestMethod(Frame frame)
@@ -1245,25 +1249,25 @@ private:
     /// which points to the stream it depends on. The remaining streams are linked using sib_prev and sib_next.  
     /// The stream which has non-null dep_prev always null sib_prev.  The right most stream has null sib_next.  If this stream is
     /// a root of dependency tree, dep_prev and sib_prev are null.
-    Stream m_dep_prev, m_dep_next;
-    Stream m_sib_prev, m_sib_next;
+    Stream* m_dep_prev, m_dep_next;
+    Stream* m_sib_prev, m_sib_next;
 
     /// pointers to track dependency tree root streams.  This is doubly-linked list and first element is pointed by roots.head.
-    Stream m_root_prev, m_root_next;
+    Stream* m_root_prev, m_root_next;
     /* When stream is kept after closure, it may be kept in doubly
      linked list pointed by Session.closed_stream_head.
      closed_next points to the next stream object if it is the element
      of the list. */
-    Stream m_closed_prev, m_closed_next;
+    Stream* m_closed_prev, m_closed_next;
 
     /// pointer to roots, which tracks dependency tree roots
-    StreamRoots m_roots;
+    StreamRoots* m_roots;
 
     /// The arbitrary data provided by user for this stream.
     void *m_stream_user_data;
 
     /// Item to send
-    OutboundItem m_item;
+    OutboundItem* m_item;
 
     /// categorized priority of this stream.  Only stream bearing $(D TOP) can send item.
 	StreamDPRI m_dpri = StreamDPRI.NO_ITEM;
@@ -1329,15 +1333,15 @@ package: // used by Session
 	@property StreamDPRI dpri() { return m_dpri; }
 	@property StreamState state() { return m_state; }
 	@property void state(StreamState state) { m_state = state; }
-	@property OutboundItem item() { return m_item; }
+	@property OutboundItem* item() { return m_item; }
 	@property int effectiveWeight() { return m_effective_weight; }
 	@property int remoteWindowSize() { return m_remote_window_size; }
 	@property void remoteWindowSize(int rws) { m_remote_window_size = rws; }
-	@property ref int localWindowSize() { return m_local_window_size; }
-	@property ref int recvWindowSize() { return m_recv_window_size; }
-	@property ref int recvReduction() { return m_recv_reduction; }
+	@property ref int localWindowSize() return { return m_local_window_size; }
+	@property ref int recvWindowSize() return { return m_recv_window_size; }
+	@property ref int recvReduction() return { return m_recv_reduction; }
 	@property void recvWindowSize(int sz) { m_recv_window_size = sz; }
-	@property ref int consumedSize() { return m_consumed_size; }
+	@property ref int consumedSize() return { return m_consumed_size; }
 	@property void consumedSize(int sz) { m_consumed_size = sz; }
 	@property void* userData() { return m_stream_user_data; }
 	@property void userData(void* ptr) { m_stream_user_data = ptr; }
@@ -1349,10 +1353,10 @@ package: // used by Session
 	@property void flags(StreamFlags f) { m_flags = f; }
 	@property void weight(int w) { m_weight = w; }
 	@property int weight() { return m_weight; }
-	@property Stream closedPrev() { return m_closed_prev; }
-	@property Stream closedNext() { return m_closed_next; } 
-	@property void closedPrev(Stream s) { m_closed_prev = s; }
-	@property void closedNext(Stream s) { m_closed_next = s; } 
+	@property Stream* closedPrev() { return m_closed_prev; }
+	@property Stream* closedNext() { return m_closed_next; } 
+	@property void closedPrev(Stream* s) { m_closed_prev = s; }
+	@property void closedNext(Stream* s) { m_closed_next = s; } 
 	@property long contentLength() { return m_content_length; }
 	@property short statusCode() { return m_status_code; }
 	@property void statusCode(short status) { m_status_code = status; }
@@ -1361,10 +1365,10 @@ package: // used by Session
 	@property int subStreams() { return m_num_substreams; }
 	@property int sumDepWeight() { return m_sum_dep_weight; }
 	@property int sumNorestWeight() { return m_sum_norest_weight; }
-	@property Stream rootNext() { return m_root_next; } 
-	@property Stream depPrev() { return m_dep_prev; } 
-	@property Stream depNext() { return m_dep_next; } 
-	@property Stream sibPrev() { return m_sib_prev; }
-	@property Stream sibNext() { return m_sib_next; } 
+	@property Stream* rootNext() { return m_root_next; } 
+	@property Stream* depPrev() { return m_dep_prev; } 
+	@property Stream* depNext() { return m_dep_next; } 
+	@property Stream* sibPrev() { return m_sib_prev; }
+	@property Stream* sibNext() { return m_sib_next; } 
 
 }

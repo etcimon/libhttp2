@@ -15,10 +15,14 @@ import libhttp2.constants;
 import libhttp2.types;
 import libhttp2.buffers;
 import libhttp2.huffman;
+import libhttp2.helpers;
+
+@trusted nothrow:
 
 struct Deflater
 {
-    HDTable ctx;
+@trusted nothrow:
+    HDTable* ctx;
 
     /// The upper limit of the header table size the deflater accepts.
 	size_t deflate_hd_table_bufsize_max = DEFAULT_MAX_DEFLATE_BUFFER_SIZE;
@@ -45,6 +49,8 @@ struct Deflater
 		} else {
 			notify_table_size_change = false;
 		}
+
+		(*ctx).init();
 		
 		deflate_hd_table_bufsize_max = _deflate_hd_table_bufsize_max;
 		min_hd_table_bufsize_max = uint.max;
@@ -73,7 +79,7 @@ struct Deflater
 	 * ErrorCode.BUFFER_ERROR
 	 *     Out of buffer space.
 	 */
-	ErrorCode deflate(Buffers bufs, in HeaderField[] hfa) {
+	ErrorCode deflate(Buffers* bufs, in HeaderField[] hfa) {
 		size_t i;
 		ErrorCode rv;
 		
@@ -142,7 +148,8 @@ struct Deflater
 	 */
 	int deflate(ubyte[] buf, in HeaderField[] hfa)
 	{
-		Buffers bufs = Mem.alloc!Buffers(buf);
+		Buffers* bufs = Mem.alloc!Buffers();
+		bufs.init3(buf);
 		ErrorCode rv;
 
 		rv = deflate(bufs, hfa);
@@ -201,7 +208,6 @@ struct Deflater
 	 * ``hd_table_bufsize_max``, resulting maximum table size becomes ``hd_table_bufsize_max``.
 	 */
 	void changeTableSize(size_t settings_hd_table_bufsize_max) {
-		import std.algorithm : min;
 
 		size_t next_bufsize = min(settings_hd_table_bufsize_max, deflate_hd_table_bufsize_max);
 		
@@ -217,7 +223,7 @@ struct Deflater
 	
 
 package:
-	ErrorCode deflate(Buffers bufs, const ref HeaderField hf) {
+	ErrorCode deflate(Buffers* bufs, const ref HeaderField hf) {
 		ErrorCode rv;
 		int res;
 		bool found;
@@ -250,7 +256,7 @@ package:
 		
 		if (shouldIndex(hf)) 
 		{
-			HDEntry new_ent;
+			HDEntry* new_ent;
 			if (idx != -1 && idx < cast(int) static_table.length) {
 				HeaderField hf_indname;
 				hf_indname = hf;
@@ -299,7 +305,7 @@ package:
 
 package:
 
-ErrorCode emitIndexedNameBlock(Buffers bufs, size_t idx, const ref HeaderField hf, bool inc_indexing) {
+ErrorCode emitIndexedNameBlock(Buffers* bufs, size_t idx, const ref HeaderField hf, bool inc_indexing) {
 	ErrorCode rv;
 	ubyte* bufp;
 	size_t blocklen;
@@ -339,7 +345,7 @@ ErrorCode emitIndexedNameBlock(Buffers bufs, size_t idx, const ref HeaderField h
 	return ErrorCode.OK;
 }
 
-ErrorCode emitNewNameBlock(Buffers bufs, in HeaderField hf, bool inc_indexing) {
+ErrorCode emitNewNameBlock(Buffers* bufs, in HeaderField hf, bool inc_indexing) {
 	ErrorCode rv;
 	bool no_index;
 	
@@ -365,7 +371,7 @@ ErrorCode emitNewNameBlock(Buffers bufs, in HeaderField hf, bool inc_indexing) {
 	return ErrorCode.OK;
 }
 
-ErrorCode emitIndexedBlock(Buffers bufs, size_t idx) {
+ErrorCode emitIndexedBlock(Buffers* bufs, size_t idx) {
 	ErrorCode rv;
 	size_t blocklen;
 	ubyte[16] sb;
@@ -392,7 +398,7 @@ ErrorCode emitIndexedBlock(Buffers bufs, size_t idx) {
 	return ErrorCode.OK;
 }
 
-ErrorCode emitString(Buffers bufs, in string str) {
+ErrorCode emitString(Buffers* bufs, in string str) {
 	ErrorCode rv;
 	size_t len = str.length;
 	ubyte[16] sb;
@@ -444,7 +450,7 @@ ErrorCode emitString(Buffers bufs, in string str) {
 }
 
 
-ErrorCode emitTableSize(Buffers bufs, size_t table_size) {
+ErrorCode emitTableSize(Buffers* bufs, size_t table_size) {
 	ErrorCode rv;
 	ubyte *bufp;
 	size_t blocklen;
@@ -513,7 +519,7 @@ size_t encodeLength(ubyte* buf, size_t n, size_t prefix) {
  * ErrorCode.BUFFER_ERROR
  *     Out of buffer space.
  */
-ErrorCode encodeHuffman(Buffers bufs, in string src)
+ErrorCode encodeHuffman(Buffers* bufs, in string src)
 {
 	ErrorCode rv;
 	int rembits = 8;

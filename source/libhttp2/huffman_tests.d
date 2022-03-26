@@ -22,8 +22,7 @@ import libhttp2.types;
 import libhttp2.frame;
 import libhttp2.helpers;
 import libhttp2.tests;
-import core.stdc.string : memcmp, memset, memcpy;
-import std.conv : to;
+@trusted nothrow:
 
 void test_hd_deflate() {
 	Deflater deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
@@ -33,7 +32,7 @@ void test_hd_deflate() {
 	HeaderField[] hfa3 = [HeaderField("cookie", "k1=v1"), HeaderField("cookie", "k2=v2"), HeaderField("via", "proxy")];
 	HeaderField[] hfa4 = [HeaderField(":path", "/style.css"), HeaderField("cookie", "k1=v1"), HeaderField("cookie", "k1=v1")];
 	HeaderField[] hfa5 = [HeaderField(":path", "/style.css"), HeaderField("x-nghttp2", "")];
-	Buffers bufs = framePackBuffers();
+	Buffers* bufs = framePackBuffers();
 	size_t blocklen;
 	HeaderFields output;
 	ErrorCode rv;
@@ -118,7 +117,7 @@ void test_hd_deflate_same_indexed_repr() {
 	Inflater inflater = Inflater(true);
 	HeaderField[] hfa1 = [HeaderField("cookie", "alpha"), HeaderField("cookie", "alpha")];
 	HeaderField[] hfa2 = [HeaderField("cookie", "alpha"), HeaderField("cookie", "alpha"), HeaderField("cookie", "alpha")];
-	Buffers bufs = framePackBuffers();
+	Buffers* bufs = framePackBuffers();
 	size_t blocklen;
 	HeaderFields output;
 	ErrorCode rv;
@@ -159,7 +158,7 @@ void test_hd_deflate_same_indexed_repr() {
 
 void test_hd_inflate_indexed() {
 	Inflater inflater = Inflater(true);
-	Buffers bufs = framePackBuffers();
+	Buffers* bufs = framePackBuffers();
 	size_t blocklen;
 	HeaderField hf = HeaderField(":path", "/");
 	HeaderFields output;
@@ -192,7 +191,7 @@ void test_hd_inflate_indexed() {
 
 void test_hd_inflate_indname_noinc() {
 	Inflater inflater = Inflater(true);
-	Buffers bufs = framePackBuffers();
+	Buffers* bufs = framePackBuffers();
 	size_t blocklen;
 	HeaderField[] hfa = [
 		/* Huffman */
@@ -223,7 +222,7 @@ void test_hd_inflate_indname_noinc() {
 
 void test_hd_inflate_indname_inc() {
 	Inflater inflater = Inflater(true);
-	Buffers bufs = framePackBuffers();
+	Buffers* bufs = framePackBuffers();
 	size_t blocklen;
 	HeaderField hf = HeaderField("user-agent", "nghttp2");
 	HeaderFields output;
@@ -244,7 +243,7 @@ void test_hd_inflate_indname_inc() {
 
 void test_hd_inflate_indname_inc_eviction() {
 	Inflater inflater = Inflater(true);
-	Buffers bufs = framePackBuffers();
+	Buffers* bufs = framePackBuffers();
 	size_t blocklen;
 	ubyte[1024] value;
 	memset(value.ptr, '0', value.length);
@@ -281,7 +280,7 @@ void test_hd_inflate_indname_inc_eviction() {
 
 void test_hd_inflate_newname_noinc() {
 	Inflater inflater = Inflater(true);
-	Buffers bufs = framePackBuffers();
+	Buffers* bufs = framePackBuffers();
 	size_t blocklen;
 	HeaderField[] hfa = [/* Expecting huffman for both */
 		HeaderField("my-long-content-length", "nghttp2"),
@@ -316,7 +315,7 @@ void test_hd_inflate_newname_noinc() {
 
 void test_hd_inflate_newname_inc() {
 	Inflater inflater = Inflater(true);
-	Buffers bufs = framePackBuffers();
+	Buffers* bufs = framePackBuffers();
 	size_t blocklen;
 	HeaderField hf = HeaderField("x-rel", "nghttp2");
 	HeaderFields output;
@@ -340,7 +339,7 @@ void test_hd_inflate_newname_inc() {
 
 void test_hd_inflate_clearall_inc() {
 	Inflater inflater = Inflater(true);
-	Buffers bufs = largeBuffers(8192);
+	Buffers* bufs = largeBuffers(8192);
 	size_t blocklen;
 	HeaderField hf;
 	ubyte[4060] value;
@@ -397,7 +396,7 @@ void test_hd_inflate_clearall_inc() {
 
 void test_hd_inflate_zero_length_huffman() {
 	Inflater inflater = Inflater(true);
-	Buffers bufs = framePackBuffers();
+	Buffers* bufs = framePackBuffers();
 	/* Literal header without indexing - new name */
 	ubyte[] data = [0x40, 0x01, 0x78 /* 'x' */, 0x80];
 	HeaderFields output;
@@ -428,7 +427,7 @@ void test_hd_ringbuf_reserve() {
 	Deflater deflater;
 	Inflater inflater = Inflater(true);
 	HeaderField hf;
-	Buffers bufs = framePackBuffers();
+	Buffers* bufs = framePackBuffers();
 	HeaderFields output;
 	int i;
 	size_t rv;
@@ -446,7 +445,7 @@ void test_hd_ringbuf_reserve() {
 	deflater.changeTableSize(8000);
 	
 	for (i = 0; i < 150; ++i) {
-		memcpy(value.ptr, &i, i.sizeof);
+		memcpy(cast(ubyte*)value.ptr, cast(ubyte*)&i, i.sizeof);
 		rv = deflater.deflate(bufs, hf);
 		blocklen = bufs.length;
 		
@@ -474,7 +473,7 @@ void test_hd_change_table_size() {
 	Inflater inflater = Inflater(true);
 	HeaderField[] hfa = [HeaderField("alpha", "bravo"), HeaderField("charlie", "delta")];
 	HeaderField[] hfa2 = [HeaderField(":path", "/")];
-	Buffers bufs = framePackBuffers();
+	Buffers* bufs = framePackBuffers();
 	size_t rv;
 	HeaderFields output;
 	size_t blocklen;
@@ -713,7 +712,7 @@ void test_hd_change_table_size() {
 
 void check_deflate_inflate(ref Deflater deflater, ref Inflater inflater, HeaderField[] hfa) 
 {
-	Buffers bufs = framePackBuffers();
+	Buffers* bufs = framePackBuffers();
 	size_t blocklen;
 	HeaderFields output;
 	ErrorCode rv;
@@ -889,7 +888,7 @@ void test_hd_deflate_inflate() {
 void test_hd_no_index() {
 	Deflater deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
 	Inflater inflater = Inflater(true);
-	Buffers bufs = framePackBuffers();
+	Buffers* bufs = framePackBuffers();
 	size_t blocklen;
 	HeaderField[] hfa = [
 		HeaderField(":method", "GET"), HeaderField(":method", "POST"),
@@ -930,7 +929,7 @@ void test_hd_no_index() {
 void test_hd_deflate_bound() {
 	Deflater deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
 	HeaderField[] hfa = [HeaderField(":method", "GET"), HeaderField("alpha", "bravo")];
-	Buffers bufs = framePackBuffers();
+	Buffers* bufs = framePackBuffers();
 	size_t bound, bound2;
 	
 	bound = deflater.upperBound(hfa);
@@ -956,7 +955,7 @@ void test_hd_public_api() {
 	ubyte[4096] buf;
 	size_t buflen;
 	size_t blocklen;
-	Buffers bufs = framePackBuffers();
+	Buffers* bufs = framePackBuffers();
 
 	buflen = deflater.upperBound(hfa);
 	
@@ -964,7 +963,9 @@ void test_hd_public_api() {
 	
 	assert(blocklen > 0);
 	bufs.free();
-	bufs = new Buffers(buf[0 .. blocklen]);
+	bufs = Mem.alloc!Buffers();
+	bufs.init3(buf[0 .. blocklen]);
+
 	bufs.head.buf.last += blocklen;
 	HeaderFields dummy;
 	assert(blocklen == dummy.inflate(inflater, bufs, 0));
@@ -1020,8 +1021,10 @@ void test_hd_decode_length() {
 
 	len = encodeLength(buf.ptr, uint.max, 7);
 
+	LOGF("encodeLength: %d", len);
 	rv = output.decodeLength(shift, is_final, 0, 0, buf.ptr, buf.ptr + cast(size_t)len, 7);
 	
+	import std.conv : to;
 	assert(cast(int)len == rv, len.to!string ~ " != " ~ rv.to!string);
 	assert(false != is_final);
 	assert(uint.max == output);
@@ -1057,7 +1060,7 @@ void test_hd_decode_length() {
 void test_hd_huff_encode() {
 	ErrorCode rv;
 	size_t len;
-	Buffers bufs, outbufs;
+	Buffers* bufs, outbufs;
 	Decoder ctx;
 	const ubyte[] t1 = [22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9,  8,  7,  6,  5,  4,  3,  2,  1,  0];
 	
@@ -1080,9 +1083,8 @@ void test_hd_huff_encode() {
 }
 
 unittest {
-	import memutils.allocators;
-	enum Debugger = 0x02;
-	assert(0 == getAllocator!Debugger().bytesAllocated());
+	//assert(0 == getAllocator!Debugger().bytesAllocated());
+	
 	test_hd_deflate();
 	test_hd_deflate_same_indexed_repr();
 	test_hd_inflate_indexed();
@@ -1101,5 +1103,6 @@ unittest {
 	test_hd_public_api();
 	test_hd_decode_length();
 	test_hd_huff_encode();
-	assert(0 == getAllocator!Debugger().bytesAllocated());
+	//LOGF("Finished deflate/enflate tests");
+	//assert(0 == getAllocator!Debugger().bytesAllocated());
 }

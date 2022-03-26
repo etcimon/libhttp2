@@ -22,13 +22,13 @@ import libhttp2.buffers;
 import libhttp2.priority_queue;
 import libhttp2.helpers;
 import libhttp2.huffman;
-import core.exception : RangeError;
 
 import memutils.circularbuffer;
 import memutils.vector;
 import memutils.hashmap;
 
-import std.algorithm : min, max;
+
+@trusted nothrow:
 
 enum OptionsMask {
 	NONE = 0,
@@ -44,8 +44,9 @@ enum OutboundState {
 }
 
 struct ActiveOutboundItem {
-    OutboundItem item;
-    Buffers framebufs;
+@trusted nothrow:
+    OutboundItem* item;
+    Buffers* framebufs;
 	OutboundState state = OutboundState.POP_ITEM;
 
 	void reset() {
@@ -83,6 +84,7 @@ enum InboundState : ubyte {
 }
 
 struct InboundFrame {
+@trusted nothrow:
     Frame frame;
 
     /* The received SETTINGS entry. The protocol says that we only cares
@@ -133,8 +135,6 @@ struct InboundFrame {
 	
 	size_t read(in ubyte* input, in ubyte* last) 
 	{
-		import core.stdc.string : memcpy;
-
 		size_t readlen;
 		
 		readlen = min(last - input, sbuf.markAvailable);
@@ -324,12 +324,13 @@ enum {
 }
 
 align(8)
-final class Session {
+struct Session {
+@trusted nothrow:
 	~this() {
 		if (connector !is null) free();
 	}
 
-	this(bool server, Connector callbacks, in Options options = Options.init)
+	this(bool server, CallbackConnector* callbacks, in Options options = Options.init)
 	{
 		if (server) {
 			is_server = true;
@@ -339,26 +340,28 @@ final class Session {
 			next_stream_id = 1; // client IDs always impair
 
 		roots = Mem.alloc!StreamRoots();
-		scope(failure) Mem.free(roots);
+		//scope(failure) Mem.free(roots);
 
 		hd_inflater = Inflater(true);
-		scope(failure) hd_inflater.free();
+		//scope(failure) hd_inflater.free();
 
 		hd_deflater = Deflater(DEFAULT_MAX_DEFLATE_BUFFER_SIZE);
-		scope(failure) hd_deflater.free();
+		//scope(failure) hd_deflater.free();
 
 		ob_pq = PriorityQueue(128);
-		scope(failure) ob_pq.free();
+		//scope(failure) ob_pq.free();
 
 		ob_ss_pq = PriorityQueue(128);
-		scope(failure) ob_ss_pq.free();
+		//scope(failure) ob_ss_pq.free();
 
 		ob_da_pq = PriorityQueue(128);
-		scope(failure) ob_da_pq.free();
+		//scope(failure) ob_da_pq.free();
 
 		/* 1 for Pad Field. */
-		aob.framebufs = Mem.alloc!Buffers(FRAMEBUF_CHUNKLEN, FRAMEBUF_MAX_NUM, 1, FRAME_HDLEN + 1);
-		scope(failure) { aob.framebufs.free(); Mem.free(aob.framebufs); }
+		aob.framebufs = Mem.alloc!Buffers();
+		aob.framebufs.init2(FRAMEBUF_CHUNKLEN, FRAMEBUF_MAX_NUM, 1, FRAME_HDLEN + 1);
+		
+		//scope(failure) { aob.framebufs.free(); Mem.free(aob.framebufs); }
 
 		aob.reset();
 		
@@ -466,7 +469,7 @@ final class Session {
 		ErrorCode rv;
 		ubyte[] data;
 		int sentlen;
-		Buffers framebufs = aob.framebufs;
+		Buffers* framebufs = aob.framebufs;
 		
 		for (;;) {
 			rv = memSendInternal(data, false);
@@ -474,8 +477,7 @@ final class Session {
 				return rv;
 			else if (data.length == 0)
 				return ErrorCode.OK;
-			try sentlen = connector.write(data);
-			catch (Exception e) return ErrorCode.CALLBACK_FAILURE;
+			sentlen = connector.write(data);
 			
 			if (sentlen < 0) {
 				if (cast(ErrorCode) sentlen == ErrorCode.WOULDBLOCK) {
@@ -655,7 +657,7 @@ final class Session {
 		ErrorCode rv;
 		bool busy;
 		FrameHeader cont_hd;
-		Stream stream;
+		Stream* stream;
 		size_t pri_fieldlen;
 		
 		LOGF("recv: connection recv_window_size=%d, local_window=%d", recv_window_size, local_window_size);
@@ -1206,12 +1208,15 @@ final class Session {
 						rv = inflateHeaderBlock(iframe.frame, hd_proclen, cast(ubyte[])pos[0 .. data_readlen], 
 												(iframe.frame.hd.flags & FrameFlags.END_HEADERS) && iframe.payloadleft - data_readlen == trail_padlen,
 												iframe.state == READ_HEADER_BLOCK);
+						LOGF("recv: inflateHeaderBlock=%d", cast(int)rv);
+						LOGF("recv: frame type %d", cast(int)iframe.frame.hd.type);
 						
 						if (isFatal(rv)) {
 							return rv;
 						}
 						
 						if (rv == ErrorCode.PAUSE) {
+							LOGF("recv: pause frame type %d", cast(int)iframe.frame.hd.type);
 							pos += hd_proclen;
 							iframe.payloadleft -= hd_proclen;
 							
@@ -1250,11 +1255,13 @@ final class Session {
 					}
 					
 					if (iframe.payloadleft) {
+						LOGF("Payload left %d", iframe.payloadleft);
 						break;
 					}
 					
 					if ((iframe.frame.hd.flags & FrameFlags.END_HEADERS) == 0) {
 						
+						LOGF("END_HEADERS");
 						iframe.setMark(FRAME_HDLEN);
 						
 						iframe.padlen = 0;
@@ -1266,6 +1273,7 @@ final class Session {
 						
 					} else {
 						if (iframe.state == READ_HEADER_BLOCK) {
+							LOGF("afterHeaderBlockReceived");
 							rv = afterHeaderBlockReceived();
 							if (isFatal(rv)) {
 								return rv;
@@ -1273,6 +1281,7 @@ final class Session {
 						}
 						iframe.reset();
 					}
+					LOGF("break");
 					break;
 				}
 				case IGN_PAYLOAD:
@@ -1528,9 +1537,8 @@ final class Session {
 							int stream_id = iframe.frame.hd.stream_id;
 							bool pause;
 							bool ok;
-							try ok = connector.onDataChunk(flags, stream_id, data_nopad, pause);
-							catch (Exception e) return ErrorCode.CALLBACK_FAILURE;
-
+							ok = connector.onDataChunk(flags, stream_id, data_nopad, pause);
+							
 							if (pause) {
 								return cast(int)(pos - first);
 							}
@@ -1616,12 +1624,12 @@ final class Session {
 	 */
 	ErrorCode resumeData(int stream_id)
 	{
-		Stream stream = getStream(stream_id);
+		Stream* stream = getStream(stream_id);
 		
 		if (!stream || !stream.isItemDeferred()) 
 			return ErrorCode.INVALID_ARGUMENT;
 		
-		stream.resumeDeferredItem(StreamFlags.DEFERRED_USER, this);
+		stream.resumeDeferredItem(StreamFlags.DEFERRED_USER, &this);
 		return ErrorCode.OK;
 	}
 
@@ -1695,7 +1703,7 @@ final class Session {
 	 * `null`.
 	 */
 	void* getStreamUserData(int stream_id) {
-		Stream stream = getStream(stream_id);
+		Stream* stream = getStream(stream_id);
 		if (stream) {
 			return stream.userData;
 		} else {
@@ -1720,7 +1728,7 @@ final class Session {
 	 *     The stream does not exist
 	 */
 	ErrorCode setStreamUserData(int stream_id, void* stream_user_data){
-		Stream stream = getStream(stream_id);
+		Stream* stream = getStream(stream_id);
 		if (!stream)
 			return ErrorCode.INVALID_ARGUMENT;
 		stream.userData = stream_user_data;
@@ -1749,7 +1757,7 @@ final class Session {
 	 */
 	int getStreamEffectiveRecvDataLength(int stream_id) 
 	{
-		Stream stream = getStream(stream_id);
+		Stream* stream = getStream(stream_id);
 		if (!stream)
 			return -1;
 		return stream.recvWindowSize < 0 ? 0 : stream.recvWindowSize;
@@ -1765,7 +1773,7 @@ final class Session {
 	 */	
 	int getStreamEffectiveLocalWindowSize(int stream_id)
 	{
-		Stream stream = getStream(stream_id);
+		Stream* stream = getStream(stream_id);
 		if (!stream)
 			return -1;
 		return stream.localWindowSize;
@@ -1814,7 +1822,7 @@ final class Session {
 	 */
 	int getStreamRemoteWindowSize(int stream_id) 
 	{
-		Stream stream = getStream(stream_id);
+		Stream* stream = getStream(stream_id);
 		if (!stream)
 			return -1;
 
@@ -1837,7 +1845,7 @@ final class Session {
 	 */
 	int getStreamLocalClose(int stream_id)
 	{
-		Stream stream = getStream(stream_id);
+		Stream* stream = getStream(stream_id);
 		
 		if (!stream)
 			return -1;
@@ -1851,7 +1859,7 @@ final class Session {
 	 */
 	int getStreamRemoteClose(int stream_id) 
 	{
-		Stream stream = getStream(stream_id);
+		Stream* stream = getStream(stream_id);
 		
 		if (!stream)
 			return -1;
@@ -1982,7 +1990,7 @@ final class Session {
 	 */
 	ErrorCode consume(int stream_id, size_t size) {
 		ErrorCode rv;
-		Stream stream;
+		Stream* stream;
 		
 		if (stream_id == 0) {
 			return ErrorCode.INVALID_ARGUMENT;
@@ -2055,7 +2063,7 @@ final class Session {
 	ErrorCode consumeStream(int stream_id, size_t size)
 	{
 		ErrorCode rv;
-		Stream stream;
+		Stream* stream;
 		
 		if (stream_id == 0) 
 			return ErrorCode.INVALID_ARGUMENT;
@@ -2110,7 +2118,7 @@ final class Session {
 	 */
 	ErrorCode upgrade(in ubyte[] settings_payload, void* stream_user_data = null) 
 	{
-		Stream stream;
+		Stream* stream;
 		Frame frame;
 		Setting[] iva;
 		ErrorCode rv;
@@ -2131,7 +2139,7 @@ final class Session {
 			frame.settings.iva = iva;
 			rv = onSettings(frame, true /* No ACK */);
 		} else {
-			rv = submitSettings(this, iva);
+			rv = submitSettings(&this, iva);
 		}
 
 		if (rv != 0)
@@ -2183,10 +2191,10 @@ final class Session {
 	 * 
 	 * ErrorCode.DATA_EXIST
 	 */
-	ErrorCode addItem(OutboundItem item) 
+	ErrorCode addItem(OutboundItem* item) 
 	{
 		/* TODO: Return error if stream is not found for the frame requiring stream presence. */
-		Stream stream = getStream(item.frame.hd.stream_id);
+		Stream* stream = getStream(item.frame.hd.stream_id);
 		Frame* frame = &item.frame;
 		
 		if (frame.hd.type != FrameType.DATA) {        
@@ -2219,7 +2227,7 @@ final class Session {
 				} else if (stream && (stream.state == StreamState.RESERVED || item.aux_data.headers.attach_stream)) {
 					item.weight = stream.effectiveWeight;
 					item.cycle = last_cycle;
-					stream.attachItem(item, this);
+					stream.attachItem(item, &this);
 				} else {
 					ob_pq.push(item);
 					item.queued = 1;
@@ -2243,7 +2251,7 @@ final class Session {
 		item.weight = stream.effectiveWeight;
 		item.cycle = last_cycle;
 		
-		stream.attachItem(item, this);
+		stream.attachItem(item, &this);
 
 		return ErrorCode.OK;
 	}
@@ -2260,9 +2268,9 @@ final class Session {
 	void addRstStream(int stream_id, FrameError error_code) 
 	{
 		ErrorCode rv;
-		OutboundItem item;
+		OutboundItem* item;
 		Frame* frame;
-		Stream stream;
+		Stream* stream;
 		
 		stream = getStream(stream_id);
 		if (stream && stream.state == StreamState.CLOSING) 
@@ -2271,7 +2279,7 @@ final class Session {
 		/* Cancel pending request HEADERS in ob_ss_pq if this RST_STREAM refers to that stream. */
 		if (!is_server && isMyStreamId(stream_id) && ob_ss_pq.top)
 		{
-			OutboundItem top;
+			OutboundItem* top;
 			Frame* headers_frame;
 			
 			top = ob_ss_pq.top;
@@ -2281,7 +2289,7 @@ final class Session {
 			
 			if (headers_frame.hd.stream_id <= stream_id && cast(uint)stream_id < next_stream_id) 
 			{
-				foreach (OutboundItem item; ob_ss_pq) {
+				foreach (OutboundItem* item; ob_ss_pq) {
 					
 					HeadersAuxData* aux_data = &item.aux_data.headers;
 					
@@ -2297,7 +2305,7 @@ final class Session {
 			}
 		}
 		
-		item = Mem.alloc!OutboundItem(this);    
+		item = Mem.alloc!OutboundItem(&this);    
 		frame = &item.frame;
 		
 		frame.rst_stream = RstStream(stream_id, error_code);
@@ -2316,10 +2324,10 @@ final class Session {
 	void addPing(FrameFlags flags, in ubyte[] opaque_data) 
 	{
 		ErrorCode rv;
-		OutboundItem item;
+		OutboundItem* item;
 		Frame* frame;
 
-		item = Mem.alloc!OutboundItem(this);
+		item = Mem.alloc!OutboundItem(&this);
 		
 		frame = &item.frame;
 		
@@ -2343,7 +2351,7 @@ final class Session {
 	 */
 	ErrorCode addGoAway(int last_stream_id, FrameError error_code, in string opaque_data, GoAwayAuxFlags aux_flags) {
 		ErrorCode rv;
-		OutboundItem item;
+		OutboundItem* item;
 		Frame* frame;
 		string opaque_data_copy;
 		GoAwayAuxData* aux_data;
@@ -2359,7 +2367,7 @@ final class Session {
 			opaque_data_copy = cast(string)Mem.copy(opaque_data);
 		}
 		
-		item = Mem.alloc!OutboundItem(this);
+		item = Mem.alloc!OutboundItem(&this);
 		
 		frame = &item.frame;
 		
@@ -2382,10 +2390,10 @@ final class Session {
 	 */
 	void addWindowUpdate(FrameFlags flags, int stream_id, int window_size_increment) {
 		ErrorCode rv;
-		OutboundItem item;
+		OutboundItem* item;
 		Frame* frame;
 
-		item = Mem.alloc!OutboundItem(this);    
+		item = Mem.alloc!OutboundItem(&this);    
 		frame = &item.frame;
 		
 		frame.window_update = WindowUpdate(flags, stream_id, window_size_increment);
@@ -2398,7 +2406,7 @@ final class Session {
 	 */
 	ErrorCode addSettings(FrameFlags flags, in Setting[] iva) 
 	{
-		OutboundItem item;
+		OutboundItem* item;
 		Frame* frame;
 		Setting[] iva_copy;
 		size_t i;
@@ -2414,15 +2422,15 @@ final class Session {
 		if (!iva.check())
 			return ErrorCode.INVALID_ARGUMENT;
 		
-		item = Mem.alloc!OutboundItem(this);
-		scope(failure) Mem.free(item);
+		item = Mem.alloc!OutboundItem(&this);
+		//scope(failure) Mem.free(item);
 		
 		if (iva.length > 0)
 			iva_copy = iva.copy();
 		else
 			iva_copy = null;
 		
-		scope(failure) if(iva_copy) Mem.free(iva_copy);
+		//scope(failure) if(iva_copy) Mem.free(iva_copy);
 		
 		if ((flags & FrameFlags.ACK) == 0) {
 			if (iva.length > 0)
@@ -2472,12 +2480,12 @@ final class Session {
 	 *
 	 * This function returns a pointer to created new stream object.
 	 */
-	Stream openStream(int stream_id, StreamFlags flags, PrioritySpec pri_spec_in, StreamState initial_state, void *stream_user_data = null)
+	Stream* openStream(int stream_id, StreamFlags flags, PrioritySpec pri_spec_in, StreamState initial_state, void *stream_user_data = null)
 	{
 		ErrorCode rv;
-		Stream stream;
-		Stream dep_stream;
-		Stream root_stream;
+		Stream* stream;
+		Stream* dep_stream;
+		Stream* root_stream;
 		bool stream_alloc;
 		PrioritySpec pri_spec_default;
 		PrioritySpec pri_spec = pri_spec_in;
@@ -2515,11 +2523,11 @@ final class Session {
 		else
 			stream.initialize(stream_id, flags, initial_state, pri_spec.weight, roots, 
 				remote_settings.initial_window_size, local_settings.initial_window_size, stream_user_data);
-		scope(failure) if (stream_alloc) Mem.free(stream);
+		//scope(failure) if (stream_alloc) Mem.free(stream);
 
 		if (stream_alloc)
 			streams[stream_id] = stream;
-		scope(failure) if (stream_alloc) streams.remove(stream_id);
+		//scope(failure) if (stream_alloc) streams.remove(stream_id);
 		
 		switch (initial_state) {
 			case StreamState.RESERVED:
@@ -2555,7 +2563,7 @@ final class Session {
 			++roots.num_streams;
 			
 			if (pri_spec.exclusive && roots.num_streams <= MAX_DEP_TREE_LENGTH)
-				stream.makeTopmostRoot(this);
+				stream.makeTopmostRoot(&this);
 			else
 				roots.add(stream);
 			
@@ -2604,7 +2612,7 @@ final class Session {
 	 */
 	ErrorCode closeStream(int stream_id, FrameError error_code)
 	{
-		Stream stream = getStream(stream_id);
+		Stream* stream = getStream(stream_id);
 			
 		if (!stream) {
 			return ErrorCode.INVALID_ARGUMENT;
@@ -2613,9 +2621,9 @@ final class Session {
 		LOGF("stream: stream(%s=%d close", stream, stream.id);
 			
 		if (stream.item) {
-			OutboundItem item = stream.item;
+			OutboundItem* item = stream.item;
 			
-			stream.detachItem(this);
+			stream.detachItem(&this);
 							
 			/* If item is queued, it will be deleted when it is popped
 		       (prepareFrame() will fail).  If aob.item
@@ -2633,11 +2641,10 @@ final class Session {
 		     may be PROTOCOL_ERROR, but without notifying stream closure will
 		     hang the stream in a local endpoint.
 		*/    
-		try 
-			if (!connector.onStreamExit(stream_id, error_code))
-				return ErrorCode.CALLBACK_FAILURE;
-		catch (Exception e) return ErrorCode.CALLBACK_FAILURE;
-		
+		 
+		if (!connector.onStreamExit(stream_id, error_code))
+			return ErrorCode.CALLBACK_FAILURE;
+	
 		/* pushed streams which is not opened yet is not counted toward max concurrent limits */
 		if ((stream.flags & StreamFlags.PUSH) == 0) {
 			if (isMyStreamId(stream_id)) {
@@ -2667,7 +2674,7 @@ final class Session {
 	 * cannot be accessed.
 	 *
 	 */
-	void destroyStream(Stream stream)
+	void destroyStream(Stream* stream)
 	{
 		LOGF("stream: destroy closed stream(%s=%d", stream, stream.id);
 		
@@ -2683,7 +2690,7 @@ final class Session {
 	 * limitation of maximum number of streams in memory, |stream| is not
 	 * closed and just deleted from memory (see destroyStream).
 	 */
-	void keepClosedStream(Stream stream)
+	void keepClosedStream(Stream* stream)
 	{
 		LOGF("stream: keep closed stream(%s=%d, state=%d", stream, stream.id, stream.state);
 		
@@ -2705,7 +2712,7 @@ final class Session {
 	 * apply fixed limit for list size.  To fit into that limit, one or
 	 * more oldest streams are removed from list as necessary.
 	 */
-	void keepIdleStream(Stream stream)
+	void keepIdleStream(Stream* stream)
 	{
 		LOGF("stream: keep idle stream(%s=%d, state=%d", stream, stream.id, stream.state);
 		
@@ -2726,10 +2733,10 @@ final class Session {
 	 * Detaches |stream| from idle streams linked list.
 	 */
 
-	void detachIdleStream(Stream stream) 
+	void detachIdleStream(Stream* stream) 
 	{
-		Stream prev_stream;
-		Stream next_stream;
+		Stream* prev_stream;
+		Stream* next_stream;
 		
 		LOGF("stream: detach idle stream(%s=%d, state=%d", stream, stream.id, stream.state);
 		
@@ -2772,7 +2779,7 @@ final class Session {
 
 		while (num_closed_streams > 0 && num_closed_streams + num_incoming_streams + offset > num_stream_max)
 		{
-			Stream head_stream;
+			Stream* head_stream;
 			
 			head_stream = closed_stream_head;
 			
@@ -2808,7 +2815,7 @@ final class Session {
 		LOGF("stream: adjusting kept idle streams num_idle_streams=%d, max=%d", num_idle_streams, _max);
 		
 		while (num_idle_streams > _max) {
-			Stream head;
+			Stream* head;
 			
 			head = idle_stream_head;
 			assert(head);
@@ -2840,14 +2847,14 @@ final class Session {
 	 * ErrorCode.CALLBACK_FAILURE
 	 *   The callback function failed.
 	 */
-	ErrorCode closeStreamIfShutRdWr(Stream stream)
+	ErrorCode closeStreamIfShutRdWr(Stream* stream)
 	{
 		if ((stream.shutFlags & ShutdownFlag.RDWR) == ShutdownFlag.RDWR)
 			return closeStream(stream.id, FrameError.NO_ERROR);
 		return ErrorCode.OK;
 	}
 
-	void endRequestHeadersReceived(Frame frame, Stream stream)
+	void endRequestHeadersReceived(Frame frame, Stream* stream)
 	{
 		if (frame.hd.flags & FrameFlags.END_STREAM) {
 			stream.shutdown(ShutdownFlag.RD);
@@ -2855,7 +2862,7 @@ final class Session {
 		/* Here we assume that stream is not shutdown in ShutdownFlag.WR */
 	}
 
-	ErrorCode endResponseHeadersReceived(Frame frame, Stream stream) 
+	ErrorCode endResponseHeadersReceived(Frame frame, Stream* stream) 
 	{
 		if (frame.hd.flags & FrameFlags.END_STREAM) {
 			/* This is the last frame of this stream, so disallow further receptions. */
@@ -2866,7 +2873,7 @@ final class Session {
 		return ErrorCode.OK;
 	}
 
-	ErrorCode endHeadersReceived(Frame frame, Stream stream)
+	ErrorCode endHeadersReceived(Frame frame, Stream* stream)
 	{
 		if (frame.hd.flags & FrameFlags.END_STREAM) {
 			stream.shutdown(ShutdownFlag.RD);
@@ -2879,7 +2886,7 @@ final class Session {
 	ErrorCode onRequestHeaders(Frame frame) 
 	{
 		ErrorCode rv;
-		Stream stream;
+		Stream* stream;
 		if (frame.hd.stream_id == 0) {
 			return handleInflateInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "request HEADERS: stream_id == 0");
 		}
@@ -2939,7 +2946,7 @@ final class Session {
 		return ErrorCode.OK;
 	}
 	
-	ErrorCode onResponseHeaders(Frame frame, Stream stream) 
+	ErrorCode onResponseHeaders(Frame frame, Stream* stream) 
 	{
 		ErrorCode rv;
 		/* This function is only called if stream.state == StreamState.OPENING and stream_id is local side initiated. */
@@ -2962,7 +2969,7 @@ final class Session {
 		return ErrorCode.OK;
 	}
 
-	ErrorCode onPushResponseHeaders(Frame frame, Stream stream) 
+	ErrorCode onPushResponseHeaders(Frame frame, Stream* stream) 
 	{
 		ErrorCode rv;
 		assert(stream.state == StreamState.RESERVED);
@@ -3002,7 +3009,7 @@ final class Session {
 	 * ErrorCode.CALLBACK_FAILURE
 	 *     The DataProvider failed
 	 */
-	ErrorCode onHeaders(Frame frame, Stream stream) 
+	ErrorCode onHeaders(Frame frame, Stream* stream) 
 	{
 		ErrorCode rv;
 		if (frame.hd.stream_id == 0) {
@@ -3065,7 +3072,7 @@ final class Session {
 	ErrorCode onPriority(Frame frame) 
 	{
 		ErrorCode rv;
-		Stream stream;
+		Stream* stream;
 		
 		if (frame.hd.stream_id == 0) {
 			return handleInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "PRIORITY: stream_id == 0");
@@ -3110,7 +3117,7 @@ final class Session {
 	ErrorCode onRstStream(Frame frame) 
 	{
 		ErrorCode rv;
-		Stream stream;
+		Stream* stream;
 		if (frame.hd.stream_id == 0) {
 			return handleInvalidConnection(frame, FrameError.PROTOCOL_ERROR, "RST_STREAM: stream_id == 0");
 		}
@@ -3285,8 +3292,8 @@ final class Session {
 	ErrorCode onPushPromise(Frame frame) 
 	{
 		ErrorCode rv;
-		Stream stream;
-		Stream promised_stream;
+		Stream* stream;
+		Stream* promised_stream;
 		PrioritySpec pri_spec;
 		
 		if (frame.hd.stream_id == 0) {
@@ -3322,11 +3329,9 @@ final class Session {
 			return ErrorCode.IGN_HEADER_BLOCK;
 		}
 		if (stream.shutFlags & ShutdownFlag.RD) {
-			try 
-				if (!connector.onInvalidFrame(frame, FrameError.PROTOCOL_ERROR))
-					return ErrorCode.CALLBACK_FAILURE;
-			catch(Exception e) return ErrorCode.CALLBACK_FAILURE;
-
+			if (!connector.onInvalidFrame(frame, FrameError.PROTOCOL_ERROR, "PUSH_PROMISE: ShutdownFlag.RD is set"))
+				return ErrorCode.CALLBACK_FAILURE;
+			
 			addRstStream(frame.push_promise.promised_stream_id, FrameError.PROTOCOL_ERROR);
 			return ErrorCode.IGN_HEADER_BLOCK;
 		}
@@ -3428,7 +3433,7 @@ final class Session {
 			
 		} else {
 			/* handle stream window update */
-			Stream stream = getStream(frame.hd.stream_id);
+			Stream* stream = getStream(frame.hd.stream_id);
 			
 			if (!stream) {
 				//if (idleStreamDetect(frame.hd.stream_id))
@@ -3448,7 +3453,7 @@ final class Session {
 			stream.remoteWindowSize = stream.remoteWindowSize + frame.window_update.window_size_increment;
 			
 			if (stream.remoteWindowSize > 0 && stream.isDeferredByFlowControl())        
-				stream.resumeDeferredItem(StreamFlags.DEFERRED_FLOW_CONTROL, this);
+				stream.resumeDeferredItem(StreamFlags.DEFERRED_FLOW_CONTROL, &this);
 		}
 		
 		bool ok = callOnFrame(frame);
@@ -3472,7 +3477,7 @@ final class Session {
 	{
 		ErrorCode rv;
 		bool call_cb = true;
-		Stream stream = getStream(frame.hd.stream_id);
+		Stream* stream = getStream(frame.hd.stream_id);
 		
 		/* We don't call on_frame_recv_callback if stream has been closed already or being closed. */
 		if (!stream || stream.state == StreamState.CLOSING) {
@@ -3523,7 +3528,7 @@ final class Session {
 	 * ErrorCode.CALLBACK_FAILURE
 	 *     The DataProvider failed (session error).
 	 */
-	ErrorCode packData(Buffers bufs, int datamax, ref Frame frame, ref DataAuxData aux_data) {
+	ErrorCode packData(Buffers* bufs, int datamax, ref Frame frame, ref DataAuxData aux_data) {
 		ErrorCode rv;
 		DataFlags data_flags;
 		int payloadlen;
@@ -3535,13 +3540,13 @@ final class Session {
 		
 		buf = &bufs.cur.buf;
 		
-		Stream stream = getStream(frame.hd.stream_id);
+		Stream* stream = getStream(frame.hd.stream_id);
 
 		if (!stream)
 			return ErrorCode.INVALID_ARGUMENT;
 		
-		try payloadlen = connector.maxFrameSize(frame.hd.type, stream.id, remote_window_size, stream.remoteWindowSize, remote_settings.max_frame_size);
-		catch(Exception e) payloadlen = min(remote_window_size, stream.remoteWindowSize, remote_settings.max_frame_size);
+		payloadlen = connector.maxFrameSize(frame.hd.type, stream.id, remote_window_size, stream.remoteWindowSize, remote_settings.max_frame_size);
+		
 		LOGF("send: read_length_callback=%d", payloadlen);
 		
 		payloadlen = enforceFlowControlLimits(stream, payloadlen);
@@ -3552,17 +3557,11 @@ final class Session {
 			return ErrorCode.CALLBACK_FAILURE;
 		
 		if (payloadlen > buf.available) {
-			import core.exception : OutOfMemoryError;
 			/* Resize the current buffer(s).  The reason why we do +1 for buffer size is for possible padding field. */
-			try {
-				aob.framebufs.realloc(FRAME_HDLEN + 1 + payloadlen);
-				assert(aob.framebufs == bufs);
-				buf = &bufs.cur.buf;
-			} catch (OutOfMemoryError oom) {
-				/* If reallocation failed, old buffers are still in tact.  So use safe limit. */
-				payloadlen = datamax;
-				rv = ErrorCode.NOMEM;
-			}
+			
+			aob.framebufs.realloc(FRAME_HDLEN + 1 + payloadlen);
+			assert(aob.framebufs == bufs);
+			buf = &bufs.cur.buf;
 		}
 
 		datamax = payloadlen;
@@ -3637,7 +3636,7 @@ final class Session {
 	 *     Invalid HTTP header field was received but it can be treated as
 	 *     if it was not received because of compatibility reasons.
 	 */
-	ErrorCode validateHeaderField(Stream stream, in Frame frame, HeaderField hf, bool trailer)
+	ErrorCode validateHeaderField(Stream* stream, in Frame frame, HeaderField hf, bool trailer)
 	{
 		/* We are strict for pseudo header field.  One bad character
 			   should lead to fail.  OTOH, we should be a bit forgiving for
@@ -3648,6 +3647,7 @@ final class Session {
 			   those illegal regular headers. */
 		if (!hf.validateName())
 		{
+			LOGF("Failed validate name");
 			size_t i;
 			if (hf.name.length > 0 && hf.name[0] == ':') {
 				return ErrorCode.HTTP_HEADER;
@@ -3669,6 +3669,7 @@ final class Session {
 
 		if (!hf.validateValue()) 
 		{
+			LOGF("Failed validate value");
 			assert(hf.name.length > 0);
 			if (hf.name[0] == ':') {
 				return ErrorCode.HTTP_HEADER;
@@ -3694,9 +3695,9 @@ final class Session {
 	 * session.ob_ss_pq has item and max concurrent streams is reached,
 	 * then this function returns null.
 	 */
-	OutboundItem popNextOutboundItem() {
-		OutboundItem item;
-		OutboundItem headers_item;
+	OutboundItem* popNextOutboundItem() {
+		OutboundItem* item;
+		OutboundItem* headers_item;
 		
 		if (ob_pq.empty) {
 			if (ob_ss_pq.empty) {
@@ -3756,9 +3757,9 @@ final class Session {
 	 * session.ob_ss_pq has item and max concurrent streams is reached,
 	 * then this function returns null.
 	 */
-	OutboundItem getNextOutboundItem() {
-		OutboundItem item;
-		OutboundItem headers_item;
+	OutboundItem* getNextOutboundItem() {
+		OutboundItem* item;
+		OutboundItem* headers_item;
 		
 		if (ob_pq.empty) {
 			if (ob_ss_pq.empty) {
@@ -3874,10 +3875,10 @@ final class Session {
 	/*
 	 * Re-prioritize |stream|. The new priority specification is |pri_spec|.
 	 */
-	void reprioritizeStream(Stream stream, ref PrioritySpec pri_spec) 
+	void reprioritizeStream(Stream* stream, ref PrioritySpec pri_spec) 
 	{
-		Stream dep_stream;
-		Stream root_stream;
+		Stream* dep_stream;
+		Stream* root_stream;
 		PrioritySpec pri_spec_default;
 		
 		if (!stream.inDepTree())
@@ -3909,9 +3910,9 @@ final class Session {
 			if (pri_spec.exclusive &&
 				roots.num_streams <= MAX_DEP_TREE_LENGTH) {
 				
-				stream.makeTopmostRoot(this);
+				stream.makeTopmostRoot(&this);
 			} else {
-				stream.makeRoot(this);
+				stream.makeRoot(&this);
 			}
 			
 			return;
@@ -3923,7 +3924,7 @@ final class Session {
 			LOGF("stream: cycle detected, dep_stream(%s=%d stream(%s)=%d", dep_stream, dep_stream.id, stream, stream.id);
 			
 			dep_stream.removeSubtree();
-			dep_stream.makeRoot(this);
+			dep_stream.makeRoot(&this);
 		}
 		
 		stream.removeSubtree();
@@ -3937,12 +3938,12 @@ final class Session {
 		{
 			stream.weight = DEFAULT_WEIGHT;
 			
-			stream.makeRoot(this);
+			stream.makeRoot(&this);
 			} else {
 				if (pri_spec.exclusive)
-				dep_stream.insertSubtree(stream, this);
+				dep_stream.insertSubtree(stream, &this);
 			else
-				dep_stream.addSubtree(stream, this);
+				dep_stream.addSubtree(stream, &this);
 		}
 	}
 
@@ -3996,7 +3997,7 @@ final class Session {
 	/*
 	 * Returns true if |frame| is trailer headers.
 	 */
-	bool isTrailerHeaders(Stream stream, in Frame frame) 
+	bool isTrailerHeaders(Stream* stream, in Frame frame) 
 	{
 		if (!stream || frame.hd.type != FrameType.HEADERS) {
 			return false;
@@ -4009,13 +4010,13 @@ final class Session {
 	}
 	
 	/* Returns true if the |stream| is in reserved(remote) state */
-	bool isReservedRemote(Stream stream)
+	bool isReservedRemote(Stream* stream)
 	{
 		return stream.state == StreamState.RESERVED && !isMyStreamId(stream.id);
 	}
 	
 	/* Returns true if the |stream| is in reserved(local) state */
-	bool isReservedLocal(Stream stream) {
+	bool isReservedLocal(Stream* stream) {
 		return stream.state == StreamState.RESERVED && isMyStreamId(stream.id);
 	}
 
@@ -4060,7 +4061,7 @@ final class Session {
 	void freeAllStreams() {
 		foreach(stream; streams) 
 		{
-			OutboundItem item = stream.item;
+			OutboundItem* item = stream.item;
 			
 			if (item && !item.queued && item != aob.item) 
 			{
@@ -4078,11 +4079,11 @@ final class Session {
 	 * could be null if such stream does not exist.  This function returns
 	 * null if stream is marked as closed.
 	 */
-	Stream getStream(int stream_id) 
+	Stream* getStream(int stream_id) 
 	{
-		Stream stream;
+		Stream* stream;
 		
-		stream = streams.get(stream_id);
+		stream = cast(Stream*)streams.get(stream_id);
 		
 		if (!stream || (stream.flags & StreamFlags.CLOSED) || stream.state == StreamState.IDLE)
 		{
@@ -4096,9 +4097,9 @@ final class Session {
 	 * returns stream object even if it is marked as closed or in
 	 * StreamState.IDLE state.
 	 */
-	Stream getStreamRaw(int stream_id) 
+	Stream* getStreamRaw(int stream_id) 
 	{
-		return streams.get(stream_id);
+		return cast(Stream*)streams.get(stream_id);
 	}
 
 	// terminates the session
@@ -4148,7 +4149,7 @@ final class Session {
 	 * ErrorCode.SESSION_CLOSING
 	 *   This session is closing.
 	 */
-	ErrorCode predicateForStreamSend(Stream stream) 
+	ErrorCode predicateForStreamSend(Stream* stream) 
 	{
 		if (!stream) {
 			return ErrorCode.STREAM_CLOSED;
@@ -4176,7 +4177,7 @@ final class Session {
 	 * ErrorCode.STREAM_CLOSING
 	 *     request HEADERS was canceled by RST_STREAM while it is in queue.
 	 */
-	ErrorCode predicateRequestHeadersSend(OutboundItem item) 
+	ErrorCode predicateRequestHeadersSend(OutboundItem* item) 
 	{
 		if (item.aux_data.headers.canceled) {
 			return ErrorCode.STREAM_CLOSING;
@@ -4213,7 +4214,7 @@ final class Session {
 	 * ErrorCode.SESSION_CLOSING
 	 *   This session is closing.
 	 */
-	ErrorCode predicateResponseHeadersSend(Stream stream)
+	ErrorCode predicateResponseHeadersSend(Stream* stream)
 	{
 		ErrorCode rv;
 		rv = predicateForStreamSend(stream);
@@ -4252,7 +4253,7 @@ final class Session {
 	 * ErrorCode.SESSION_CLOSING
 	 *   This session is closing.
 	 */
-	ErrorCode predicatePushResponseHeadersSend(Stream stream)
+	ErrorCode predicatePushResponseHeadersSend(Stream* stream)
 	{
 		ErrorCode rv;
 		/* TODO Should disallow HEADERS if GOAWAY has already been issued? */
@@ -4290,7 +4291,7 @@ final class Session {
 	 * ErrorCode.SESSION_CLOSING
 	 *   This session is closing.
 	 */
-	ErrorCode predicateHeadersSend(Stream stream) 
+	ErrorCode predicateHeadersSend(Stream* stream) 
 	{
 		ErrorCode rv;
 		rv = predicateForStreamSend(stream);
@@ -4339,7 +4340,7 @@ final class Session {
 	 * ErrorCode.SESSION_CLOSING
 	 *   This session is closing.
 	 */
-	ErrorCode predicatePushPromiseSend(Stream stream) 
+	ErrorCode predicatePushPromiseSend(Stream* stream) 
 	{
 		ErrorCode rv;
 		
@@ -4385,7 +4386,7 @@ final class Session {
 	 */
 	ErrorCode predicateWindowUpdateSend(int stream_id)
 	{
-		Stream stream;
+		Stream* stream;
 		if (stream_id == 0) {
 			/* Connection-level window update */
 			return ErrorCode.OK;
@@ -4425,7 +4426,7 @@ final class Session {
 	 * ErrorCode.SESSION_CLOSING
 	 *   This session is closing.
 	 */
-	ErrorCode predicateDataSend(Stream stream) 
+	ErrorCode predicateDataSend(Stream* stream) 
 	{
 		ErrorCode rv;
 		rv = predicateForStreamSend(stream);
@@ -4456,7 +4457,7 @@ final class Session {
 
 
 	/* Take into account settings max frame size and both connection-level flow control here */
-	int enforceFlowControlLimits(Stream stream, int requested_window_size)
+	int enforceFlowControlLimits(Stream* stream, int requested_window_size)
 	{
 		LOGF("send: remote windowsize connection=%d, remote maxframsize=%u, stream(id %d=%d",
 				remote_window_size,
@@ -4492,7 +4493,7 @@ final class Session {
 	 * If OptionFlags.NO_AUTO_WINDOW_UPDATE is set, WINDOW_UPDATE will not
 	 * be sent.
 	 */
-	void updateRecvStreamWindowSize(Stream stream, size_t delta_size, int send_window_update) 
+	void updateRecvStreamWindowSize(Stream* stream, size_t delta_size, int send_window_update) 
 	{
 		bool ok = adjustRecvWindowSize(stream.recvWindowSize, delta_size, stream.localWindowSize);
 		if (!ok) {
@@ -4560,7 +4561,7 @@ final class Session {
 		return ErrorCode.OK;
 	}
 	
-	ErrorCode updateStreamConsumedSize(Stream stream, size_t delta_size) 
+	ErrorCode updateStreamConsumedSize(Stream* stream, size_t delta_size) 
 	{
 		return updateConsumedSize(stream.consumedSize, stream.recvWindowSize, stream.id, delta_size, stream.localWindowSize);
 	}
@@ -4577,7 +4578,7 @@ final class Session {
 	 * return value takes into account those current window sizes. The remote
 	 * settings for max frame size is also taken into account.
 	 */
-	int nextDataRead(Stream stream) 
+	int nextDataRead(Stream* stream) 
 	{
 		int window_size;
 		window_size = enforceFlowControlLimits(stream, DATA_PAYLOADLEN);
@@ -4597,15 +4598,14 @@ final class Session {
 		
 		int max_paddedlen = cast(int) min(frame.hd.length + MAX_PADLEN, max_payloadlen);
 		
-		try rv = connector.selectPaddingLength(frame, max_paddedlen);
-		catch (Exception e) return cast(int) ErrorCode.CALLBACK_FAILURE;
+		rv = connector.selectPaddingLength(frame, max_paddedlen);
 		if (rv < cast(int)frame.hd.length || rv > cast(int)max_paddedlen) {
 			return cast(int) ErrorCode.CALLBACK_FAILURE;
 		}
 		return rv;
 	}	
 
-	ErrorCode callWriteData(OutboundItem item, Buffers framebufs)
+	ErrorCode callWriteData(OutboundItem* item, Buffers* framebufs)
 	{
 		Buffer* buf = &framebufs.cur.buf;
 		Frame* frame = &item.frame;
@@ -4622,40 +4622,34 @@ final class Session {
 
 	bool callOnFrameReady(in Frame frame)
 	{
-		try return connector.onFrameReady(frame);
-		catch(Exception e) return false;
+		return connector.onFrameReady(frame);
 	}
 
 	bool callOnFrameSent(in Frame frame)
 	{
-		try return connector.onFrameSent(frame);
-		catch(Exception e) return false;
+		return connector.onFrameSent(frame);
 	}
 
 	bool callOnFrameHeader(in FrameHeader hd) 
 	{
-		try return connector.onFrameHeader(hd);
-		catch(Exception e) return false;
+		return connector.onFrameHeader(hd);
 	}
 
 	bool callOnHeaders(in Frame frame) 
 	{
 		LOGF("recv: call onHeaders callback stream_id=%d", frame.hd.stream_id);
-		try return connector.onHeaders(frame);
-		catch(Exception e) return false;
+		return connector.onHeaders(frame);
 	}
 
 	bool callOnHeaderField(in Frame frame, in HeaderField hf, ref bool pause, ref bool close) 
 	{
-		try return connector.onHeaderField(frame, hf, pause, close);
-		catch(Exception e) return false;
+		return connector.onHeaderField(frame, hf, pause, close);
 	}
 
 	int callRead(ubyte[] buf)
 	{
 		int len;
-		try len = connector.read(buf);
-		catch(Exception e) return ErrorCode.CALLBACK_FAILURE;
+		len = connector.read(buf);
 
 		if (len > 0) {
 			if (cast(size_t) len > buf.length)
@@ -4668,8 +4662,7 @@ final class Session {
 
 	bool callOnFrame(in Frame frame) 
 	{
-		try return connector.onFrame(frame);
-		catch(Exception e) return false;
+		return connector.onFrame(frame);
 	}
 
 	/*
@@ -4690,7 +4683,7 @@ final class Session {
 	ErrorCode onDataFailFast() 
 	{
 		ErrorCode rv;
-		Stream stream;
+		Stream* stream;
 		int stream_id;
 		string failure_reason;
 		FrameError error_code = FrameError.PROTOCOL_ERROR;
@@ -4752,7 +4745,7 @@ final class Session {
 		ErrorCode rv;
 		bool call_cb = true;
 		Frame* frame = &iframe.frame;
-		Stream stream;
+		Stream* stream;
 		
 		/* We don't call Connector.onFrame if stream has been closed already or being closed. */
 		stream = getStream(frame.hd.stream_id);
@@ -4763,7 +4756,7 @@ final class Session {
 		
 		if (isHTTPMessagingEnabled()) {
 			if (frame.hd.type == FrameType.PUSH_PROMISE) {
-				Stream subject_stream;
+				Stream* subject_stream;
 				
 				subject_stream = getStream(frame.push_promise.promised_stream_id);
 				if (subject_stream) {
@@ -4842,7 +4835,7 @@ final class Session {
 	ErrorCode processHeadersFrame() 
 	{
 		Frame* frame = &iframe.frame;
-		Stream stream;
+		Stream* stream;
 		
 		frame.headers.unpack(iframe.sbuf[]);
 
@@ -4974,11 +4967,9 @@ final class Session {
 		
 		addRstStream(stream_id, error_code);
 		
-		try 
-			if (!connector.onInvalidFrame(frame, error_code))
-				return ErrorCode.CALLBACK_FAILURE;
-		catch (Exception e) return ErrorCode.CALLBACK_FAILURE;
-		
+		if (!connector.onInvalidFrame(frame, error_code, "handleInvalidStream2"))
+			return ErrorCode.CALLBACK_FAILURE;
+	
 		return ErrorCode.OK;
 	}
 	
@@ -4996,11 +4987,9 @@ final class Session {
 	 */
 	ErrorCode handleInvalidConnection(Frame frame, FrameError error_code, string reason)
 	{
-		try 
-			if (!connector.onInvalidFrame(frame, error_code, reason))
-				return ErrorCode.CALLBACK_FAILURE;
-		catch (Exception e) return ErrorCode.CALLBACK_FAILURE;
-
+		if (!connector.onInvalidFrame(frame, error_code, reason))
+			return ErrorCode.CALLBACK_FAILURE;
+	
 		return terminateSessionWithReason(error_code, reason);
 	}
 
@@ -5020,7 +5009,7 @@ final class Session {
 	{
 		ErrorCode rv;
 		int padded_payloadlen;
-		Buffers framebufs = aob.framebufs;
+		Buffers* framebufs = aob.framebufs;
 		int padlen;
 		int max_payloadlen;
 		
@@ -5068,7 +5057,7 @@ final class Session {
 			
 			/* If window size gets positive, push deferred DATA frame to outbound queue. */
 			if (stream.remoteWindowSize > 0 && stream.isDeferredByFlowControl())				
-				stream.resumeDeferredItem(StreamFlags.DEFERRED_FLOW_CONTROL, this);
+				stream.resumeDeferredItem(StreamFlags.DEFERRED_FLOW_CONTROL, &this);
 
 		}
 		
@@ -5133,7 +5122,7 @@ final class Session {
 		return rv;
 	}
 	
-	void cycleWeightOutboundItem(OutboundItem item, int ini_weight) 
+	void cycleWeightOutboundItem(OutboundItem* item, int ini_weight) 
 	{
 		if (item.weight == MIN_WEIGHT || item.weight > ini_weight) {
 			
@@ -5155,7 +5144,7 @@ final class Session {
 	 * This function returns 0 if it succeeds, or one of negative error
 	 * codes, including both fatal and non-fatal ones.
 	 */
-	ErrorCode prepareFrame(OutboundItem item)
+	ErrorCode prepareFrame(OutboundItem* item)
 	{
 		ErrorCode rv;
 		Frame* frame = &item.frame;
@@ -5175,7 +5164,7 @@ final class Session {
 					
 					if (frame.headers.cat == HeadersCategory.REQUEST) {
 						/* initial HEADERS, which opens stream */
-						Stream stream = openStream(frame.hd.stream_id, StreamFlags.NONE, frame.headers.pri_spec, StreamState.INITIAL, aux_data.stream_user_data);
+						Stream* stream = openStream(frame.hd.stream_id, StreamFlags.NONE, frame.headers.pri_spec, StreamState.INITIAL, aux_data.stream_user_data);
 						
 						rv = predicateRequestHeadersSend(item);
 						if (rv != ErrorCode.OK) {
@@ -5186,7 +5175,7 @@ final class Session {
 							stream.setRequestMethod(*frame);
 						}
 					} else {
-						Stream stream = getStream(frame.hd.stream_id);
+						Stream* stream = getStream(frame.hd.stream_id);
 						
 						if (predicatePushResponseHeadersSend(stream) == 0)
 						{
@@ -5202,7 +5191,7 @@ final class Session {
 							
 							if (rv != ErrorCode.OK) {
 								if (stream && stream.item == item) 
-									stream.detachItem(this);
+									stream.detachItem(&this);
 								return rv;
 							}
 						}
@@ -5253,7 +5242,7 @@ final class Session {
 					break;
 				}
 				case PUSH_PROMISE: {
-					Stream stream;
+					Stream* stream;
 					HeadersAuxData *aux_data;
 					PrioritySpec pri_spec;
 					size_t estimated_payloadlen;
@@ -5319,7 +5308,7 @@ final class Session {
 			return ErrorCode.OK;
 		} else {
 			int next_readmax;
-			Stream stream = getStream(frame.hd.stream_id);
+			Stream* stream = getStream(frame.hd.stream_id);
 			
 			if (stream) {
 				assert(stream.item == item);
@@ -5328,7 +5317,7 @@ final class Session {
 			rv = predicateDataSend(stream);
 			if (rv != ErrorCode.OK) {
 				if (stream)
-					stream.detachItem(this);          
+					stream.detachItem(&this);          
 				
 				return rv;
 			}
@@ -5341,7 +5330,7 @@ final class Session {
 				/* This must be true since we only pop DATA frame item from queue when session.remote_window_size > 0 */
 				assert(remote_window_size > 0);
 				
-				stream.deferItem(StreamFlags.DEFERRED_FLOW_CONTROL, this);            
+				stream.deferItem(StreamFlags.DEFERRED_FLOW_CONTROL, &this);            
 				aob.item = null;
 				aob.reset();
 				return ErrorCode.DEFERRED;
@@ -5349,18 +5338,18 @@ final class Session {
 
 			rv = packData(aob.framebufs, next_readmax, *frame, item.aux_data.data);
 			if (rv == ErrorCode.DEFERRED) {
-				stream.deferItem(StreamFlags.DEFERRED_USER, this);
+				stream.deferItem(StreamFlags.DEFERRED_USER, &this);
 				aob.item = null;
 				aob.reset();
 				return ErrorCode.DEFERRED;
 			}
 			if (rv == ErrorCode.TEMPORAL_CALLBACK_FAILURE) {
-				stream.detachItem(this);            
+				stream.detachItem(&this);            
 				addRstStream(frame.hd.stream_id, FrameError.INTERNAL_ERROR);
 				return ErrorCode.TEMPORAL_CALLBACK_FAILURE;
 			}
 			if (rv != 0) {
-				stream.detachItem(this);
+				stream.detachItem(&this);
 				return rv;
 			}
 			return ErrorCode.OK;
@@ -5382,8 +5371,8 @@ final class Session {
 	ErrorCode afterFrameSent() 
 	{
 		ErrorCode rv;
-		OutboundItem item = aob.item;
-		Buffers framebufs = aob.framebufs;
+		OutboundItem* item = aob.item;
+		Buffers* framebufs = aob.framebufs;
 		Frame* frame = &item.frame;
 		
 		if (frame.hd.type != FrameType.DATA) {
@@ -5402,11 +5391,11 @@ final class Session {
 			with(FrameType) switch (frame.hd.type) {
 				case HEADERS: {
 					HeadersAuxData *aux_data;
-					Stream stream = getStream(frame.hd.stream_id);
+					Stream* stream = getStream(frame.hd.stream_id);
 					if (!stream) 
 						break;                
 					if (stream.item == item)
-						stream.detachItem(this);
+						stream.detachItem(&this);
 					
 					final switch (frame.headers.cat) {
 						case HeadersCategory.REQUEST: {
@@ -5422,7 +5411,7 @@ final class Session {
 							aux_data = &item.aux_data.headers;
 							if (aux_data.data_prd) {
 								/* submitData() makes a copy of aux_data.data_prd */
-								rv = submitData(this, FrameFlags.END_STREAM, frame.hd.stream_id, aux_data.data_prd);
+								rv = submitData(&this, FrameFlags.END_STREAM, frame.hd.stream_id, aux_data.data_prd);
 								if (isFatal(rv)) {
 									return rv;
 								}
@@ -5448,7 +5437,7 @@ final class Session {
 							/* We assume aux_data is a pointer to HeadersAuxData */
 							aux_data = &item.aux_data.headers;
 							if (aux_data.data_prd) {
-								rv = submitData(this, FrameFlags.END_STREAM, frame.hd.stream_id, aux_data.data_prd);
+								rv = submitData(&this, FrameFlags.END_STREAM, frame.hd.stream_id, aux_data.data_prd);
 								if (isFatal(rv)) {
 									return rv;
 								}
@@ -5460,7 +5449,7 @@ final class Session {
 					break;
 				}
 				case PRIORITY: {
-					Stream stream;
+					Stream* stream;
 					
 					if (is_server) {
 						break;
@@ -5509,7 +5498,7 @@ final class Session {
 			return ErrorCode.OK;
 		}
 
-		Stream stream = getStream(frame.hd.stream_id);
+		Stream* stream = getStream(frame.hd.stream_id);
 		DataAuxData *aux_data = &item.aux_data.data;
 		/* We update flow control window after a frame was completely
 	       sent. This is possible because we choose payload length not to
@@ -5520,7 +5509,7 @@ final class Session {
 		}
 		
 		if (stream && aux_data.eof) {
-			stream.detachItem(this);
+			stream.detachItem(&this);
 			
 			/* Call onFrameSent after detachItem(), so that application can issue submitData() in the callback. */
 			bool ok = callOnFrameSent(*frame);
@@ -5568,8 +5557,8 @@ final class Session {
 	ErrorCode resetActiveOutboundItem() 
 	{
 		ErrorCode rv;
-		OutboundItem item = aob.item;
-		Buffers framebufs = aob.framebufs;
+		OutboundItem* item = aob.item;
+		Buffers* framebufs = aob.framebufs;
 		Frame* frame = &item.frame;
 		
 		if (frame.hd.type != FrameType.DATA) {
@@ -5592,8 +5581,8 @@ final class Session {
 
 		}
 
-		OutboundItem next_item;
-		Stream stream;
+		OutboundItem* next_item;
+		Stream* stream;
 		DataAuxData* aux_data = &item.aux_data.data;
 
 		/* On EOF, we have already detached data.  Please note that
@@ -5612,7 +5601,7 @@ final class Session {
 		/* If Session is closed or RST_STREAM was queued, we won't send further data. */
 		if (predicateDataSend(stream) != 0) {
 			if (stream)
-				stream.detachItem(this);            
+				stream.detachItem(&this);            
 			aob.reset();
 			
 			return ErrorCode.OK;
@@ -5652,7 +5641,7 @@ final class Session {
 					
 					aob.item.queued = 1;
 				} else
-					stream.deferItem(StreamFlags.DEFERRED_FLOW_CONTROL, this);
+					stream.deferItem(StreamFlags.DEFERRED_FLOW_CONTROL, &this);
 				
 				aob.item = null;
 				aob.reset();
@@ -5668,7 +5657,7 @@ final class Session {
 			}
 
 			if (rv == ErrorCode.DEFERRED) {
-				stream.deferItem(StreamFlags.DEFERRED_USER, this);
+				stream.deferItem(StreamFlags.DEFERRED_USER, &this);
 				
 				aob.item = null;
 				aob.reset();
@@ -5679,7 +5668,7 @@ final class Session {
 			{
 				/* Stop DATA frame chain and issue RST_STREAM to close the stream.  We don't return ErrorCode.TEMPORAL_CALLBACK_FAILURE intentionally. */
 				addRstStream(frame.hd.stream_id, FrameError.INTERNAL_ERROR);
-				stream.detachItem(this);
+				stream.detachItem(&this);
 				aob.reset();
 				return ErrorCode.OK;
 			}
@@ -5708,14 +5697,14 @@ final class Session {
 	ErrorCode memSendInternal(ref ubyte[] data_arr, bool fast_cb)
 	{
 		ErrorCode rv;
-		Buffers framebufs = aob.framebufs;
+		Buffers* framebufs = aob.framebufs;
 		
 		data_arr = null;
 
 		for (;;) {
 			final switch (aob.state) {
 				case OutboundState.POP_ITEM: {
-					OutboundItem item;
+					OutboundItem* item;
 					
 					item = popNextOutboundItem();
 					if (!item) {
@@ -5724,7 +5713,7 @@ final class Session {
 
 					if (item.frame.hd.type == FrameType.DATA || item.frame.hd.type == FrameType.HEADERS) {
 						Frame* frame = &item.frame;
-						Stream stream = getStream(frame.hd.stream_id);
+						Stream* stream = getStream(frame.hd.stream_id);
 
 						if (stream && item == stream.item && stream.dpri != StreamDPRI.TOP) {
 							// We have DATA with higher priority in queue within the same dependency tree.
@@ -5747,12 +5736,8 @@ final class Session {
 						if (item.frame.hd.type != FrameType.DATA && !isFatal(rv)) {
 							Frame* frame = &item.frame;
 							/* The library is responsible for the transmission of WINDOW_UPDATE frame, so we don't call error callback for it. */
-							try if (frame.hd.type != FrameType.WINDOW_UPDATE && !connector.onFrameFailure(*frame, rv))
+							if (frame.hd.type != FrameType.WINDOW_UPDATE && !connector.onFrameFailure(*frame, rv))
 							{
-								item.free();
-								Mem.free(item);
-								return ErrorCode.CALLBACK_FAILURE;
-							} catch (Exception e) {
 								item.free();
 								Mem.free(item);
 								return ErrorCode.CALLBACK_FAILURE;
@@ -5873,7 +5858,7 @@ final class Session {
 					LOGF("send: no copy DATA\n");
 
 					Frame* frame = &aob.item.frame;
-					Stream stream = getStream(frame.hd.stream_id);
+					Stream* stream = getStream(frame.hd.stream_id);
 
 
 					if (!stream) {
@@ -5888,7 +5873,7 @@ final class Session {
 					}
 					
 					if (rv == ErrorCode.TEMPORAL_CALLBACK_FAILURE) {
-						stream.detachItem(this);
+						stream.detachItem(&this);
 
 						addRstStream(frame.hd.stream_id, FrameError.INTERNAL_ERROR);
 
@@ -5947,14 +5932,14 @@ final class Session {
 	 * ErrorCode.HEADER_COMP
 	 *     Header decompression failed
 	 */
-	ErrorCode inflateHeaderBlock(Frame frame, ref size_t readlen_ref, ubyte[] input, bool is_final, bool call_header_cb) 
+	ErrorCode inflateHeaderBlock(in Frame frame, ref size_t readlen_ref, ubyte[] input, bool is_final, bool call_header_cb) 
 	{
 		int proclen;
 		ErrorCode rv;
 		InflateFlag inflate_flag;
 		HeaderField hf;
-		Stream stream;
-		Stream subject_stream;
+		Stream* stream;
+		Stream* subject_stream;
 		bool trailer;
 		
 		readlen_ref = 0;
@@ -6008,10 +5993,9 @@ final class Session {
 				if (subject_stream && isHTTPMessagingEnabled()) {
 					rv = validateHeaderField(subject_stream, frame, hf, trailer);
 					if (rv == ErrorCode.HTTP_HEADER) {
-						LOGF("recv: HTTP error: type=%d, id=%d, header %.*s: %.*s",
-								frame.hd.type, subject_stream.id, cast(int)hf.name.length,
-								hf.name, cast(int)hf.value.length, hf.value);
-						frame.headers.hfa = (&hf)[0 .. 1]; // keep the invalid header for debug
+						LOGF("recv: HTTP error: type=%d, id=%d, header %s: %s",
+								frame.hd.type, subject_stream.id, hf.name, hf.value);
+						//frame.headers.hfa = (&hf)[0 .. 1]; // keep the invalid header for debug
 						handleInvalidStream2(subject_stream.id, frame, FrameError.PROTOCOL_ERROR);
 						return ErrorCode.TEMPORAL_CALLBACK_FAILURE;
 					}
@@ -6051,14 +6035,15 @@ package: /* Used only for tests */
 	 * Returns top of outbound frame queue. This function returns null if
 	 * queue is empty.
 	 */
-	@property OutboundItem ob_pq_top() {
+	@property OutboundItem* ob_pq_top() {
 		return ob_pq.top;
 	}
 	
 package:
-	HashMap!(int, Stream) streams;
+	import memutils.utils : ThreadMem;
+	HashMap!(int, Stream*, ThreadMem) streams;
 	
-	StreamRoots roots;
+	StreamRoots* roots;
 	
 	/// Priority Queue for outbound frames other than stream-starting HEADERS and DATA
 	PriorityQueue ob_pq;
@@ -6073,7 +6058,7 @@ package:
 	InboundFrame iframe;
 	Deflater hd_deflater;
 	Inflater hd_inflater;
-	Connector connector;
+	CallbackConnector* connector;
 	
 	/// Sequence number of outbound frame to maintain the order of enqueue if priority is equal.
 	long next_seq;
@@ -6095,19 +6080,19 @@ package:
 	
 	/// Points to the latest closed stream.  null if there is no closed stream.  
 	/// Notes: Only used when session is initialized as server.
-	Stream closed_stream_head;
+	Stream* closed_stream_head;
 	
 	/// Points to the oldest closed stream.  null if there is no closed stream.  
 	/// Notes: Only used when session is initialized as server.
-	Stream closed_stream_tail;
+	Stream* closed_stream_tail;
 	
 	/// Points to the latest idle stream.  null if there is no idle stream.  
 	/// Notes: Only used when session is initialized as server .
-	Stream idle_stream_head;
+	Stream* idle_stream_head;
 	
 	/// Points to the oldest idle stream.  null if there is no idle stream. 
 	/// Notes: Only used when session is initialized as server.
-	Stream idle_stream_tail;
+	Stream* idle_stream_tail;
 	
 	/// In-flight SETTINGS values. null for no in-flight SETTINGS. 
 	Setting[] inflight_iva;
@@ -6274,7 +6259,7 @@ int packSettingsPayload(ubyte[] buf, in Setting[] iva)
  *   frame.
  *
  */
-int submitRequest(Session session, in PrioritySpec pri_spec, in HeaderField[] hfa, in DataProvider data_prd, void* stream_user_data = null)
+int submitRequest(Session* session, in PrioritySpec pri_spec, in HeaderField[] hfa, in DataProvider data_prd, void* stream_user_data = null)
 {
 	FrameFlags flags = setRequestFlags(pri_spec, data_prd);
 	
@@ -6324,7 +6309,7 @@ int submitRequest(Session session, in PrioritySpec pri_spec, in HeaderField[] hf
  *   program crash.  It is generally considered to a programming error
  *   to commit response twice.
  */
-ErrorCode submitResponse(Session session, int stream_id, in HeaderField[] hfa, in DataProvider data_prd)
+ErrorCode submitResponse(Session* session, int stream_id, in HeaderField[] hfa, in DataProvider data_prd)
 {
 	FrameFlags flags = setResponseFlags(data_prd);
 	return cast(ErrorCode)submitHeadersSharedHfa(session, flags, stream_id, PrioritySpec.init, hfa, data_prd, null, true);
@@ -6396,7 +6381,7 @@ ErrorCode submitResponse(Session session, int stream_id, in HeaderField[] hfa, i
  *   frame.
  *
  */
-int submitHeaders(Session session, FrameFlags flags, int stream_id = -1, in PrioritySpec pri_spec = PrioritySpec.init, in HeaderField[] hfa = null, void *stream_user_data = null)
+int submitHeaders(Session* session, FrameFlags flags, int stream_id = -1, in PrioritySpec pri_spec = PrioritySpec.init, in HeaderField[] hfa = null, void *stream_user_data = null)
 {
 	flags &= FrameFlags.END_STREAM;
 	
@@ -6436,9 +6421,9 @@ int submitHeaders(Session session, FrameFlags flags, int stream_id = -1, in Prio
  *   course, all data except for last one must not have
  *   $(D FrameFlags.END_STREAM) flag set in |flags|.
  */
-ErrorCode submitData(Session session, FrameFlags flags, int stream_id, in DataProvider data_prd)
+ErrorCode submitData(Session* session, FrameFlags flags, int stream_id, in DataProvider data_prd)
 {
-	OutboundItem item;
+	OutboundItem* item;
 	Frame* frame;
 	DataAuxData* aux_data;
 	DataFlags nflags = cast(DataFlags)(flags & FrameFlags.END_STREAM);
@@ -6447,7 +6432,7 @@ ErrorCode submitData(Session session, FrameFlags flags, int stream_id, in DataPr
 		return ErrorCode.INVALID_ARGUMENT;
 
 	item = Mem.alloc!OutboundItem(session);
-	scope(failure) Mem.free(item);
+	//scope(failure) Mem.free(item);
 	
 	frame = &item.frame;
 	aux_data = &item.aux_data.data;
@@ -6457,7 +6442,7 @@ ErrorCode submitData(Session session, FrameFlags flags, int stream_id, in DataPr
 
 	/* flags are sent on transmission */
 	frame.data = Data(FrameFlags.NONE, stream_id);
-	scope(failure) frame.data.free();
+	//scope(failure) frame.data.free();
 	ErrorCode rv = session.addItem(item);
 	if (rv != 0) {
 		frame.data.free();
@@ -6490,9 +6475,9 @@ ErrorCode submitData(Session session, FrameFlags flags, int stream_id, in DataPr
  *     The |stream_id| is 0; or the |pri_spec| is null; or trying to
  *     depend on itself.
  */
-ErrorCode submitPriority(Session session, int stream_id, in PrioritySpec pri_spec)
+ErrorCode submitPriority(Session* session, int stream_id, in PrioritySpec pri_spec)
 {
-	OutboundItem item;
+	OutboundItem* item;
 	Frame* frame;
 	PrioritySpec copy_pri_spec;
 
@@ -6507,11 +6492,11 @@ ErrorCode submitPriority(Session session, int stream_id, in PrioritySpec pri_spe
 	copy_pri_spec.adjustWeight();
 	
 	item = Mem.alloc!OutboundItem(session);
-	scope(failure) Mem.free(item);
+	//scope(failure) Mem.free(item);
 	frame = &item.frame;
 	
 	frame.priority = Priority(stream_id, copy_pri_spec);
-	scope(failure) frame.priority.free();
+	//scope(failure) frame.priority.free();
 
 	session.addItem(item);
 	return ErrorCode.OK;
@@ -6534,7 +6519,7 @@ ErrorCode submitPriority(Session session, int stream_id, in PrioritySpec pri_spe
  * $(D ErrorCode.INVALID_ARGUMENT)
  *     The |stream_id| is 0.
  */
-ErrorCode submitRstStream(Session session, int stream_id, FrameError error_code)
+ErrorCode submitRstStream(Session* session, int stream_id, FrameError error_code)
 {
 	if (stream_id == 0)
 		return ErrorCode.INVALID_ARGUMENT;
@@ -6573,7 +6558,7 @@ ErrorCode submitRstStream(Session session, int stream_id, FrameError error_code)
  * $(D ErrorCode.NOMEM)
  *     Out of memory.
  */
-ErrorCode submitSettings(Session session, in Setting[] iva)
+ErrorCode submitSettings(Session* session, in Setting[] iva)
 {
 	return session.addSettings(FrameFlags.NONE, iva);
 }
@@ -6626,9 +6611,9 @@ ErrorCode submitSettings(Session session, in Setting[] iva)
  *   frame.
  *
  */
-int submitPushPromise(Session session, int stream_id, in HeaderField[] hfa, void* promised_stream_user_data)
+int submitPushPromise(Session* session, int stream_id, in HeaderField[] hfa, void* promised_stream_user_data)
 {
-	OutboundItem item;
+	OutboundItem* item;
 	Frame* frame;
 	HeaderField[] hfa_copy;
 	FrameFlags flags_copy;
@@ -6647,8 +6632,8 @@ int submitPushPromise(Session session, int stream_id, in HeaderField[] hfa, void
 	}
 	
 	item = Mem.alloc!OutboundItem(session);
-	scope(failure) 
-		Mem.free(item);
+	//scope(failure) 
+	//	Mem.free(item);
 
 	item.aux_data.headers.stream_user_data = promised_stream_user_data;
 	
@@ -6656,7 +6641,7 @@ int submitPushPromise(Session session, int stream_id, in HeaderField[] hfa, void
 	bool is_owner;
 	hfa_copy = hfa.copy();
 	is_owner = true;
-	scope(failure) if (is_owner) Mem.free(hfa_copy);
+	//scope(failure) if (is_owner) Mem.free(hfa_copy);
 	flags_copy = FrameFlags.END_HEADERS;
 	
 	promised_stream_id = session.next_stream_id;
@@ -6664,7 +6649,7 @@ int submitPushPromise(Session session, int stream_id, in HeaderField[] hfa, void
 
 	is_owner = false;
 	frame.push_promise = PushPromise(flags_copy, stream_id,	promised_stream_id, hfa_copy);
-	scope(failure) frame.push_promise.free();
+	//scope(failure) frame.push_promise.free();
 
 	session.addItem(item);
 
@@ -6682,7 +6667,7 @@ int submitPushPromise(Session session, int stream_id, in HeaderField[] hfa, void
  * frame.  If the |opaque_data| is `null`, zero-cleared 8 bytes will
  * be sent as opaque data.
  */
-void submitPing(Session session, in ubyte[] opaque_data)
+void submitPing(Session* session, in ubyte[] opaque_data)
 {
 	return session.addPing(FrameFlags.NONE, opaque_data);
 }
@@ -6728,7 +6713,7 @@ void submitPing(Session session, in ubyte[] opaque_data)
  * $(D ErrorCode.INVALID_ARGUMENT)
  *     The |opaque_data.length| is too large; the |last_stream_id| is invalid.
  */
-ErrorCode submitGoAway(Session session, int last_stream_id, FrameError error_code, in string opaque_data)
+ErrorCode submitGoAway(Session* session, int last_stream_id, FrameError error_code, in string opaque_data)
 {
 	if (session.goaway_flags & GoAwayFlags.TERM_ON_SEND) {
 		return ErrorCode.OK;
@@ -6764,10 +6749,10 @@ ErrorCode submitGoAway(Session session, int last_stream_id, FrameError error_cod
  * $(D ErrorCode.FLOW_CONTROL)
  *     The local window size overflow or gets negative.
  */
-ErrorCode submitWindowUpdate(Session session, int stream_id, int window_size_increment)
+ErrorCode submitWindowUpdate(Session* session, int stream_id, int window_size_increment)
 {
 	ErrorCode rv;
-	Stream stream;
+	Stream* stream;
 	if (window_size_increment == 0) {
 		return ErrorCode.OK;
 	}
@@ -6833,7 +6818,7 @@ ErrorCode submitWindowUpdate(Session session, int stream_id, int window_size_inc
  * $(D ErrorCode.INVALID_STATE)
  *     The $(D Session) is initialized as client.
  */
-ErrorCode submitShutdownNotice(Session session)
+ErrorCode submitShutdownNotice(Session* session)
 {
 	if (!session.is_server) {
 		return ErrorCode.INVALID_STATE;
@@ -6871,19 +6856,19 @@ FrameFlags setRequestFlags(in PrioritySpec pri_spec, in DataProvider data_prd)
 /* This function takes ownership of |hfa_copy|. Regardless of the
    return value, the caller must not free |hfa_copy| after this
    function returns. */
-int submitHeadersShared(Session session, FrameFlags flags, int stream_id, 
+int submitHeadersShared(Session* session, FrameFlags flags, int stream_id, 
 						const ref PrioritySpec pri_spec, HeaderField[] hfa_copy,
 						in DataProvider data_prd, void *stream_user_data, bool attach_stream)
 {
 	ErrorCode rv;
 	FrameFlags flags_copy;
-	OutboundItem item;
+	OutboundItem* item;
 	Frame* frame;
 	HeadersCategory hcat;
 	bool owns_hfa = true;
-	scope(failure) 
-		if (owns_hfa && hfa_copy) 
-			hfa_copy.free();
+	//scope(failure) 
+	//	if (owns_hfa && hfa_copy) 
+	//		hfa_copy.free();
 		
 	if (stream_id == 0) {
 		hfa_copy.free();
@@ -6891,9 +6876,9 @@ int submitHeadersShared(Session session, FrameFlags flags, int stream_id,
 	}
 
 	item = Mem.alloc!OutboundItem(session);
-	scope(failure) {
-		if (item) Mem.free(item);
-	}
+	//scope(failure) {
+	//	if (item) Mem.free(item);
+	//}
 	if (data_prd) {
 		item.aux_data.headers.data_prd = data_prd;
 	}
@@ -6941,7 +6926,7 @@ int submitHeadersShared(Session session, FrameFlags flags, int stream_id,
 
 
 
-int submitHeadersSharedHfa(Session session, FrameFlags flags, int stream_id, in PrioritySpec pri_spec, in HeaderField[] hfa, 
+int submitHeadersSharedHfa(Session* session, FrameFlags flags, int stream_id, in PrioritySpec pri_spec, in HeaderField[] hfa, 
 						   in DataProvider data_prd, void *stream_user_data, bool attach_stream) 
 {
 	HeaderField[] hfa_copy = hfa.copy();
@@ -7075,6 +7060,7 @@ enum OptionFlags {
 
 /// Struct to store option values for http2_session.
 struct Options {
+@trusted nothrow:
 private:
 	/// Bitwise OR of http2_option_flag to determine which fields are specified.
 	uint m_opt_set_mask;

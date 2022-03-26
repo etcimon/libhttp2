@@ -14,10 +14,413 @@ module libhttp2.helpers;
 import libhttp2.constants;
 import std.bitmanip : bigEndianToNative, nativeToBigEndian;
 import libhttp2.types;
-import core.stdc.string : memcpy;
-import std.string : toLowerInPlace;
-import core.exception : onRangeError;
-import std.algorithm : max, min;
+import std.traits : isNumeric, isIntegral, isSigned, isUnsigned;
+public import memutils.helpers : max, min;
+import ldc.attributes;
+
+@trusted nothrow:
+/**
+ * For any integral type, returns the unsigned type of the same bit-width.
+ */
+template UnsignedOf(I) if (isIntegral!I)
+{
+	static if (isUnsigned!I)
+		alias UnsignedOf = I;
+	else static if (is(I == long))
+		alias UnsignedOf = ulong;
+	else static if (is(I == int))
+		alias UnsignedOf = uint;
+	else static if (is(I == short))
+		alias UnsignedOf = ushort;
+	else static if (is(I == byte))
+		alias UnsignedOf = ubyte;
+	else static assert (0, "Not implemented");
+}
+struct RevFillStr(size_t n)
+{
+private:
+
+	size_t offset = n;
+	char[n] buffer = '\0';
+
+
+public:
+
+	alias opSlice this;
+
+	@safe pure nothrow @nogc
+	void opOpAssign(string op : "~")(char ch)
+	in
+	{
+		assert( offset > 0 );
+	}
+	body
+	{
+		buffer[--offset] = ch;
+	}
+
+
+	@trusted pure nothrow @nogc
+	@property string opSlice() inout
+	{
+		return cast(string)buffer[offset .. n];
+	}
+
+
+	@safe pure nothrow @nogc
+	@property inout(char)* ptr() inout
+	{
+		return &buffer[offset];
+	}
+
+
+	@safe pure nothrow @nogc
+	@property size_t length() const
+	{
+		return n - offset;
+	}
+}
+
+@safe pure nothrow @nogc
+RevFillStr!(decChars!I) toStringObj(I)(I i) if (isIntegral!I)
+{
+	RevFillStr!(decChars!I) str;
+
+	static if (isSigned!I)
+	{
+		bool signed = i < 0;
+		UnsignedOf!I u = i < 0 ? -i : i;
+	}
+	else alias u = i;
+
+	do
+	{
+		str ~= char('0' + u % 10);
+		u /= 10;
+	}
+	while (u);
+
+	static if (isSigned!I) if (signed)
+		str ~= '-';
+
+	return str;
+}
+template decDigits(T) if (isIntegral!T)
+{
+	static if (is(T == ulong))
+		enum decDigits = 20;
+	else static if (is(T == long))
+		enum decDigits = 19;
+	else static if (is(T == uint) || is(T == int))
+		enum decDigits = 10;
+	else static if (is(T == ushort) || is(T == short))
+		enum decDigits = 5;
+	else static if (is(T == ubyte) || is(T == byte))
+		enum decDigits = 3;
+}
+
+
+enum decChars(T) = decDigits!T + isSigned!T;
+
+T parse(T)(string str) {
+	T ret;
+	if (parseNumber(str, ret))
+		return ret;
+	else return 0;
+}
+
+uint mulu()(uint x, uint y, ref bool overflow)
+{
+    immutable ulong r = ulong(x) * ulong(y);
+    if (r >> 32)
+        overflow = true;
+    return cast(uint) r;
+}
+
+@(ldc.attributes.optStrategy("none"))
+ulong mulu()(ulong x, uint y, ref bool overflow)
+{
+    ulong r = x * y;
+    if (x >> 32 &&
+            r / x != y) 
+        overflow = true;
+    return r;
+}
+
+@(ldc.attributes.optStrategy("none"))
+ulong mulu()(ulong x, ulong y, ref bool overflow)
+{
+    immutable ulong r = x * y;
+    if ((x | y) >> 32 &&
+            x &&
+            r / x != y) // error __multi3 not defined when optimized
+        overflow = true;
+    return r;
+}
+
+@nogc
+bool parseNumber(N)(string str, ref N n) if (isNumeric!N)
+{
+	import std.range;
+	import std.traits : isUnsigned;
+
+	// Integer types larger than the mantissa of N.
+	static if (N.sizeof <= size_t.sizeof)
+	{
+		alias U = size_t;
+		alias I = ptrdiff_t;
+	}
+	else
+	{
+		alias U = ulong;
+		alias I = long;
+	}
+	
+	// Largest value of type U that can be multiplied by 10 and have a digit added without overflow.
+	enum canHoldOneMoreDigit = (U.max - 9) / 10;
+
+	
+	enum pow10Max = {
+		U v = 1; uint exp;
+		while (v <= (U.max / 10)) { v *= 10; exp++; }
+		return exp;
+	}();
+	__gshared static bool pow10b = false;
+	
+	__gshared static U[pow10Max] pow10;
+	if (!pow10b) {
+		int i = 0;
+		foreach (v; U(10).recurrence!((a, n) => 10 * a[n-1]).take(pow10Max)) {
+			pow10[i++] = v;
+		}
+		pow10b = true;
+	}
+
+
+	const(char)* p = cast(const(char)*)str.ptr;
+	const(char)* point = null;
+	U significand = 0;
+	size_t exponent = 0;
+	size_t expAdjust = void;
+	bool expSign = void;
+	
+	/////////////////// SIGN BIT HANDLING ///////////////////
+	
+	// Check for the sign.
+	static if (!isUnsigned!N)
+	{
+		bool sign = (*p == '-');
+		if (sign)
+			p++;
+	}
+	
+	/////////////////// INTEGRAL PART OF SIGNIFICAND ///////////////////
+	
+	uint digit = *p - '0';
+	if (digit == 0)
+	{
+		// We have a single zero.
+		p++;
+	}
+	else if (digit <= 9)
+	{
+		// Regular case of one or more digits.
+		do
+		{
+			if (significand > canHoldOneMoreDigit)
+				goto BigMantissa;
+		BigMantissaNotSoMuch:
+			significand = 10 * significand + digit;
+			digit = *++p - '0';
+		}
+		while (digit <= 9 && p - str.ptr < str.length);
+	}
+	else return false;
+	
+	/////////////////// FRACTIONAL PART OF SIGNIFICAND ///////////////////
+	
+	if (*p == '.')
+	{
+		point = ++p;
+		digit = *p - '0';
+		if (digit > 9)
+			digit = 0;
+		else do
+		{
+			if (significand > canHoldOneMoreDigit)
+				goto BigMantissa;
+			significand = 10 * significand + digit;
+			digit = *++p - '0';
+		}
+		while (digit <= 9 && p - str.ptr < str.length);
+	}
+	
+	/////////////////// EXPONENT HANDLING ///////////////////
+
+	expAdjust = (point is null) ? 0 : p - point;
+	if ((*p | 0x20) == 'e')
+	{
+		p++;
+		expSign = (*p == '-');
+		if (expSign || *p == '+')
+			p++;
+		digit = *p - '0';
+		if (digit > 9)
+			return false;
+		do
+		{
+			if (exponent > canHoldOneMoreDigit)
+				goto BigExponent;
+			exponent = 10 * exponent + digit;
+			digit = *++p - '0';
+		}
+		while (digit <= 9 && p - str.ptr < str.length);
+	}
+	
+	if (expAdjust)
+	{
+		if (expSign)
+		{
+			if (exponent > size_t.max - expAdjust)
+				goto BigExponentAdjustForDecimalPoint;
+			exponent += expAdjust;
+		}
+		else if (exponent >= expAdjust)
+		{
+			exponent -= expAdjust;
+		}
+		else
+		{
+			// Amount of fraction digits turns exponent from positive to negative.
+			expAdjust -= exponent;
+			exponent = expAdjust;
+			expSign = true;
+		}
+	}
+
+	/////////////////// RESULT ASSEMBLY ///////////////////
+
+	{
+		if (exponent && significand)
+		{
+			// We need to account for the exponent.
+			U pow = pow10[exponent - 1];
+			if (expSign)
+			{
+				// Negative exponent, if we get a fractional result, abort.
+				if (significand % pow)
+					return false;
+				significand /= pow;
+			}
+			else static if (U.sizeof < ulong.sizeof)
+			{
+				// Multiply using a bigger result type
+				ulong prod = ulong(significand) * pow;
+				if (prod > U.max)
+					return false;
+				significand = cast(U) prod;
+			}
+			else
+			{
+				// If the multiply will overflow, abort.
+				bool overflowed;
+				
+				significand = mulu(significand, pow, overflowed);
+				if (overflowed)
+					return false;
+			}
+		}
+
+		n = cast(N) significand;
+		static if (isSigned!N)
+		{
+			if (significand > U(N.max) + sign)
+				return false;
+			if (sign)
+				n = cast(N)-cast(long)(n);
+		}
+		else if (significand > N.max)
+			return false;
+		return true;
+	}
+
+BigMantissa:
+	if (significand <= (significand.max - digit) / 10)
+		goto BigMantissaNotSoMuch;
+//	assert(0, "Not implemented");
+
+BigExponent:
+//	assert(0, "Not implemented");
+
+BigExponentAdjustForDecimalPoint:
+//	assert(0, "Not implemented");
+	return false;
+}
+
+void* memmove(T)(T dest,T src,size_t num) {
+    ubyte[] tmp = cast(ubyte[])Mem.alloc!(ubyte[])(num);
+    foreach(i; 0..num) {
+      *cast(ubyte*)&tmp[i] = *cast(ubyte*)&src[i];
+    }
+    foreach(i; 0..num) {
+      *cast(ubyte*)&dest[i] = *cast(ubyte*)&tmp[i];
+    }
+    Mem.free(tmp);
+    return cast(void*)dest;
+  }
+
+void * memcpy(T)(T destination, const T source, size_t num) {
+  foreach(i; 0..num) {
+    (cast(ubyte*)destination)[i] = (cast(ubyte*)source)[i];
+  }
+  return cast(void*)destination;
+}
+
+void * memset(T)(T ptr, ubyte value, size_t num) {
+
+  ubyte val = cast(ubyte)value;
+  ubyte* p = cast(ubyte*)ptr;
+  foreach(i;0..num)
+    p[i] = val;
+  return cast(void*)ptr;
+}
+
+int memcmp(T)(T a, T b,size_t cnt) {
+    foreach(i;0..cnt) {
+      if ((cast(byte*)a)[i] < (cast(byte*)b)[i])
+        return -1;
+      if ((cast(byte*)a)[i] > (cast(byte*)b)[i])
+        return 1;
+    }
+    return 0;
+  }
+
+char tolower(char ch) {
+    if (ch >= 'A' && ch <= 'Z')
+        ch = cast(char)('a' + (ch - 'A'));
+    return ch;
+ }
+
+
+auto to(U, T)(T val) if (is(U == string)) {
+	return toStringObj(val);
+}
+
+bool iequals(string s1, string s2) {
+    immutable(char) *us1 = s1.ptr;
+	immutable(char) *us2 = s2.ptr;
+    while (tolower(*us1++) == tolower(*us2++)) {
+        if (us1 - s1.ptr >= s1.length && us2 - s2.ptr >= s2.length) {
+            return true;
+		}
+		else if (us2 - s2.ptr >= s2.length || us1 - s1.ptr >= s1.length) {
+			break;
+		}
+	}
+			
+    return false;
+
+}
 
 void write(T)(ubyte* buf, T n) {
 	auto x = nativeToBigEndian(n);
@@ -25,7 +428,7 @@ void write(T)(ubyte* buf, T n) {
 }
 
 void write(T)(ubyte[] buf, T n) {
-	if (buf.length < T.sizeof) onRangeError();
+	//if (buf.length < T.sizeof) onRangeError();
 	auto x = nativeToBigEndian(n);
 	memcpy(buf.ptr, x.ptr, T.sizeof);
 }
@@ -35,7 +438,7 @@ T read(T = uint)(in ubyte* buf) {
 }
 
 T read(T = uint)(in ubyte[] buf) {
-	if (buf.length < T.sizeof) onRangeError();
+	//if (buf.length < T.sizeof) onRangeError();
 	return bigEndianToNative!T(cast(ubyte[T.sizeof])buf[0 .. T.sizeof]);
 }
 
@@ -70,28 +473,6 @@ Setting[] copy(in Setting[] iva) {
 }
 
 
-bool equals(in HeaderField[] hfa, in HeaderField[] other) 
-{
-	import libhttp2.tests : sort;
-	auto hfa2 = hfa.copy();
-	auto other2 = other.copy();
-	scope(exit) {
-		foreach(i, ref hf; hfa2) {
-			hf.free();
-		}
-		foreach(i, ref hf; other2) {
-			hf.free();
-		}
-		Mem.free(hfa2);
-		Mem.free(other2);
-	}
-	sort(hfa2);
-	sort(other2);
-	foreach(i, hf; hfa2)
-		if (other2[i] != hf)
-			return false;
-	return true;
-}
 
 void free(ref HeaderField[] hfa)
 {

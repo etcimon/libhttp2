@@ -11,11 +11,13 @@
  */
 module libhttp2.constants;
 
+@trusted nothrow:
+
 version(unittest)
 	const TEST_ALL = true;
 else
 	const TEST_ALL = false;
-const DEBUG = false;
+const DEBUG = true;
 
 /// Version of this library
 const VERSION = "0.2.8";

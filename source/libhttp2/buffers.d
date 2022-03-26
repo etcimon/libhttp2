@@ -12,13 +12,15 @@
 module libhttp2.buffers;
 
 import libhttp2.types;
-import core.exception : onOutOfMemoryError;
-import core.stdc.string : memcpy;
+import libhttp2.helpers;
 import memutils.utils;
-import std.algorithm : min,max;
+import memutils.helpers : min, max;
+
+@trusted nothrow:
 
 struct Buffer
 {
+@trusted nothrow:
 	/// This points to the beginning of the buffer. The effective range of buffer is [begin, end).
 	ubyte* begin;
 	/// This points to the memory one byte beyond the end of the buffer.
@@ -29,10 +31,6 @@ struct Buffer
 	ubyte* last;
 	/// Mark arbitrary position in buffer [begin, end)
 	ubyte* mark;
-	/// true if the allocator must be secure
-	bool use_secure_mem;
-	/// true if the memory much be manually freed. use_secure_mem can be false if this is true
-	bool zeroize_on_free;
 
 	ubyte[] opSlice() { return pos[0 .. length]; }
 
@@ -75,33 +73,8 @@ struct Buffer
 		if (!end || !begin) return;
 		assert(end >= begin);
 		size_t memlen = cast(size_t)((cast(void*)end) - (cast(void*)begin));
-		static if (__VERSION__ >= 2067)
-		{
-			if (use_secure_mem) { 
-				import core.stdc.string : memset;
-				// optimization, skips freeing the entire buffer in memutils for light buffer uses
-				if (capacity > 1024 && offset < capacity - capacity/128)
-					memset(begin, 0, offset);
-				SecureMem.free(begin[0 .. memlen]);
-			}
-			else 
-			{
-				if (zeroize_on_free)
-				{
-					import core.stdc.string : memset;
-					memset(begin, 0, memlen);
-				}
-				Mem.free(begin[0 .. memlen]);
-			}
-		}
-		else {
-			if (zeroize_on_free || use_secure_mem)
-			{
-				import core.stdc.string : memset;
-				memset(begin, 0, memlen);
-			}
-			Mem.free(begin[0 .. memlen]);
-		}
+		
+		Mem.free(begin[0 .. memlen]);
 		begin = null;
 		end = null;
 	}
@@ -123,32 +96,13 @@ struct Buffer
 		if (cap >= new_cap) {
 			return;
 		}
-		import std.algorithm : max;
 		new_cap = max(new_cap, cap * 2);
 
-		static if (__VERSION__ >= 2067)
-		{
-			if (use_secure_mem) {
-				if (begin)
-					new_buf = SecureMem.realloc(begin[0 .. end - begin], new_cap);
-				else
-					new_buf = SecureMem.alloc!(ubyte[])(new_cap);
-			}
-			else {
-				if (begin) {
-					new_buf = Mem.realloc(begin[0 .. end - begin], new_cap);
-				}
-				else
-					new_buf = Mem.alloc!(ubyte[])(new_cap);
-			}
+		if (begin) {
+			new_buf = Mem.realloc(begin[0 .. end - begin], new_cap);
 		}
-		else {
-			if (begin) {
-				new_buf = Mem.realloc(begin[0 .. end - begin], new_cap);
-			}
-			else
-				new_buf = Mem.alloc!(ubyte[])(new_cap);
-		}
+		else
+			new_buf = Mem.alloc!(ubyte[])(new_cap);
 		ubyte* ptr = new_buf.ptr;
 		
 		pos = ptr + (pos - begin);
@@ -179,9 +133,7 @@ struct Buffer
 	 * Initializes the |buf| and allocates at least |initial| bytes of
 	 * memory.
 	 */
-	this(size_t initial, bool _use_secure_mem = false, bool _zeroise_on_free = false) {
-		use_secure_mem = _use_secure_mem;
-		zeroize_on_free = _zeroise_on_free;
+	this(size_t initial) {
 		begin = null;
 		end = null;
 		pos = null;
@@ -192,32 +144,33 @@ struct Buffer
 
 }
 
-class Buffers {
-
-	static class Chain {
-		Buffer buf;
-		Chain next;
-		static Chain opCall(size_t chunk_length = 0, bool _use_secure_mem = false, bool _zeroize_on_free = false)
-		{
-			Chain chain;
-			chain = Mem.alloc!(typeof(this))();
-			scope(failure) Mem.free(chain);
-			chain.next = null;
-			chain.buf = Buffer(chunk_length, _use_secure_mem, _zeroize_on_free);
-			return chain;
-		}
-
-		void free() 
-		{
-			buf.free();
-			buf.destroy();
-		}
+struct Chain {
+@trusted nothrow:
+	Buffer buf;
+	Chain* next;
+	static Chain* create(size_t chunk_length = 0)
+	{
+		Chain* chain = Mem.alloc!(Chain)();
+		if (!chain) return null;
+		chain.next = null;
+		chain.buf = Buffer(chunk_length);
+		return chain;
 	}
 
+	void free() 
+	{
+		buf.free();
+		buf.destroy();
+	}
+}
+
+struct Buffers {
+
+@trusted nothrow:
 	/// Points to the first buffer
-	Chain head;
+	Chain* head;
 	/// Buffer pointer where write occurs.
-	Chain cur;
+	Chain* cur;
 	/// The buffer capacity of each Buffer
 	size_t chunk_length;
 	/// The maximum number of `Chain`s
@@ -231,20 +184,16 @@ class Buffers {
 
 	/// true if the buffers were initialized with a pre-allocated ubyte[] which mustn't be freed
 	bool dont_free;
-	/// true if we should secure the Buffer allocations
-	bool use_secure_mem;
-	/// true if the Buffer allocations should be zeroized
-	bool zeroize_on_free;
 
 	/// This is the same as calling init2 with the given arguments and offset = 0.
-	this(size_t _chunk_length, size_t _max_chunk, bool _use_secure_mem = false, bool _zeroize_on_free = false) {
-		this(_chunk_length, _max_chunk, _max_chunk, 0, _use_secure_mem, _zeroize_on_free);
+	void init1(size_t _chunk_length, size_t _max_chunk) {
+		init2(_chunk_length, _max_chunk, _max_chunk, 0);
 	}
 
 	/// This is the same as calling init3 with the given arguments and chunk_keep = max_chunk.
-	this(size_t _chunk_length, size_t _max_chunk, size_t _offset, bool _use_secure_mem = false, bool _zeroize_on_free = false)
+	void init1(size_t _chunk_length, size_t _max_chunk, size_t _offset)
 	{
-		this(_chunk_length, _max_chunk, _max_chunk, _offset, _use_secure_mem, _zeroize_on_free);
+		init2(_chunk_length, _max_chunk, _max_chunk, _offset);
 	}
 
 	/**
@@ -257,13 +206,9 @@ class Buffers {
 	 * This function allocates first buffer.  bufs.head and bufs.cur
 	 * will point to the first buffer after this call.
 	 */
-	this(size_t _chunk_length, size_t _max_chunk, size_t _chunk_keep, size_t _offset, bool _use_secure_mem = false, bool _zeroize_on_free = false) 
-	in { assert(!(_chunk_keep == 0 || _max_chunk < _chunk_keep || _chunk_length < _offset), "Invalid Arguments"); }
-	body
+	void init2(size_t _chunk_length, size_t _max_chunk, size_t _chunk_keep, size_t _offset) 
 	{
-		use_secure_mem = _use_secure_mem;
-		zeroize_on_free = _zeroize_on_free;
-		Chain chain = Chain(_chunk_length, _use_secure_mem, _zeroize_on_free);
+		Chain* chain = Chain.create(_chunk_length);
 
 		offset = _offset;
 		
@@ -284,9 +229,9 @@ class Buffers {
 	 * is fixed and no allocate extra chunk buffer is allocated.  In other
 	 * words, max_chunk = chunk_keep = 1. 
 	 */
-	this(ubyte[] buf)
+	void init3(ubyte[] buf)
 	{
-		Chain chain = Chain();
+		Chain* chain = Chain.create();
 
 		chain.next = null;
 		chain.buf = Buffer(buf);
@@ -306,8 +251,8 @@ class Buffers {
 	/// Frees any related resources
 	void free()
 	{
-		Chain chain;
-		Chain next_chain;
+		Chain* chain;
+		Chain* next_chain;
 		
 		if (!head) return;
 
@@ -342,9 +287,8 @@ class Buffers {
 	 *     chunk_length < offset
 	 */
 	void realloc(size_t _chunk_length)
-	in { assert(_chunk_length >= offset, "Invalid Arguments"); }
-	body {
-		Chain chain = Chain(_chunk_length, use_secure_mem, zeroize_on_free);
+	{
+		Chain* chain = Chain.create(_chunk_length);
 		
 		free();
 		
@@ -370,7 +314,7 @@ class Buffers {
 	 * ErrorCode.BUFFER_ERROR
 	 *     Out of buffer space.
 	 */
-	ErrorCode add(in string data)
+	ErrorCode add(string data)
 	{
 		ErrorCode rv;
 		size_t nwrite;
@@ -386,7 +330,6 @@ class Buffers {
 		while (len > 0) {
 			buf = &cur.buf;
 
-			import std.algorithm : min;
 			nwrite = cast(size_t) min(buf.available, len);
 			if (nwrite == 0) {
 				rv = allocChain();
@@ -517,7 +460,7 @@ class Buffers {
 	ubyte[] remove()
 	{
 		size_t len;
-		Chain chain;
+		Chain* chain;
 		Buffer* buf;
 		ubyte[] res;
 		Buffer resbuf;
@@ -553,13 +496,9 @@ class Buffers {
 	/// Fills dst with a slice of the head chain's buffer, and frees the chain if it becomes empty
 	/// chunk_keep must be 1 for buffers to be emptied this way.
 	ubyte[] removeOne(ubyte[] dst) 
-	in { 
-		assert(chunk_keep <= 1, "Cannot use removeOne with a custom keep amount set"); 
-	}
-	body {
-		Chain chain = head;
-		import std.algorithm : min;
-		size_t len = min(chain.buf.length, dst.length);
+	{
+		Chain* chain = head;
+		size_t len = min(cast(size_t)chain.buf.length, dst.length);
 		ubyte[] data = chain.buf.pos[0 .. len];
 		memcpy(dst.ptr, data.ptr, len);
 
@@ -586,11 +525,8 @@ class Buffers {
 
 	// The head buffer was already read, just remove it
 	void removeOne()
-	in { 
-		assert(chunk_keep <= 1, "Cannot use removeOne with a custom keep amount set"); 
-	}
-	body {
-		Chain chain = head;
+	{
+		Chain* chain = head;
 
 		if (chain.next) {
 			head = chain.next;
@@ -609,8 +545,8 @@ class Buffers {
 	 */
 	void reset()
 	{
-		Chain chain;
-		Chain ci;
+		Chain* chain;
+		Chain* ci;
 		size_t k;
 		
 		k = chunk_keep;
@@ -670,7 +606,7 @@ class Buffers {
 	 */
 	void seekLastPresent()
 	{
-		Chain ci;
+		Chain* ci;
 		
 		for (ci = cur; ci; ci = ci.next) {
 			if (ci.buf.length == 0) {
@@ -686,7 +622,7 @@ class Buffers {
 	 */
 	bool nextPresent()
 	{
-		Chain chain;
+		Chain* chain;
 		
 		chain = cur.next;
 		
@@ -699,7 +635,7 @@ class Buffers {
 
 	@property int length()
 	{
-		Chain ci;
+		Chain* ci;
 		int len;
 		
 		len = 0;
@@ -734,7 +670,7 @@ private:
 	}
 
 	ErrorCode allocChain() {
-		Chain chain;
+		Chain* chain;
 		
 		if (cur.next) {
 			cur = cur.next;
@@ -744,9 +680,9 @@ private:
 		if (max_chunk == chunk_used)
 			return ErrorCode.BUFFER_ERROR;
 
-		chain = Chain(chunk_length, use_secure_mem, zeroize_on_free);
+		chain = Chain.create(chunk_length);
 		
-		LOGF("new buffer %d bytes allocated for bufs %s, used %d", chunk_length, this, chunk_used);
+		LOGF("new buffer %d bytes allocated for bufs %s, used %d", chunk_length, &this, chunk_used);
 		
 		++chunk_used;
 		

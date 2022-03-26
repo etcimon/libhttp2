@@ -17,12 +17,12 @@ import libhttp2.buffers;
 import libhttp2.huffman;
 import libhttp2.helpers;
 import libhttp2.deflater;
-import std.algorithm : min, max;
-import std.conv : to;
-import core.stdc.string : memcpy;
+
+@trusted nothrow:
 
 struct FrameHeader 
 {
+@trusted nothrow:
 	/// The length after this header
 	uint length;
 	FrameType type;
@@ -79,11 +79,11 @@ struct FrameHeader
 	 *
 	 * We don't process any padding here.
 	 */
-	void packShared(Buffers bufs) 
+	void packShared(Buffers* bufs) 
 	{
 		Buffer* buf;
-		Buffers.Chain ci;
-		Buffers.Chain ce;
+		Chain* ci;
+		Chain* ce;
 
 		buf = &bufs.head.buf;
 		length = buf.length;
@@ -132,7 +132,7 @@ struct FrameHeader
 	}
 
 
-	void addPad(Buffers bufs, int padlen, bool framehd_only) 
+	void addPad(Buffers* bufs, int padlen, bool framehd_only) 
 	{
 		Buffer* buf;
 		
@@ -180,6 +180,7 @@ struct FrameHeader
 /// The HEADERS frame.  It has the following members:
 struct Headers
 {    
+@trusted nothrow:
 	FrameHeader hd;
 	
 	/// The length of the padding in this frame.  This includes PAD_HIGH and PAD_LOW.
@@ -227,7 +228,7 @@ struct Headers
 	 * ErrorCode.HEADER_COMP
 	 *     The deflate operation failed.
 	 */
-	ErrorCode pack(Buffers bufs, ref Deflater deflater) 
+	ErrorCode pack(Buffers* bufs, ref Deflater deflater) 
 	{
 		size_t hf_offset;
 		ErrorCode rv;
@@ -269,6 +270,7 @@ struct Headers
 	 * after possible Pad Length field.
 	 */
 	void unpack(in ubyte[] payload) {
+		LOGF("Headers unpacker, length: %d", hfa.length);
 		if (hd.flags & FrameFlags.PRIORITY) {
 			pri_spec.unpack(payload);
 		}
@@ -290,6 +292,7 @@ struct Headers
 /// The DATA frame.  The received data is delivered via http2_on_data_chunk_recv_callback
 struct Data
 {
+@trusted nothrow:
 	FrameHeader hd;
 	/// The length of the padding in this frame. This includes PAD_HIGH and PAD_LOW.
 	int padlen;
@@ -308,6 +311,7 @@ struct Data
 /// The structure to specify stream dependency.
 struct PrioritySpec
 {
+@trusted nothrow:
 	/// The stream ID of the stream to depend on. Specifying 0 makes stream not depend any other stream.
 	int stream_id;
 	int weight = DEFAULT_WEIGHT;
@@ -365,6 +369,7 @@ struct PrioritySpec
 
 /// The PRIORITY frame.  It has the following members:
 struct Priority {
+@trusted nothrow:
 	FrameHeader hd;
 	PrioritySpec pri_spec;
 
@@ -383,7 +388,7 @@ struct Priority {
 	 * The caller must make sure that bufs.reset() is called
 	 * before calling this function.
 	 */
-	void pack(Buffers bufs) {
+	void pack(Buffers* bufs) {
 		Buffer* buf;
 		
 		assert(bufs.head == bufs.cur);
@@ -412,6 +417,7 @@ struct Priority {
 
 /// The RST_STREAM frame.  It has the following members:
 struct RstStream {	
+@trusted nothrow:
 	FrameHeader hd;
 	FrameError error_code;
 
@@ -430,7 +436,7 @@ struct RstStream {
 	 * The caller must make sure that bufs.reset() is called
 	 * before calling this function.
 	 */
-	void pack(Buffers bufs) 
+	void pack(Buffers* bufs) 
 	{
 		Buffer* buf;
 		
@@ -458,6 +464,7 @@ struct RstStream {
 
 /// The SETTINGS frame
 struct Settings {
+@trusted nothrow:
 	FrameHeader hd;
 	Setting[] iva;
 
@@ -487,7 +494,7 @@ struct Settings {
 	 * ErrorCode.FRAME_SIZE_ERROR
 	 *     The length of the frame is too large.
 	 */
-	ErrorCode pack(Buffers bufs) {
+	ErrorCode pack(Buffers* bufs) {
 		Buffer* buf;
 		
 		assert(bufs.head == bufs.cur);
@@ -570,6 +577,7 @@ struct Settings {
 
 /// The PUSH_PROMISE frame.  
 struct PushPromise {    
+@trusted nothrow:
 	FrameHeader hd;
 	
 	/// The length of the padding in this frame.  This includes PAD_HIGH and PAD_LOW.
@@ -614,7 +622,7 @@ struct PushPromise {
 	 * ErrorCode.HEADER_COMP
 	 *     The deflate operation failed.
 	 */
-	ErrorCode pack(Buffers bufs, ref Deflater deflater) 
+	ErrorCode pack(Buffers* bufs, ref Deflater deflater) 
 	{
 		size_t hf_offset = 4;
 		ErrorCode rv;
@@ -662,6 +670,7 @@ struct PushPromise {
 
 /// The PING frame.
 struct Ping {    
+@trusted nothrow:
 	FrameHeader hd;
 	ubyte[8] opaque_data;
 
@@ -687,7 +696,7 @@ struct Ping {
 	 * The caller must make sure that bufs.reset() is called
 	 * before calling this function.
 	 */
-	void pack(Buffers bufs) {
+	void pack(Buffers* bufs) {
 		Buffer* buf;
 		
 		assert(bufs.head == bufs.cur);
@@ -717,6 +726,7 @@ struct Ping {
 
 /// The GOAWAY frame. 
 struct GoAway {
+@trusted nothrow:
 	FrameHeader hd;
 	int last_stream_id;
 	FrameError error_code;
@@ -751,7 +761,7 @@ struct GoAway {
 	 * ErrorCode.FRAME_SIZE_ERROR
 	 *     The length of the frame is too large.
 	 */
-	ErrorCode pack(Buffers bufs) 
+	ErrorCode pack(Buffers* bufs) 
 	{
 		ErrorCode rv;
 		Buffer* buf;
@@ -822,7 +832,8 @@ struct GoAway {
 }
 
 /// The WINDOW_UPDATE frame.
-struct WindowUpdate {    
+struct WindowUpdate {   
+@trusted nothrow: 
 	FrameHeader hd;	
 	int window_size_increment;	
 	ubyte reserved = 0;
@@ -842,7 +853,7 @@ struct WindowUpdate {
 	 * The caller must make sure that bufs.reset() is called
 	 * before calling this function.
 	 */
-	void pack(Buffers bufs) {
+	void pack(Buffers* bufs) {
 		Buffer* buf;
 		
 		assert(bufs.head == bufs.cur);
@@ -876,6 +887,7 @@ struct WindowUpdate {
  */
 union Frame
 {
+@trusted nothrow:
 	FrameHeader hd;
 	Data data;
 	Headers headers;
@@ -937,7 +949,7 @@ union Frame
 		}
 	}
 
-	void unpack(Buffers bufs) {
+	void unpack(Buffers* bufs) {
 		Buffer *buf;
 		
 		/* Assuming we have required data in first buffer. We don't decode
@@ -949,6 +961,7 @@ union Frame
 
 /// struct used for HEADERS and PUSH_PROMISE frame
 struct HeadersAuxData {
+@trusted nothrow:
 	DataProvider data_prd;
 	void *stream_user_data;
 	
@@ -964,6 +977,7 @@ struct HeadersAuxData {
 
 /// struct used for DATA frame
 struct DataAuxData {
+@trusted nothrow:
 	/// The data to be sent for this DATA frame.
 	DataProvider data_prd;
 	
@@ -1004,7 +1018,8 @@ union AuxData {
 	GoAwayAuxData goaway;
 }
 
-class OutboundItem {
+struct OutboundItem {
+@trusted nothrow:
 	enum NOGC = true;
 	import libhttp2.session : Session;
 	Frame frame;
@@ -1020,9 +1035,9 @@ class OutboundItem {
 	/// true if this object is queued.
 	bool queued;
 
-	this() { }
+	//@disable this();
 
-	this(Session session) {
+	this(Session* session) {
 		seq = session.next_seq++;
 	}
 
@@ -1061,7 +1076,7 @@ class OutboundItem {
 }
 
 int bytes_compar(const ubyte* a, size_t alen, const ubyte* b, size_t blen) {
-	import core.stdc.string : memcmp;
+	
 	int rv;
 	
 	if (alen == blen) {
@@ -1126,7 +1141,6 @@ bool check(in Setting[] iva)
 
 void frameSetPad(Buffer* buf, int padlen, bool framehd_only) 
 {
-	import core.stdc.string : memmove, memset;
 	int trail_padlen;
 	int newlen;
 	

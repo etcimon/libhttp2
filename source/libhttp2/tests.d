@@ -11,8 +11,6 @@
  */
 module libhttp2.tests;
 
-import core.stdc.stdlib;
-import core.stdc.string;
 import libhttp2.constants;
 import libhttp2.types;
 import libhttp2.helpers;
@@ -23,16 +21,20 @@ import libhttp2.stream;
 import libhttp2.frame;
 import libhttp2.huffman;
 import libhttp2.buffers;
-import std.algorithm : min;
+
+static if (TEST_ALL):
+
+@trusted nothrow:
 
 struct HeaderFields
 {
-	HeaderField[] opSlice() 
+@trusted nothrow:
+	HeaderField[] opSlice() return
 	{
 		return hfa_raw[0 .. length];
 	}
 
-	HeaderField[] opSlice(size_t i, size_t j) {
+	HeaderField[] opSlice(size_t i, size_t j) return {
 		assert(j <= length);
 		return hfa_raw[i .. j];
 	}
@@ -64,12 +66,12 @@ struct HeaderFields
 	}
 
 	/// returns the amount of headers added to hfa
-	int inflate(ref Inflater inflater, Buffers bufs, size_t offset) 
+	int inflate(ref Inflater inflater, Buffers* bufs, size_t offset) 
 	{
 		int rv;
 		HeaderField hf;
 		InflateFlag inflate_flag;
-		Buffers.Chain ci;
+		Chain* ci;
 		Buffer* buf;
 		Buffer bp;
 		bool is_final;
@@ -153,10 +155,33 @@ int compareHeaderFields(scope const(void *) lhs, scope const(void *) rhs) {
 }
 
 void sort(HeaderField[] hfa) {
+	import core.stdc.stdlib : qsort;
 	qsort(cast(void*)hfa.ptr, hfa.length, HeaderField.sizeof, &compareHeaderFields);
 }
 
-void packHeaders(Buffers bufs, ref Deflater deflater, int stream_id, FrameFlags flags, in HeaderField[] hfa)
+bool equals(in HeaderField[] hfa, in HeaderField[] other) 
+{
+	auto hfa2 = hfa.copy();
+	auto other2 = other.copy();
+	scope(exit) {
+		foreach(i, ref hf; hfa2) {
+			hf.free();
+		}
+		foreach(i, ref hf; other2) {
+			hf.free();
+		}
+		Mem.free(hfa2);
+		Mem.free(other2);
+	}
+	sort(hfa2);
+	sort(other2);
+	foreach(i, hf; hfa2)
+		if (other2[i] != hf)
+			return false;
+	return true;
+}
+
+void packHeaders(Buffers* bufs, ref Deflater deflater, int stream_id, FrameFlags flags, in HeaderField[] hfa)
 {
 	HeaderField[] hfa_copy;
 	Frame frame;
@@ -166,7 +191,7 @@ void packHeaders(Buffers bufs, ref Deflater deflater, int stream_id, FrameFlags 
 	frame.headers.free();
 }
 
-void packPushPromise(Buffers bufs, ref Deflater deflater, int stream_id, FrameFlags flags, int promised_stream_id, in HeaderField[] hfa) {
+void packPushPromise(Buffers* bufs, ref Deflater deflater, int stream_id, FrameFlags flags, int promised_stream_id, in HeaderField[] hfa) {
 	HeaderField[] hfa_copy;
 	Frame frame;
 	hfa_copy = hfa.copy();
@@ -176,19 +201,23 @@ void packPushPromise(Buffers bufs, ref Deflater deflater, int stream_id, FrameFl
 	frame.push_promise.free();
 }
 
-Buffers framePackBuffers() 
+Buffers* framePackBuffers() 
 {
 	/* 1 for Pad Length */
-	return new Buffers(4096, 16, FRAME_HDLEN + 1);
+	auto bufs = Mem.alloc!Buffers();
+	bufs.init2(4096, 16, FRAME_HDLEN + 1, 16);
+	return bufs;
 }
 
-Buffers largeBuffers(size_t chunk_size) 
+Buffers* largeBuffers(size_t chunk_size) 
 {
 	/* 1 for Pad Length */
-	return new Buffers(chunk_size, 16, FRAME_HDLEN + 1);
+	auto bufs = Mem.alloc!Buffers();
+	bufs.init2(chunk_size, 16, FRAME_HDLEN + 1, 16);
+	return bufs;
 }
 
-private Stream openStreamWithAll(Session session, int stream_id, int weight, bool exclusive, Stream dep_stream)
+private Stream* openStreamWithAll(Session* session, int stream_id, int weight, bool exclusive, Stream* dep_stream)
 {
 	PrioritySpec pri_spec;
 	int dep_stream_id;
@@ -204,26 +233,45 @@ private Stream openStreamWithAll(Session session, int stream_id, int weight, boo
 	return session.openStream(stream_id, StreamFlags.NONE, pri_spec, StreamState.OPENED, null);
 }
 
-Stream openStream(Session session, int stream_id) 
+Stream* openStream(Session* session, int stream_id) 
 {
 	return openStreamWithAll(session, stream_id, DEFAULT_WEIGHT, false, null);
 }
 
-Stream openStreamWithDep(Session session, int stream_id, Stream dep_stream)
+Stream* openStreamWithDep(Session* session, int stream_id, Stream* dep_stream)
 {
 	return openStreamWithAll(session, stream_id, DEFAULT_WEIGHT, false, dep_stream);
 }
 
-Stream openStreamWithDepWeight(Session session, int stream_id, int weight, Stream dep_stream)
+Stream* openStreamWithDepWeight(Session* session, int stream_id, int weight, Stream* dep_stream)
 {
 	return openStreamWithAll(session, stream_id, weight, false, dep_stream);
 }
 
-Stream openStreamWithDepExclusive(Session session, int stream_id, Stream dep_stream) 
+Stream* openStreamWithDepExclusive(Session* session, int stream_id, Stream* dep_stream) 
 {
 	return openStreamWithAll(session, stream_id, DEFAULT_WEIGHT, true, dep_stream);
 }
 
-OutboundItem createDataOutboundItem() {
+OutboundItem* createDataOutboundItem() {
 	return Mem.alloc!OutboundItem();
+}
+
+extern (C) export void * wasm_malloc(size_t num) {
+import core.stdc.stdlib : malloc;
+  return malloc(num);
+}
+
+extern (C) export void wasm_free(void* ptr, size_t size) {
+import core.stdc.stdlib : free;
+  // this doesn't free. Try to un-grow?
+  free(ptr);
+  //import ldc.intrinsics;
+  //memset(ptr, 0, size);
+}
+
+extern (C) export void* wasm_realloc(void* ptr, size_t oldsize, size_t size) {
+import core.stdc.stdlib : realloc;
+
+  return realloc(ptr, size);
 }

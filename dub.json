@@ -7,6 +7,7 @@
 	"targetType": "staticLibrary",
 	"targetPath": "build",
 	"workingDirectory": "build",
-	"dependencies": { "memutils": { "version": "~>1.0.1" } },
-	"versions": ["SkipMemutilsTests"]
+	"dependencies": { "memutils": { "version": "~>1.0.1", "path": "../memutils" } },
+	"versions": ["SkipMemutilsTests"],
+	"dflags": ["-betterC", "-mtriple=wasm32-unknown-unknown-wasm"]
 }

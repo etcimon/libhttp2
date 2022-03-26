@@ -13,33 +13,54 @@ module libhttp2.types;
 
 import libhttp2.constants;
 import libhttp2.helpers;
-import std.conv : to;
 import memutils.refcounted;
 import memutils.utils;
-import std.datetime;
+import std.traits : isNumeric, isSomeString, isPointer, isBoolean;
 alias Mem = ThreadMem;
-void LOGF(ARGS...)(lazy ARGS args) {
-	import std.stdio: writefln;
-	import std.stdio : File;
-	static if (DEBUG) {
-		File f = File();
-		f.open("runtime.log", "a+");
-		try f.write(Clock.currTime().to!string); catch {}
-		try f.write(" "); catch {}
-		try f.writefln(args); catch {}
-	}
-}
 
-void logDebug(ARGS...)(lazy ARGS args) {
-	import std.stdio: writeln;
-	import std.stdio : File;
-	static if (DEBUG) {
-		File f = File();
-		f.open("runtime.log", "a+");
-		try f.write(Clock.currTime().to!string); catch {}
-		try f.write(" "); catch {}
-		try f.writefln(args); catch {}
+@trusted nothrow:
+void function(string) nothrow @safe writeln;
+immutable bool TRACE = false;
+
+
+void LOGF(ARGS...)(ARGS args) {
+	static if (TRACE) {
+		if (!writeln) return;
+		import memutils.vector;
+		import std.string : indexOf;
+		Vector!(char, ThreadMem) app = Vector!(char, ThreadMem)();
+		app.reserve(256);
+		string formatted;
+		int i;
+		// 	LOGF("deflatehd: emit string str=%s, length=%d, huffman=%d, encoded_length=%d", str, len, huffman, enclen);
+
+		foreach (arg; args) {
+			static if (isSomeString!(typeof(arg))) {
+				if (i++ == 0) {
+					formatted = arg;
+					continue;
+				}
+			}
+			if (formatted.indexOf("%") != -1) {
+				app ~= formatted[0 .. formatted.indexOf("%")];
+				if (formatted.indexOf("%") + 2 >= formatted.length)
+					formatted = null;
+				else formatted = formatted[formatted.indexOf("%") + 2 .. $];
+			}
+			static if (isNumeric!(typeof(arg)))
+				app ~= cast(string)(to!string(cast(long)arg)[]);
+			else static if (isSomeString!(typeof(arg)))
+				app ~= arg;
+			else static if (isPointer!(typeof(arg)))
+				app ~= cast(string)(to!string(cast(long)arg)[]);
+			else static if (isBoolean!(typeof(arg)))
+				app ~= arg ? "true":"false";
+			else app ~= arg[];
+		}
+		if (formatted.length > 0) app ~= formatted[0 .. $];
+		try writeln(cast(string)app[]); catch{}
 	}
+	
 }
 
 /// Return values used in this library.  The code range is [-999, -500], inclusive.
@@ -246,7 +267,7 @@ string toString(ErrorCode error_code) {
 			return "The user callback function failed";
 		case BAD_PREFACE:
 			return "Received bad connection preface";
-		default: return error_code.to!string;
+		default: return toString(error_code);
 	}
 }
 
@@ -267,9 +288,10 @@ enum HeaderFlag : ubyte
 /// The header field, which mainly used to represent HTTP headers.
 struct HeaderField 
 {
+@trusted nothrow:
 	enum NOGC = true;
-	immutable(char)[] name;
-	immutable(char)[] value;
+	string name;
+	string value;
 
 	HeaderFlag flag = HeaderFlag.NONE;
 
@@ -278,6 +300,7 @@ struct HeaderField
 	}
 
 	void free() {
+		LOGF("freeing %d => %d", name.length, value.length);
 		if (name.length > 0)
 			Mem.free(name);
 		if (value.length > 0)
@@ -332,7 +355,7 @@ struct HeaderField
 
 	import libhttp2.stream : Stream;
 	/// Validate a request header
-	bool validateRequestHeader(Stream stream, bool trailer) {
+	bool validateRequestHeader(Stream* stream, bool trailer) {
 		int token;
 		
 		if (name[0] == ':') 
@@ -420,7 +443,6 @@ struct HeaderField
 			case CONTENT_LENGTH: {
 				if (stream.contentLength != -1) 
 					return false;
-				import std.conv : parse;
 				stream.contentLength = parse!long(value);
 				if (stream.contentLength == -1) 
 					return false;
@@ -435,9 +457,9 @@ struct HeaderField
 			case UPGRADE:
 				return false;*/
 			case TE:
-				import std.string : icmp;
-				if (icmp(value, "trailers") != 0)
+				if (!iequals(value, "trailers")) {
 					return false;
+				}
 				break;
 			default:
 				if (name[0] == ':')
@@ -449,9 +471,8 @@ struct HeaderField
 		return true;
 	}
 
-	bool validateResponseHeader(Stream stream, int trailer) 
+	bool validateResponseHeader(Stream* stream, int trailer) 
 	{
-		import std.conv : parse;
 		int token;
 		
 		if (name[0] == ':') {
@@ -470,7 +491,7 @@ struct HeaderField
 				if (value.length != 3) {
 					return false;
 				}
-				stream.statusCode = cast(short)parse!uint(value);
+				stream.statusCode = parse!short(value);
 				if (stream.statusCode == -1)
 					return false;
 				break;
@@ -493,8 +514,7 @@ struct HeaderField
 			case UPGRADE:
 				return false;
 			case TE:
-				import std.string : icmp;
-				if (icmp("trailers", value) != 0) {
+				if (!iequals("trailers", value)) {
 					return false;
 				}
 				break;
@@ -511,7 +531,7 @@ struct HeaderField
 		return true;
 	}
 private:	
-	bool validatePseudoHeader(Stream stream, HTTPFlags flag) {
+	bool validatePseudoHeader(Stream* stream, HTTPFlags flag) {
 		if (stream.httpFlags & flag) {
 			return false;
 		}
@@ -785,6 +805,7 @@ enum Token : int {
 }
 
 struct Setting {
+@trusted nothrow:
 	alias SettingCode = ushort;
 	/// Notes: If we add SETTINGS, update the capacity of HTTP2_INBOUND_NUM_IV as well
 	enum : SettingCode {
