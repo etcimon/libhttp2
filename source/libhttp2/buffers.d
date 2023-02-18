@@ -259,7 +259,7 @@ class Buffers {
 	 */
 	this(size_t _chunk_length, size_t _max_chunk, size_t _chunk_keep, size_t _offset, bool _use_secure_mem = false, bool _zeroize_on_free = false) 
 	in { assert(!(_chunk_keep == 0 || _max_chunk < _chunk_keep || _chunk_length < _offset), "Invalid Arguments"); }
-	body
+	do
 	{
 		use_secure_mem = _use_secure_mem;
 		zeroize_on_free = _zeroize_on_free;
@@ -343,7 +343,7 @@ class Buffers {
 	 */
 	void realloc(size_t _chunk_length)
 	in { assert(_chunk_length >= offset, "Invalid Arguments"); }
-	body {
+	do {
 		Chain chain = Chain(_chunk_length, use_secure_mem, zeroize_on_free);
 		
 		free();
@@ -556,7 +556,7 @@ class Buffers {
 	in { 
 		assert(chunk_keep <= 1, "Cannot use removeOne with a custom keep amount set"); 
 	}
-	body {
+	do {
 		Chain chain = head;
 		import std.algorithm : min;
 		size_t len = min(chain.buf.length, dst.length);
@@ -589,7 +589,7 @@ class Buffers {
 	in { 
 		assert(chunk_keep <= 1, "Cannot use removeOne with a custom keep amount set"); 
 	}
-	body {
+	do {
 		Chain chain = head;
 
 		if (chain.next) {

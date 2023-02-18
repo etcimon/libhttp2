@@ -24,9 +24,9 @@ void LOGF(ARGS...)(lazy ARGS args) {
 	static if (DEBUG) {
 		File f = File();
 		f.open("runtime.log", "a+");
-		try f.write(Clock.currTime().to!string); catch {}
-		try f.write(" "); catch {}
-		try f.writefln(args); catch {}
+		try f.write(Clock.currTime().to!string); catch (Throwable) {}
+		try f.write(" "); catch (Throwable) {}
+		try f.writefln(args); catch (Throwable) {}
 	}
 }
 
@@ -36,9 +36,9 @@ void logDebug(ARGS...)(lazy ARGS args) {
 	static if (DEBUG) {
 		File f = File();
 		f.open("runtime.log", "a+");
-		try f.write(Clock.currTime().to!string); catch {}
-		try f.write(" "); catch {}
-		try f.writefln(args); catch {}
+		try f.write(Clock.currTime().to!string); catch (Throwable) {}
+		try f.write(" "); catch (Throwable) {}
+		try f.writefln(args); catch (Throwable) {}
 	}
 }
 
