@@ -8,7 +8,7 @@ libhttp2 is an HTTP/2 library written completely in D, translated from nghttp2. 
 suitable for native D development. It also takes advantage of safer primitives and more runtime checks to avoid flaws.
 Although D is a garbage collected language, this library runs exclusively on manual memory allocations via [memutils](https://github.com/etcimon/memutils).
 
-It can be used in a client/server through my vibe.d fork in the [http2-botan branch](https://github.com/etcimon/vibe.d/tree/http2-botan). 
+It can be used in a client/server through my vibe.d fork [vibe.0](https://github.com/etcimon/vibe.0). 
 
 ### Tests
 
