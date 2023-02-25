@@ -26,3 +26,5 @@ must be understood in depth (along with the HTTP/2 specs) before integrating it 
 
 Distributed under the terms of the MIT license with an additional section 1.2 of the curl/libcurl project. 
 Consult the provided LICENSE.md file for details
+
+The list of contributors is available in the nghttp2 repository at: https://github.com/nghttp2/nghttp2/blob/master/AUTHORS
