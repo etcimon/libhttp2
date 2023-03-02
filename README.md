@@ -1,4 +1,5 @@
 [![Build Status](https://travis-ci.org/etcimon/libhttp2.svg)](https://travis-ci.org/etcimon/libhttp2)
+[![CI](https://github.com/etcimon/libhttp2/actions/workflows/ci.yml/badge.svg)](https://github.com/etcimon/libhttp2/actions/workflows/ci.yml)
 
 # libhttp2 
 
